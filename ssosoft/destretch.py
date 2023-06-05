@@ -129,7 +129,7 @@ class rosaZylaDestretch:
         if self.referenceChannel == self.channel:
             self.dstrBase = os.path.join(self.workBase, "destretch_vectors")
             self.dstrMethod = config[self.channel]['dstrMethod']
-            self.dstrWindow = int(config[self.channel]['dstrMethod'])
+            self.dstrWindow = int(config[self.channel]['dstrWindow'])
             if not os.path.isdir(self.dstrBase):
                 print("{0}: os.mkdir: attempting to create directory:""{1}".format(__name__, self.dstrBase))
                 try:
@@ -281,8 +281,8 @@ class rosaZylaDestretch:
                 kernels = self.kernels[:1]
         else:
             kernels = self.kernels
-
-        for i in tqdm(range(len(spklFlist)), label="Coarse Destretching "+self.channel):
+        l = "Coarse Destretching " + self.channel
+        for i in tqdm(range(len(spklFlist)), desc=l):
             # if self.dstrMethod == 'running':
             img = self.read_speckle(spklFlist[i])
             if (self.dstrMethod == 'running') & (i == 0):
@@ -351,7 +351,7 @@ class rosaZylaDestretch:
             finish_dstr = True
 
         coarse_dstr = []
-        for i in tqdm(range(len(self.spklList)), label="Appling de-flowed destretch"):
+        for i in tqdm(range(len(self.spklList)), desc="Appling de-flowed destretch"):
             target_image = self.read_speckle(self.spklList[i])
             dstr_vec = self.read_speckle(self.dstrVectorList[i])
             d = Destretch(target_image, target_image, self.kernels, warp_vectors=dstr_vec)
@@ -376,7 +376,7 @@ class rosaZylaDestretch:
         elif self.dstrMethod == "reference":
             reference = fits.open(coarse_dstr[self.dstrWindow])[0].data
 
-        for i in tqdm(range(len(coarse_dstr)), label='Applying Fine Destretch'):
+        for i in tqdm(range(len(coarse_dstr)), desc='Applying Fine Destretch'):
             vecs_master = np.load(self.dstrVectorList[i])
             img = fits.open(coarse_dstr[i])[0].data
             if (self.dstrMethod == 'running') & (i == 0):
@@ -573,7 +573,7 @@ class rosaZylaDestretch:
             ),
             dtype=np.float32
         )
-        for i in tqdm(range(len(destretch_coord_list)), label='Calculating Shifts...'):
+        for i in tqdm(range(len(destretch_coord_list)), desc='Calculating Shifts...'):
             coords = np.load(destretch_coord_list[i])[index_in_file].astype(np.float32)
             coords[coords == -1] = np.nan
             shifts_all[0, :, :, i] = coords[0, :, :] - grid_y
@@ -590,7 +590,7 @@ class rosaZylaDestretch:
 
         pbar = tqdm(
             total=shifts_corr_sum.shape[0]*shifts_corr_sum.shape[1]*shifts_corr_sum.shape[2],
-            label='Removing Flows...'
+            desc='Removing Flows...'
         )
         flow_detr_shifts = np.zeros(shifts_corr_sum.shape)
         for y in range(shifts_corr_sum.shape[1]):
@@ -606,7 +606,7 @@ class rosaZylaDestretch:
                     flow_detr_shifts[cd, y, x, :] = disp_sequence - smoothed_sequence
                     pbar.update(1)
         pbar.close()
-        for i in tqdm(range(len(destretch_coord_list)), label='Adding jitter back...'):
+        for i in tqdm(range(len(destretch_coord_list)), desc='Adding jitter back...'):
             flow_detr_shifts[0, :, :, i] = flow_detr_shifts[0, :, :, i] + grid_y + shifts_bulk_sum[0, i]
             flow_detr_shifts[1, :, :, i] = flow_detr_shifts[1, :, :, i] + grid_x + shifts_bulk_sum[1, i]
 
