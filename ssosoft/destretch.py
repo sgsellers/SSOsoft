@@ -281,8 +281,7 @@ class rosaZylaDestretch:
                 kernels = self.kernels[:1]
         else:
             kernels = self.kernels
-        l = "Coarse Destretching " + self.channel
-        for i in tqdm(range(len(spklFlist)), desc=l):
+        for i in tqdm(range(len(spklFlist)), desc="Coarse Destretching " + self.channel):
             # if self.dstrMethod == 'running':
             img = self.read_speckle(spklFlist[i])
             if (self.dstrMethod == 'running') & (i == 0):
@@ -537,30 +536,32 @@ class rosaZylaDestretch:
             index_in_file = 0
 
         template_coords = np.load(destretch_coord_list[0])
-        # If the first list entry is bulk frame shifts, truncate them for now
-        if len(template_coords[0].shape) < 3:
-            template_coords = template_coords[1:]
+        # If the shape of this is nk, 2, ny, nx, truncate to the last along the 0th axis
+        if len(template_coords.shape) > 3:
+            template_coords = template_coords[-1, :, :, :]
         grid_x, grid_y = np.meshgrid(
-            np.arange(template_coords.shape[2]),
-            np.arange(template_coords.shape[1])
+            np.arange(template_coords.shape[-2]),
+            np.arange(template_coords.shape[-1])
         )
+        # Given that a typical observing day comprises ~1400 files, we cannot hold everything in memory.
+        # So we should only load in the number corresponding to the flowWindow
         shifts_all = np.zeros(
             (
                 template_coords[0].shape[0],
                 template_coords[0].shape[1],
                 template_coords[0].shape[2],
-                len(destretch_coord_list)
+                smooth_number
             ),
             dtype=np.float32
         )
-        shifts_bulk = np.zeros((2, len(destretch_coord_list)), dtype=np.float32)
-        shifts_bulk_sum = np.zeros((2, len(destretch_coord_list)), dtype=np.float32)
+        shifts_bulk = np.zeros((2, smooth_number), dtype=np.float32)
+        shifts_bulk_sum = np.zeros((2, smooth_number), dtype=np.float32)
         shifts_bulk_corr = np.zeros(
             (
                 template_coords[0].shape[0],
                 template_coords[0].shape[1],
                 template_coords[0].shape[2],
-                len(destretch_coord_list)
+                smooth_number
             ),
             dtype=np.float32
         )
@@ -569,56 +570,80 @@ class rosaZylaDestretch:
                 template_coords[0].shape[0],
                 template_coords[0].shape[1],
                 template_coords[0].shape[2],
-                len(destretch_coord_list)
+                smooth_number
             ),
             dtype=np.float32
         )
-        for i in tqdm(range(len(destretch_coord_list)), desc='Calculating Shifts...'):
-            coords = np.load(destretch_coord_list[i])[index_in_file].astype(np.float32)
-            coords[coords == -1] = np.nan
-            shifts_all[0, :, :, i] = coords[0, :, :] - grid_y
-            shifts_all[1, :, :, i] = coords[1, :, :] - grid_x
-            shifts_bulk[:, i] = np.nanmedian(shifts_all[:, :, :, i], axis=(1, 2))
-            shifts_bulk_corr[0, :, :, i] = shifts_all[0, :, :, i] - shifts_bulk[0, i]
-            shifts_bulk_corr[1, :, :, i] = shifts_all[1, :, :, i] - shifts_bulk[1, i]
+
+        translations = np.zeros((2, smooth_number), dtype=np.float32)
+
+        for i in tqdm(range(len(destretch_coord_list)), desc="Removing Flows"):
+            master_dv = np.load(destretch_coord_list[i]).astype(np.float32)
+            master_coords = master_dv[index_in_file]
+            master_coords[master_coords == -1] = np.nan
             if i == 0:
-                shifts_bulk_sum[:, i] = shifts_bulk[:, i]
-                shifts_corr_sum[:, :, :, i] = shifts_bulk_corr[:, :, :, i]
+                # Have to pre-fill arrays on 0th step
+                for j in tqdm(range(smooth_number), desc="Setting up arrays"):
+                    dvs = np.load(destretch_coord_list[j]).astype(np.float32)
+                    translations[:, j] = dvs[0, :, 0, 0]
+                    coords = dvs[index_in_file]
+                    coords[coords == -1] = np.nan
+
+                    shifts_all[0, :, :, j] = coords[0, :, :] - grid_y
+                    shifts_all[1, :, :, j] = coords[1, :, :] - grid_x
+                    shifts_bulk[:, j] = np.nanmedian(shifts_all[:, :, :, j], axis=(1, 2))
+                    shifts_bulk_corr[0, :, :, j] = shifts_all[0, :, :, j] - shifts_bulk[0, j]
+                    shifts_bulk_corr[1, :, :, j] = shifts_all[1, :, :, j] - shifts_bulk[1, j]
+                    if j == 0:
+                        shifts_bulk_sum[:, j] = shifts_bulk[:, j]
+                        shifts_corr_sum[:, :, :, j] = shifts_bulk_corr[:, :, :, j]
+                    else:
+                        shifts_bulk_sum[:, j] = shifts_bulk_sum[:, j-1] + shifts_bulk[:, j]
+                        shifts_corr_sum[:, :, :, j] = shifts_corr_sum[:, :, :, i-1] + shifts_bulk_corr[:, :, :, j]
             else:
-                shifts_bulk_sum[:, i] = shifts_bulk_sum[:, i-1] + shifts_bulk[:, i]
-                shifts_corr_sum[:, :, :, i] = shifts_corr_sum[:, :, :, i-1] + shifts_bulk_corr[:, :, :, i]
+                translations[:, -1] = master_dv[0, :, 0, 0]
+                shifts_all[0, :, :, -1] = coords[0, :, :] - grid_y
+                shifts_all[1, :, :, -1] = coords[1, :, :] - grid_x
+                shifts_bulk[:, -1] = np.nanmedian(shifts_all[0, :, :, -1], axis=(1, 2))
+                shifts_bulk_corr[0, :, :, -1] = shifts_all[0, :, :, -1] - shifts_bulk[0, -1]
+                shifts_bulk_corr[1, :, :, -1] = shifts_all[1, :, :, -1] - shifts_bulk[1, -1]
+                shifts_bulk_sum[:, -1] = shifts_bulk_sum[:, -2] + shifts_bulk[:, -1]
+                shifts_corr_sum[:, :, :, -1] = shifts_corr_sum[:, :, :, -2] + shifts_bulk_corr[:, :, :, -1]
+# At the end, if i < smooth_window/2, write i, else, write smooth_window/2th value. That way it's a rolling number
+            flow_detr_shifts = np.zeros(shifts_corr_sum.shape)
+            for y in range(shifts_corr_sum.shape[1]):
+                for x in range(shifts_corr_sum.shape[2]):
+                    for cd in range(shifts_corr_sum.shape[0]):
+                        disp_sequence = shifts_corr_sum[cd, y, x, :]
+                        smoothed_sequence = scindi.uniform_filter1d(
+                            scindi.median_filter(
+                                disp_sequence, size=median_number, mode='nearest'
+                            ),
+                            smooth_number, mode='nearest'
+                        )
+                        flow_detr_shifts[cd, y, x, :] = disp_sequence - smoothed_sequence
+            if i < int(smooth_number/2):
+                index = i
+            elif i > (len(destretch_coord_list) - int(smooth_number/2)):
+                index = i % smooth_number
+            else:
+                index = int(smooth_number/2)
 
-        pbar = tqdm(
-            total=shifts_corr_sum.shape[0]*shifts_corr_sum.shape[1]*shifts_corr_sum.shape[2],
-            desc='Removing Flows...'
-        )
-        flow_detr_shifts = np.zeros(shifts_corr_sum.shape)
-        for y in range(shifts_corr_sum.shape[1]):
-            for x in range(shifts_corr_sum.shape[2]):
-                for cd in range(shifts_corr_sum.shape[0]):
-                    disp_sequence = shifts_corr_sum[cd, y, x, :]
-                    smoothed_sequence = scindi.uniform_filter1d(
-                        scindi.median_filter(
-                            disp_sequence, size=median_number, mode='nearest'
-                        ),
-                        smooth_number, mode='nearest'
-                    )
-                    flow_detr_shifts[cd, y, x, :] = disp_sequence - smoothed_sequence
-                    pbar.update(1)
-        pbar.close()
-        for i in tqdm(range(len(destretch_coord_list)), desc='Adding jitter back...'):
-            flow_detr_shifts[0, :, :, i] = flow_detr_shifts[0, :, :, i] + grid_y + shifts_bulk_sum[0, i]
-            flow_detr_shifts[1, :, :, i] = flow_detr_shifts[1, :, :, i] + grid_x + shifts_bulk_sum[1, i]
+            save_array = np.zeros(master_coords.shape)
+            save_array[0, 0, :, :] += translations[0, index]
+            save_array[0, 1, :, :] += translations[1, index]
+            save_array[1, 0, :, :] = flow_detr_shifts[0, :, :, index] + grid_y + shifts_bulk_sum[0, index]
+            save_array[1, 1, :, :] = flow_detr_shifts[1, :, :, index] + grid_x + shifts_bulk_sum[1, index]
+            writeFile = os.path.join(self.deflowDir, str(i).zfill(5))
+            np.save(writeFile + ".npy", save_array)
 
-        self.write_dstr_from_array(flow_detr_shifts, self.deflowDir)
-
-    def write_dstr_from_array(self, array_to_write, writeDir):
-        """General-purpose write numpy save file of destretch coordinates.
-        Since the pyDestretch algorithm expects input coordinates as a list of arrays,
-        we need to repack the arrays to write them."""
-        for i in range(array_to_write.shape[-1]):
-            writeFile = os.path.join(writeDir, str(i).zfill(5))
-            np.save(writeFile + ".npy", [array_to_write[:, :, :, i]])
+            # Increment the flow arrays forward one...
+            translations[:, :-1] = translations[:, 1:]
+            shifts_all[:, :, :, :-1] = shifts_all[:, :, :, 1:]
+            shifts_bulk[:, :-1] = shifts_bulk[:, 1:]
+            shifts_bulk_corr[:, :, :, :-1] = shifts_bulk_corr[:, :, :, 1:]
+            shifts_bulk_sum[:, :-1] = shifts_bulk_sum[:, 1:]
+            shifts_corr_sum[:, :, :, :-1] = shifts_corr_sum[:, :, :, 1:]
 
     def assert_flist(self, flist):
         assert (len(flist) != 0), "List contains no matches"

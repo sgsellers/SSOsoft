@@ -76,23 +76,8 @@ def _image_align(image, reference, tolerance=None):
 
 
 class Destretch:
-    """Omnibus class for image destretching. Copied or adapted in large part from Sunspot's image destretch IDL tools
-    from the 90's. See original reg.pro for details of individual functions.
-    Can be parallelized when using affine transformation.
-
-    Attributes:
-    -----------
-        reference_image (array-like) -- image used as a reference for calculating destretch vectors
-        destretch_target (array-like) -- image to warp
-        kernel_sizes (list of int or int) -- kernel size(s) to use in destretch. List is done sequentially.
-            A leading 0 indicates that the image should be fine-aligned.
-        warp_vectors (list of ndarray) -- list of destretch coordinates, for destretching one image relative to another
-        ncores (int) -- Used in affine transform destretch for parallelization
-        return_vectors (bool) -- If True, returns the list of destretch coordinates
-    """
-
     def __init__(self, destretch_target, reference_image, kernel_sizes,
-                 warp_vectors=None, shifts=None, ncores=1, return_vectors=False):
+                 warp_vectors=None, return_vectors=False):
         """Initializing the destretch class WITHOUT a reference image.
         The reference image can be provided later, but does not have to be, as the class expects warp_params.
 
@@ -128,6 +113,21 @@ class Destretch:
         self.bound_size = None
         self.control_size = None
         self.destretch_image = None
+
+    """Omnibus class for image destretching. Copied or adapted in large part from Sunspot's image destretch IDL tools
+    from the 90's. See original reg.pro for details of individual functions.
+    Can be parallelized when using affine transformation.
+
+    Attributes:
+    -----------
+        reference_image (array-like) -- image used as a reference for calculating destretch vectors
+        destretch_target (array-like) -- image to warp
+        kernel_sizes (list of int or int) -- kernel size(s) to use in destretch. List is done sequentially.
+            A leading 0 indicates that the image should be fine-aligned.
+        warp_vectors (list of ndarray) -- list of destretch coordinates, for destretching one image relative to another
+        ncores (int) -- Used in affine transform destretch for parallelization
+        return_vectors (bool) -- If True, returns the list of destretch coordinates
+    """
 
     def perform_destretch(self):
         """Perform image b-spline driven destretch. There are several cases to account for here:
