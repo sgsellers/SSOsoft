@@ -25,4 +25,4 @@ ssosoftConfig :
 
 from ssosoft.kisipWrapper import *
 from ssosoft.rosaZylaCal import *
-
+from ssosoft.destretch import *
