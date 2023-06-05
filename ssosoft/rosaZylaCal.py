@@ -136,6 +136,7 @@ class rosaZylaCal:
         
 		self.preSpeckleBase=""
 		self.workBase=""
+		self.hdrBase=""
 
 	def rosa_zyla_average_image_from_list(self, fileList):
 		"""
@@ -282,6 +283,7 @@ class rosaZylaCal:
 		self.preSpeckleBase=os.path.join(self.workBase, 'preSpeckle')
 		self.speckleBase=os.path.join(self.workBase, 'speckle')
 		self.postSpeckleBase=os.path.join(self.workBase, 'postSpeckle')
+		self.hdrBase=os.path.join(self.workBase, 'hdrs')
 		self.darkFile=os.path.join(self.workBase, '{0}_dark.fits'.format(self.instrument))
 		self.flatFile=os.path.join(self.workBase, '{0}_flat.fits'.format(self.instrument))
 		self.gainFile=os.path.join(self.workBase, '{0}_gain.fits'.format(self.instrument))
@@ -289,7 +291,7 @@ class rosaZylaCal:
 
 		## Directories preSpeckleBase, speckleBase, and postSpeckle
 		## must exist or be created in order to continue.
-		for dirBase in [self.preSpeckleBase, self.speckleBase, self.postSpeckleBase]:
+		for dirBase in [self.preSpeckleBase, self.speckleBase, self.postSpeckleBase, self.hdrBase]:
 			if not os.path.isdir(dirBase):
 				print("{0}: os.mkdir: attempting to create directory:"
 						"{1}".format(__name__, dirBase)
@@ -758,7 +760,16 @@ class rosaZylaCal:
 								burstHndrds
 							)
 						)
-					text_file = open(burstFile+'.txt', "w")
+					hdrFile = os.path.join(
+						self.hdrBase,
+						(self.burstFileForm).format(
+							self.obsDate,
+							self.obsTime,
+							burstThsnds,
+							burstHndrds
+						)
+					)
+					text_file = open(hdrFile+'.txt', "w")
 					text_file.write('DATE    ='+ self.zyla_time(1000*burstThsnds+burstHndrds).fits + "\n")
 					text_file.write('EXPOSURE='+ self.expTimems)
 					text_file.close()
@@ -798,10 +809,19 @@ class rosaZylaCal:
 									burstHndrds
 									)
 								)
+							hdrFile = os.path.join(
+								self.hdrBase,
+								(self.burstFileForm).format(
+									self.obsDate,
+									self.obsTime,
+									burstThsnds,
+									burstHndrds
+								)
+							)
+							text_file = open(hdrFile + '.txt', "w")
                             #here I should embed a line writting txt file with header
                             #this could probably make another module
-							text_file = open(burstFile+'.txt', "w")
-							if header_index >= 257:	header_index = header_index - 256 
+							if header_index >= 257:	header_index = header_index - 256
 							text_file.write(repr(hdu[header_index].header)+"\n")
 							text_file.write("\n")
 							text_file.write(repr(hdu[0].header))
@@ -1013,7 +1033,7 @@ class rosaZylaCal:
 				hdr['comment'] = 'Timestamp = start time + burst number * time exposure * file number'
 			hdul = fits.HDUList([hdu])
 		try:
-			hdul.writeto(file, clobber=clobber)
+			hdul.writeto(file, overwrite=clobber)
 		except Exception as err:
 			self.logger.warning("Could not write FITS file: "
 					"{0}".format(file)
