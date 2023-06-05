@@ -34,7 +34,7 @@ F. Woeger, National Solar Observatory).
 | +-----------------------------------------------------+ |
 | |		     !!!REPORT BUGS!!!		        | |
 | |						        | |
-| |	Please report any bugs to ondrejp@nmsu.edu.     | |
+| |	Please report any bugs to sellers@nmsu.edu.     | |
 | +-----------------------------------------------------+ |
 +---------------------------------------------------------+
 
@@ -42,9 +42,8 @@ F. Woeger, National Solar Observatory).
 To do
 -----
 	
-	* Develop a test for the integrity of automatic image shape
-	detection results.
-	* Integrate header info for Zyla datasets.
+	* Add support for FIRS, HSG, and SPINOR datasets
+	* Add support for creating overview metrics
 
 
 Known Bugs
@@ -71,6 +70,7 @@ harder.
 	* Christian Beck, National Solar Observatory.
 	* David Jess, Queens University, Belfast.
 	* Friedrich Woeger, National Solar Observatory.
+	* Gordon A. MacDonald, Apache Point Observatory.
 
 
 Software and Hardware Requirements
@@ -82,6 +82,9 @@ Python 3.x
 Matplotlib
 NumPy
 Astropy
+OpenCV
+Scipy
+tqdm
 
 
 How to use
