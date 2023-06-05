@@ -106,7 +106,6 @@ class Destretch:
             self.kernel_size = self.kernel
         else:
             self.kernel_size = None
-        self.ncores = ncores
         self.warp_vectors = warp_vectors
         self.return_vectors = return_vectors
         self.wxy = None
