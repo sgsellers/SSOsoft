@@ -9,15 +9,6 @@ from tqdm import tqdm
 import scipy.ndimage as scindi
 import os
 
-def _smooth(array, median_number, smooth_number):
-    """Top level function for flow smoothing. For parallel use."""
-    smoothed_sequence = scindi.uniform_filter1d(
-        scindi.median_filter(
-            array, size=median_number, mode='nearest'
-        ),
-        smooth_number, mode='nearest'
-    )
-    return smoothed_sequence
 
 class rosaZylaDestretch:
     """
@@ -65,7 +56,6 @@ class rosaZylaDestretch:
 
         self.configFile = configFile
         self.instruments = instruments
-        self.deflowDir = ""
         self.referenceChannel = ""
         self.workBase = ""
         self.hdrBase = ""
@@ -435,7 +425,7 @@ class rosaZylaDestretch:
         """Destretch to a reference list of vectors"""
         # Step 0: Get list of files from self.dstrBase,
         #   which should be set up in the config file from self.referenceChannel
-        # Step 1: From the list of destretch targets and the list of vectors, see if there's a dimension mis-match
+        # Step 1: From the list of destretch targets and the list of vectors, see if there's a dimension mismatch
         # Step 2: If there is a mismatch, divide the vector list len by the target len.
         #   Step 2.5: Use this to determine the vector list index by having a second iterable, and passing this iterable
         #   to round()
@@ -620,17 +610,7 @@ class rosaZylaDestretch:
                 shifts_bulk_corr[1, :, :, -1] = shifts_all[1, :, :, -1] - shifts_bulk[1, -1]
                 shifts_bulk_sum[:, -1] = shifts_bulk_sum[:, -2] + shifts_bulk[:, -1]
                 shifts_corr_sum[:, :, :, -1] = shifts_corr_sum[:, :, :, -2] + shifts_bulk_corr[:, :, :, -1]
-# At the end, if i < smooth_window/2, write i, else, write smooth_window/2th value. That way it's a rolling number
-            # This loop is our bottleneck. Rewrite to parallel. Bit hack-ey unfortunately.
-            for cd in range(shifts_corr_sum.shape[0]):
-                for y in range(shifts_corr_sum.shape[1]):
-                    for x in range(shifts_corr_sum.shape[2]):
-                        mask = np.isnan(shifts_corr_sum[cd, y, x, :])
-                        if any(mask):
-                            shifts_corr_sum[cd, y, x, :][mask] = np.interp(
-                                np.flatnonzero(mask),
-                                np.flatnonzero(~mask),
-                                shifts_corr_sum[cd, y, x, :][~mask])
+
             flows = scindi.uniform_filter1d(
                 scindi.median_filter(
                     shifts_corr_sum, size=(1, 1, 1, median_number), mode='nearest'
@@ -650,7 +630,7 @@ class rosaZylaDestretch:
             save_array[0, 1, :, :] += translations[1, index]
             save_array[1, 0, :, :] = flow_detr_shifts[0, :, :, index] + grid_y + shifts_bulk_sum[0, index]
             save_array[1, 1, :, :] = flow_detr_shifts[1, :, :, index] + grid_x + shifts_bulk_sum[1, index]
-            writeFile = os.path.join(self.deflowDir, str(i).zfill(5))
+            writeFile = os.path.join(self.dstrBase, str(i).zfill(5))
             np.save(writeFile + ".npy", save_array)
 
             # Increment the flow arrays forward one...
@@ -719,33 +699,3 @@ class rosaZylaDestretch:
         self.theta = theta
         self.offset = shifts
         self.magnification = scale
-
-# Note to future Sean: Here's what Kevin Does.
-# He works with the control points, NOT the full array of warped coordinates. This is good -- saves memory
-# 1.) Remove bulk shifts from calculated destretch vecotrs.
-#   These are full-frame shifts, which should've mostly been removed already.
-#   He does this by estimating the shifts by subtracting the reference and measured control points,
-#   And determining what trends affect every control point.
-# 2.) Subtract these bulk trends from the control points
-# 3.) For each bulk-subbed CONTROL POINT in the SEQUENCE of destretch images,
-#   remove long-term (~minutes) trends by taking the rolling mean of each coordinate, and subtracting it from the actual
-#   time series
-# 4.) Add the bulk shifts back in (we still want them corrected)
-# This will require a REWRITE of the pyDestretch class to take a sequence instead of a target and reference.
-# It shouldn't be too bad -- we'll need to alter the target and reference to instead want a sequence of images
-# Helper functions for the reading of these images (speckle vs fits)
-# Control Point altering functions for removing the bulk and flow shifts, then adding bulk back in
-# Extra params in the class initialization for the bulk and flow windows.
-
-# NO. DO NOT REWRITE THE STRUCTURE OF THE CLASS.
-# Why? Because if we do that, the class can only be used in conjunction with ssosoft or a config file,
-# which is unflexible
-# Instead, detrending flows should be done by initially destretching a sequence of images, returning the warp vectors,
-# but not writing the detretched images. The returned coordinates should be saved somewhere on the disk, defined by the
-# config file. Then, we can load in as needed, apply the detrend,
-# and then apply the detrended coordinates to the raw images.
-# If we return the shifts as well, we can pad the images, place them,
-# and apply the transformation to them in one fell swoop.
-# This has an added benefit of allowing the core destretch class to be used for any instrument.
-
-# How do we do this?
