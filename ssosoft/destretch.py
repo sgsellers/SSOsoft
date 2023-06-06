@@ -8,8 +8,6 @@ import astropy.io.fits as fits
 from tqdm import tqdm
 import scipy.ndimage as scindi
 import os
-from multiprocessing import Pool
-from itertools import repeat
 
 def _smooth(array, median_number, smooth_number):
     """Top level function for flow smoothing. For parallel use."""
@@ -628,10 +626,11 @@ class rosaZylaDestretch:
                 for y in range(shifts_corr_sum.shape[1]):
                     for x in range(shifts_corr_sum.shape[2]):
                         mask = np.isnan(shifts_corr_sum[cd, y, x, :])
-                        shifts_corr_sum[cd, y, x, :] = np.interp(
-                            np.flatnonzero(mask),
-                            np.flatnonzero(~mask),
-                            shifts_corr_sum[cd, y, x, :][~mask])
+                        if any(mask):
+                            shifts_corr_sum[cd, y, x, :] = np.interp(
+                                np.flatnonzero(mask),
+                                np.flatnonzero(~mask),
+                                shifts_corr_sum[cd, y, x, :][~mask])
             flows = scindi.uniform_filter1d(
                 scindi.median_filter(
                     shifts_corr_sum, size=(1, 1, 1, median_number), mode='nearest'
