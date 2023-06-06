@@ -616,9 +616,9 @@ class rosaZylaDestretch:
             shifts_corr_sum = da.from_array(shifts_corr_sum, chunks=(2, 10, 10, 1))
             flows = dandi.uniform_filter(
                 dandi.median_filter(
-                    shifts_corr_sum, size=(0, 0, 0, median_number), mode='nearest'
+                    shifts_corr_sum, size=(1, 1, 1, median_number), mode='nearest'
                 ),
-                (0, 0, 0, smooth_number), mode='nearest'
+                (1, 1, 1, smooth_number), mode='nearest'
             )
             flow_detr_shifts = np.array(shifts_corr_sum) - np.array(flows)
             if i < int(smooth_number/2):
