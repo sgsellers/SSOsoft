@@ -627,7 +627,7 @@ class rosaZylaDestretch:
                     for x in range(shifts_corr_sum.shape[2]):
                         mask = np.isnan(shifts_corr_sum[cd, y, x, :])
                         if any(mask):
-                            shifts_corr_sum[cd, y, x, :] = np.interp(
+                            shifts_corr_sum[cd, y, x, :][mask] = np.interp(
                                 np.flatnonzero(mask),
                                 np.flatnonzero(~mask),
                                 shifts_corr_sum[cd, y, x, :][~mask])
