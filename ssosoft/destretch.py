@@ -630,7 +630,8 @@ class rosaZylaDestretch:
             median_filtered = median_filtered.rechunk({0: 'auto', 1: 'auto', 2: 'auto', 3: -1})
             flows = median_filtered.map_overlap(_unifilt_wrapper, depth=0, window=smooth_number).compute()
 
-            flow_detr_shifts = np.array(shifts_corr_sum) - np.array(flows)
+            shifts_corr_sum = np.array(shifts_corr_sum)
+            flow_detr_shifts = shifts_corr_sum - np.array(flows)
             if i < int(smooth_number/2):
                 index = i
             elif i > (len(destretch_coord_list) - int(smooth_number/2)):
