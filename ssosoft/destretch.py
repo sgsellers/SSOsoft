@@ -8,7 +8,18 @@ import astropy.io.fits as fits
 from tqdm import tqdm
 import scipy.ndimage as scindi
 import os
+from multiprocessing import Pool
+from itertools import repeat
 
+def _smooth(array, median_number, smooth_number):
+    """Top level function for flow smoothing. For parallel use."""
+    smoothed_sequence = scindi.uniform_filter1d(
+        scindi.median_filter(
+            array, size=median_number, mode='nearest'
+        ),
+        smooth_number, mode='nearest'
+    )
+    return smoothed_sequence
 
 class rosaZylaDestretch:
     """
@@ -82,6 +93,7 @@ class rosaZylaDestretch:
         self.dstrFilePattern = ""
         self.hdrList = []
         self.burstNum = ""
+        self.ncores = 0
 
     def perform_destretch(self):
         """Perform SSOC destretch. You want a different destretch? You want flow-destructive? Code it yourself.
@@ -121,11 +133,12 @@ class rosaZylaDestretch:
         self.postSpeckleBase = os.path.join(self.workBase, "postSpeckle")
         self.kernels = [int(i) for i in config[self.channel]['dstrKernel'].split(',')]
         self.referenceChannel = config[self.channel]['dstrChannel']
-        self.flowWindow = config[self.channel]['flowWindow']
+        self.flowWindow = int(config[self.channel]['flowWindow'])
         self.date = config[self.channel]['obsDate']
         self.time = config[self.channel]['obsTime']
         self.dstrFilePattern = config[self.channel]['destretchedFileForm']
         self.burstNum = config[self.channel]['burstNumber']
+        self.ncores = int(config['KISIP_ENV']['kisipEnvMpiNproc'])
         if self.referenceChannel == self.channel:
             self.dstrBase = os.path.join(self.workBase, "destretch_vectors")
             self.dstrMethod = config[self.channel]['dstrMethod']
@@ -540,16 +553,16 @@ class rosaZylaDestretch:
         if len(template_coords.shape) > 3:
             template_coords = template_coords[-1, :, :, :]
         grid_x, grid_y = np.meshgrid(
-            np.arange(template_coords.shape[-2]),
-            np.arange(template_coords.shape[-1])
+            np.arange(template_coords.shape[-1]),
+            np.arange(template_coords.shape[-2])
         )
         # Given that a typical observing day comprises ~1400 files, we cannot hold everything in memory.
         # So we should only load in the number corresponding to the flowWindow
         shifts_all = np.zeros(
             (
-                template_coords[0].shape[0],
-                template_coords[0].shape[1],
-                template_coords[0].shape[2],
+                template_coords.shape[0],
+                template_coords.shape[1],
+                template_coords.shape[2],
                 smooth_number
             ),
             dtype=np.float32
@@ -558,18 +571,18 @@ class rosaZylaDestretch:
         shifts_bulk_sum = np.zeros((2, smooth_number), dtype=np.float32)
         shifts_bulk_corr = np.zeros(
             (
-                template_coords[0].shape[0],
-                template_coords[0].shape[1],
-                template_coords[0].shape[2],
+                template_coords.shape[0],
+                template_coords.shape[1],
+                template_coords.shape[2],
                 smooth_number
             ),
             dtype=np.float32
         )
         shifts_corr_sum = np.zeros(
             (
-                template_coords[0].shape[0],
-                template_coords[0].shape[1],
-                template_coords[0].shape[2],
+                template_coords.shape[0],
+                template_coords.shape[1],
+                template_coords.shape[2],
                 smooth_number
             ),
             dtype=np.float32
@@ -604,24 +617,23 @@ class rosaZylaDestretch:
                 translations[:, -1] = master_dv[0, :, 0, 0]
                 shifts_all[0, :, :, -1] = coords[0, :, :] - grid_y
                 shifts_all[1, :, :, -1] = coords[1, :, :] - grid_x
-                shifts_bulk[:, -1] = np.nanmedian(shifts_all[0, :, :, -1], axis=(1, 2))
+                shifts_bulk[:, -1] = np.nanmedian(shifts_all[:, :, :, -1], axis=(1, 2))
                 shifts_bulk_corr[0, :, :, -1] = shifts_all[0, :, :, -1] - shifts_bulk[0, -1]
                 shifts_bulk_corr[1, :, :, -1] = shifts_all[1, :, :, -1] - shifts_bulk[1, -1]
                 shifts_bulk_sum[:, -1] = shifts_bulk_sum[:, -2] + shifts_bulk[:, -1]
                 shifts_corr_sum[:, :, :, -1] = shifts_corr_sum[:, :, :, -2] + shifts_bulk_corr[:, :, :, -1]
 # At the end, if i < smooth_window/2, write i, else, write smooth_window/2th value. That way it's a rolling number
             flow_detr_shifts = np.zeros(shifts_corr_sum.shape)
-            for y in range(shifts_corr_sum.shape[1]):
-                for x in range(shifts_corr_sum.shape[2]):
-                    for cd in range(shifts_corr_sum.shape[0]):
-                        disp_sequence = shifts_corr_sum[cd, y, x, :]
-                        smoothed_sequence = scindi.uniform_filter1d(
-                            scindi.median_filter(
-                                disp_sequence, size=median_number, mode='nearest'
-                            ),
-                            smooth_number, mode='nearest'
-                        )
-                        flow_detr_shifts[cd, y, x, :] = disp_sequence - smoothed_sequence
+            # This loop is our bottleneck. Rewrite to parallel. Bit hack-ey unfortunately.
+            for cd in range(shifts_corr_sum.shape[0]):
+                for y in range(shifts_corr_sum.shape[1]):
+                    x_list = []
+                    for x in range(shifts_corr_sum.shape[2]):
+                        x_list.append(shifts_corr_sum[cd, y, x, :])
+                    with Pool(self.ncores) as p:
+                        smoothed_x = p.starmap(_smooth, zip(x_list, repeat(median_number), repeat(smooth_number)))
+                    for x in range(shifts_corr_sum.shape[2]):
+                        flow_detr_shifts[cd, y, x, :] = x_list[x] - smoothed_x[x]
             if i < int(smooth_number/2):
                 index = i
             elif i > (len(destretch_coord_list) - int(smooth_number/2)):
@@ -629,7 +641,7 @@ class rosaZylaDestretch:
             else:
                 index = int(smooth_number/2)
 
-            save_array = np.zeros(master_coords.shape)
+            save_array = np.zeros(master_dv.shape)
             save_array[0, 0, :, :] += translations[0, index]
             save_array[0, 1, :, :] += translations[1, index]
             save_array[1, 0, :, :] = flow_detr_shifts[0, :, :, index] + grid_y + shifts_bulk_sum[0, index]
