@@ -8,6 +8,8 @@ import astropy.io.fits as fits
 from tqdm import tqdm
 import scipy.ndimage as scindi
 import os
+import dask.array as da
+import dask_image.ndfilters as dandi
 
 
 class rosaZylaDestretch:
@@ -611,13 +613,14 @@ class rosaZylaDestretch:
                 shifts_bulk_sum[:, -1] = shifts_bulk_sum[:, -2] + shifts_bulk[:, -1]
                 shifts_corr_sum[:, :, :, -1] = shifts_corr_sum[:, :, :, -2] + shifts_bulk_corr[:, :, :, -1]
 
-            flows = scindi.uniform_filter1d(
-                scindi.median_filter(
-                    shifts_corr_sum, size=(1, 1, 1, median_number), mode='nearest'
+            shifts_corr_sum = da.from_array(shifts_corr_sum, chunks=(2, 10, 10, 1))
+            flows = dandi.uniform_filter(
+                dandi.median_filter(
+                    shifts_corr_sum, size=(0, 0, 0, median_number), mode='nearest'
                 ),
-                smooth_number, mode='nearest', axis=-1
+                (0, 0, 0, smooth_number), mode='nearest'
             )
-            flow_detr_shifts = shifts_corr_sum - flows
+            flow_detr_shifts = np.array(shifts_corr_sum) - np.array(flows)
             if i < int(smooth_number/2):
                 index = i
             elif i > (len(destretch_coord_list) - int(smooth_number/2)):

@@ -2,7 +2,6 @@ import numpy as np
 import scipy.ndimage as scindi
 import scipy.signal as scisig
 
-
 class ToleranceException(Exception):
     """Exception raised for solutions outside the allowed tolerances.
 
