@@ -623,17 +623,22 @@ class rosaZylaDestretch:
                 shifts_bulk_sum[:, -1] = shifts_bulk_sum[:, -2] + shifts_bulk[:, -1]
                 shifts_corr_sum[:, :, :, -1] = shifts_corr_sum[:, :, :, -2] + shifts_bulk_corr[:, :, :, -1]
 # At the end, if i < smooth_window/2, write i, else, write smooth_window/2th value. That way it's a rolling number
-            flow_detr_shifts = np.zeros(shifts_corr_sum.shape)
             # This loop is our bottleneck. Rewrite to parallel. Bit hack-ey unfortunately.
             for cd in range(shifts_corr_sum.shape[0]):
                 for y in range(shifts_corr_sum.shape[1]):
-                    x_list = []
                     for x in range(shifts_corr_sum.shape[2]):
-                        x_list.append(shifts_corr_sum[cd, y, x, :])
-                    with Pool(self.ncores) as p:
-                        smoothed_x = p.starmap(_smooth, zip(x_list, repeat(median_number), repeat(smooth_number)))
-                    for x in range(shifts_corr_sum.shape[2]):
-                        flow_detr_shifts[cd, y, x, :] = x_list[x] - smoothed_x[x]
+                        mask = np.isnan(shifts_corr_sum[cd, y, x, :])
+                        shifts_corr_sum[cd, y, x, :] = np.interp(
+                            np.flatnonzero(mask),
+                            np.flatnonzero(~mask),
+                            shifts_corr_sum[cd, y, x, :][~mask])
+            flows = scindi.uniform_filter1d(
+                scindi.median_filter(
+                    shifts_corr_sum, size=(1, 1, 1, median_number), mode='nearest'
+                ),
+                smooth_number, mode='nearest', axis=-1
+            )
+            flow_detr_shifts = shifts_corr_sum - flows
             if i < int(smooth_number/2):
                 index = i
             elif i > (len(destretch_coord_list) - int(smooth_number/2)):
