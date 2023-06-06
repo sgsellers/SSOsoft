@@ -9,7 +9,13 @@ from tqdm import tqdm
 import scipy.ndimage as scindi
 import os
 import dask.array as da
-import dask_image.ndfilters as dandi
+
+
+def _medfilt_wrapper(array, window):
+    return scindi.median_filter(array, size=(1, 1, 1, window), mode='nearest')
+
+def _unifilt_wrapper(array, window):
+    return scindi.uniform_filter1d(array, window, mode='nearest', axis=-1)
 
 
 class rosaZylaDestretch:
@@ -613,13 +619,11 @@ class rosaZylaDestretch:
                 shifts_bulk_sum[:, -1] = shifts_bulk_sum[:, -2] + shifts_bulk[:, -1]
                 shifts_corr_sum[:, :, :, -1] = shifts_corr_sum[:, :, :, -2] + shifts_bulk_corr[:, :, :, -1]
 
-            shifts_corr_sum = da.from_array(shifts_corr_sum, chunks=(2, 10, 10, 1))
-            flows = dandi.uniform_filter(
-                dandi.median_filter(
-                    shifts_corr_sum, size=(1, 1, 1, median_number), mode='nearest'
-                ),
-                (1, 1, 1, smooth_number), mode='nearest'
-            )
+            shifts_corr_sum = da.from_array(shifts_corr_sum, chunks=(1, 100, 100, shifts_corr_sum.shape[-1]))
+
+            median_filtered = shifts_corr_sum.map_overlap(_medfilt_wrapper, median_number, depth=0).compute()
+            flows = median_filtered.map_overlap(_unifilt_wrapper, smooth_number, depth=0).compute()
+
             flow_detr_shifts = np.array(shifts_corr_sum) - np.array(flows)
             if i < int(smooth_number/2):
                 index = i
