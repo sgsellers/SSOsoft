@@ -619,10 +619,10 @@ class rosaZylaDestretch:
                 shifts_bulk_sum[:, -1] = shifts_bulk_sum[:, -2] + shifts_bulk[:, -1]
                 shifts_corr_sum[:, :, :, -1] = shifts_corr_sum[:, :, :, -2] + shifts_bulk_corr[:, :, :, -1]
 
-            shifts_corr_sum = da.from_array(shifts_corr_sum)
-            shifts_corr_sum = shifts_corr_sum.rechunk({0: 'auto', 1: 'auto', 2: 'auto', 3: -1})
+            corr_sum = da.from_array(shifts_corr_sum)
+            corr_sum = corr_sum.rechunk({0: 'auto', 1: 'auto', 2: 'auto', 3: -1})
 
-            median_filtered = shifts_corr_sum.map_overlap(
+            median_filtered = corr_sum.map_overlap(
                 _medfilt_wrapper,
                 depth=0,
                 window=median_number).compute()
@@ -630,7 +630,6 @@ class rosaZylaDestretch:
             median_filtered = median_filtered.rechunk({0: 'auto', 1: 'auto', 2: 'auto', 3: -1})
             flows = median_filtered.map_overlap(_unifilt_wrapper, depth=0, window=smooth_number).compute()
 
-            shifts_corr_sum = np.array(shifts_corr_sum)
             flow_detr_shifts = shifts_corr_sum - np.array(flows)
             if i < int(smooth_number/2):
                 index = i
