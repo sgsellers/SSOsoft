@@ -627,7 +627,7 @@ class rosaZylaDestretch:
                         shifts_corr_sum[:, :, :, j] = shifts_bulk_corr[:, :, :, j]
                     else:
                         shifts_bulk_sum[:, j] = shifts_bulk_sum[:, j-1] + shifts_bulk[:, j]
-                        shifts_corr_sum[:, :, :, j] = shifts_corr_sum[:, :, :, i-1] + shifts_bulk_corr[:, :, :, j]
+                        shifts_corr_sum[:, :, :, j] = shifts_corr_sum[:, :, :, j-1] + shifts_bulk_corr[:, :, :, j]
                 index = i
                 corr_sum = da.from_array(shifts_corr_sum)
                 corr_sum = corr_sum.rechunk({0: 'auto', 1: 'auto', 2: 'auto', 3: -1})
