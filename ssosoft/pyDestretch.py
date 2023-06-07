@@ -157,7 +157,7 @@ class Destretch:
                         order=1,
                         mode='constant',
                         prefilter=False,
-                        cval=0
+                        cval=self.destretch_target[0, 0]
                     )
             else:
                 self.warp_vectors = []
@@ -184,12 +184,12 @@ class Destretch:
                             order=1,
                             mode='constant',
                             prefilter=False,
-                            cval=0
+                            cval=self.destretch_target[0, 0]
                         )
         else:
-            if type(self.warp_vectors) is list:
-                for i in range(len(self.warp_vectors)):
-                    if self.kernel == 0:
+            if len(self.warp_vectors.shape) > 3:
+                for i in range(self.warp_vectors.shape[0]):
+                    if self.kernel[i] == 0:
                         self.destretch_target = scindi.shift(
                             self.destretch_target,
                             self.warp_vectors[i][:, 0, 0],
@@ -203,22 +203,26 @@ class Destretch:
                             order=1,
                             mode='constant',
                             prefilter=False,
-                            cval=0
+                            cval=self.destretch_target[0, 0]
                         )
             else:
-                self.destretch_target = _image_align(
-                    self.destretch_target,
-                    self.reference_image,
-                    tolerance=(self.target_size[0]/4., self.target_size[0]/4.)
-                )
-                self.destretch_image = scindi.map_coordinates(
-                    self.destretch_target,
-                    self.warp_vectors,
-                    order=1,
-                    mode='constant',
-                    prefilter=False,
-                    cval=0
-                )
+                # Edge case where there's a destretch array that corresponds only to a bulk shift
+                if self.kernel == 0:
+                    self.destretch_target = scindi.shift(
+                        self.destretch_target,
+                        self.warp_vectors[:, 0, 0],
+                        mode='constant',
+                        cval=self.destretch_target[0, 0]
+                    )
+                else:
+                    self.destretch_image = scindi.map_coordinates(
+                        self.destretch_target,
+                        self.warp_vectors,
+                        order=1,
+                        mode='constant',
+                        prefilter=False,
+                        cval=self.destretch_target[0, 0]
+                    )
 
         mask = self.destretch_image == 0.
         self.destretch_image[mask] = self.destretch_target[mask]
