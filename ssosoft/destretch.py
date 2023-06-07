@@ -14,6 +14,7 @@ import dask.array as da
 def _medfilt_wrapper(array, window):
     return scindi.median_filter(array, size=(1, 1, 1, window), mode='nearest')
 
+
 def _unifilt_wrapper(array, window):
     return scindi.uniform_filter1d(array, window, mode='nearest', axis=-1)
 
@@ -590,6 +591,24 @@ class rosaZylaDestretch:
             master_dv = np.load(destretch_coord_list[i]).astype(np.float32)
             master_coords = master_dv[index_in_file]
             master_coords[master_coords == -1] = np.nan
+            # Explanation time.
+            # The algorithm here has 4 base cases:
+            #   1.) 0th iteration,
+            #   2.) iteration number < smooth_number/2,
+            #   3.) iteration number > smooth_number/2 AND iteration_number < number of files - smooth_number/2
+            #   4.) iteration number > number of files - smooth_number/2
+            # Essentially, the goal is to:
+            #   a.) keep the current frame in the center of our window
+            #   b.) Do as few calculations as possible.
+            # 1.) So for i == 0, we set up our arrays for the first smooth_number files in the list.
+            #   Do the uniform/median filter, and take the 0th index of the calculated flows.
+            #   NOT the middle index, cause nothing's happened yet, flow-wise.
+            # 2.) This case, we essentially do not iterate, just save progressive indices until we're in the center
+            #   of the array. No need to recalculate.
+            # 3.) Now we increment forward one. Shift the arrays so the 0th index is overwritten, and the last can
+            #   be filled. Fill the last, recalculate the flows, take the middle index to save
+            # 4.) Now there's no more data to fill. No need to increment or recalculate, just allow the save index
+            #   to progress to the end of the array.
             if i == 0:
                 # Have to pre-fill arrays on 0th step
                 for j in tqdm(range(smooth_number), desc="Setting up arrays"):
@@ -609,8 +628,37 @@ class rosaZylaDestretch:
                     else:
                         shifts_bulk_sum[:, j] = shifts_bulk_sum[:, j-1] + shifts_bulk[:, j]
                         shifts_corr_sum[:, :, :, j] = shifts_corr_sum[:, :, :, i-1] + shifts_bulk_corr[:, :, :, j]
+                index = i
+                corr_sum = da.from_array(shifts_corr_sum)
+                corr_sum = corr_sum.rechunk({0: 'auto', 1: 'auto', 2: 'auto', 3: -1})
+
+                median_filtered = corr_sum.map_overlap(
+                    _medfilt_wrapper,
+                    depth=0,
+                    window=median_number).compute()
+                median_filtered = da.from_array(median_filtered)
+                median_filtered = median_filtered.rechunk({0: 'auto', 1: 'auto', 2: 'auto', 3: -1})
+                flows = median_filtered.map_overlap(_unifilt_wrapper, depth=0, window=smooth_number).compute()
+
+                flow_detr_shifts = shifts_corr_sum - np.array(flows)
+            elif i < int(smooth_number/2):
+                index = i
+            elif i > len(destretch_coord_list) - int(smooth_number/2):
+                index = i % smooth_number
             else:
-                translations[:, -1] = master_dv[0, :, 0, 0]
+                index = int(smooth_number / 2)
+                # Increment the flow arrays forward one after previous step...
+                translations[:, :-1] = translations[:, 1:]
+                shifts_all[:, :, :, :-1] = shifts_all[:, :, :, 1:]
+                shifts_bulk[:, :-1] = shifts_bulk[:, 1:]
+                shifts_bulk_corr[:, :, :, :-1] = shifts_bulk_corr[:, :, :, 1:]
+                shifts_bulk_sum[:, :-1] = shifts_bulk_sum[:, 1:]
+                shifts_corr_sum[:, :, :, :-1] = shifts_corr_sum[:, :, :, 1:]
+
+                # Fill last index with the coordinates smooth_number/2 after current iteration
+                add_to_end = np.load(destretch_coord_list[i + int(smooth_number/2)])
+                coords = add_to_end[index_in_file]
+                translations[:, -1] = add_to_end[0, :, 0, 0]
                 shifts_all[0, :, :, -1] = coords[0, :, :] - grid_y
                 shifts_all[1, :, :, -1] = coords[1, :, :] - grid_x
                 shifts_bulk[:, -1] = np.nanmedian(shifts_all[:, :, :, -1], axis=(1, 2))
@@ -619,24 +667,18 @@ class rosaZylaDestretch:
                 shifts_bulk_sum[:, -1] = shifts_bulk_sum[:, -2] + shifts_bulk[:, -1]
                 shifts_corr_sum[:, :, :, -1] = shifts_corr_sum[:, :, :, -2] + shifts_bulk_corr[:, :, :, -1]
 
-            corr_sum = da.from_array(shifts_corr_sum)
-            corr_sum = corr_sum.rechunk({0: 'auto', 1: 'auto', 2: 'auto', 3: -1})
+                corr_sum = da.from_array(shifts_corr_sum)
+                corr_sum = corr_sum.rechunk({0: 'auto', 1: 'auto', 2: 'auto', 3: -1})
 
-            median_filtered = corr_sum.map_overlap(
-                _medfilt_wrapper,
-                depth=0,
-                window=median_number).compute()
-            median_filtered = da.from_array(median_filtered)
-            median_filtered = median_filtered.rechunk({0: 'auto', 1: 'auto', 2: 'auto', 3: -1})
-            flows = median_filtered.map_overlap(_unifilt_wrapper, depth=0, window=smooth_number).compute()
+                median_filtered = corr_sum.map_overlap(
+                    _medfilt_wrapper,
+                    depth=0,
+                    window=median_number).compute()
+                median_filtered = da.from_array(median_filtered)
+                median_filtered = median_filtered.rechunk({0: 'auto', 1: 'auto', 2: 'auto', 3: -1})
+                flows = median_filtered.map_overlap(_unifilt_wrapper, depth=0, window=smooth_number).compute()
 
-            flow_detr_shifts = shifts_corr_sum - np.array(flows)
-            if i < int(smooth_number/2):
-                index = i
-            elif i > (len(destretch_coord_list) - int(smooth_number/2)):
-                index = i % smooth_number
-            else:
-                index = int(smooth_number/2)
+                flow_detr_shifts = shifts_corr_sum - np.array(flows)
 
             save_array = np.zeros(master_dv.shape)
             save_array[0, 0, :, :] += translations[0, index]
@@ -645,14 +687,6 @@ class rosaZylaDestretch:
             save_array[1, 1, :, :] = flow_detr_shifts[1, :, :, index] + grid_x + shifts_bulk_sum[1, index]
             writeFile = os.path.join(self.dstrBase, str(i).zfill(5))
             np.save(writeFile + ".npy", save_array)
-
-            # Increment the flow arrays forward one...
-            translations[:, :-1] = translations[:, 1:]
-            shifts_all[:, :, :, :-1] = shifts_all[:, :, :, 1:]
-            shifts_bulk[:, :-1] = shifts_bulk[:, 1:]
-            shifts_bulk_corr[:, :, :, :-1] = shifts_bulk_corr[:, :, :, 1:]
-            shifts_bulk_sum[:, :-1] = shifts_bulk_sum[:, 1:]
-            shifts_corr_sum[:, :, :, :-1] = shifts_corr_sum[:, :, :, 1:]
 
     def assert_flist(self, flist):
         assert (len(flist) != 0), "List contains no matches"
