@@ -656,7 +656,7 @@ class rosaZylaDestretch:
                 shifts_corr_sum[:, :, :, :-1] = shifts_corr_sum[:, :, :, 1:]
 
                 # Fill last index with the coordinates smooth_number/2 after current iteration
-                add_to_end = np.load(destretch_coord_list[i + int(smooth_number/2)])
+                add_to_end = np.load(destretch_coord_list[i + int(smooth_number/2) - 1])
                 coords = add_to_end[index_in_file]
                 translations[:, -1] = add_to_end[0, :, 0, 0]
                 shifts_all[0, :, :, -1] = coords[0, :, :] - grid_y
