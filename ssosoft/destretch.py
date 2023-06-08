@@ -74,7 +74,6 @@ class rosaZylaDestretch:
         self.kernels = None
         self.dstrBase = ""
         self.dstrVectorList = []
-        self.spklList = []
         # Relative to reference channel
         self.bulkTranslation = 0  # flipud, fliplr, flip, 0, or other angle
         self.theta = 0
@@ -334,6 +333,20 @@ class rosaZylaDestretch:
         # STEP 4: Write fine-kernel destretch vectors (just the fine kernels)
         # STEP 5: Write FITS
 
+        spklFlist = sorted(
+            glob.glob(
+                os.path.join(
+                    self.speckleBase,
+                    '*.final'
+                )
+            )
+        )
+        try:
+            self.assert_flist(spklFlist)
+        except AssertionError as err:
+            print("Error: speckleList: {0}".format(err))
+            raise
+
         alphaFlist = sorted(
             glob.glob(
                 os.path.join(
@@ -360,8 +373,8 @@ class rosaZylaDestretch:
             finish_dstr = True
 
         coarse_dstr = []
-        for i in tqdm(range(len(self.spklList)), desc="Appling de-flowed destretch"):
-            target_image = self.read_speckle(self.spklList[i])
+        for i in tqdm(range(len(spklFlist)), desc="Appling de-flowed destretch"):
+            target_image = self.read_speckle(spklFlist[i])
             dstr_vec = self.read_speckle(self.dstrVectorList[i])
             d = Destretch(target_image, target_image, self.kernels, warp_vectors=dstr_vec)
             dstrim = d.perform_destretch()
@@ -393,10 +406,10 @@ class rosaZylaDestretch:
                 reference = reference_cube[0, :, :]
             elif (self.dstrMethod == 'running') & (i == 1):
                 reference = reference_cube[0, :, :]
-                img = self.read_speckle(self.spklList[i])
+                img = self.read_speckle(spklFlist[i])
             elif (self.dstrMethod == 'running') & (i < self.dstrWindow):
                 reference = np.nanmean(reference_cube[:i, :, :], axis=0)
-                img = self.read_speckle(self.spklList[i])
+                img = self.read_speckle(spklFlist[i])
             elif (self.dstrMethod == 'running') & (i > self.dstrWindow):
                 reference = np.nanmean(reference_cube, axis=0)
 
@@ -528,7 +541,7 @@ class rosaZylaDestretch:
                 hdul[0].header[slug] = field
         hdul[0].header['AUTHOR'] = 'sellers'
         if alpha:
-            hdul[0].header['SPKLALPHA'] = alpha
+            hdul[0].header['SPKLALPH'] = alpha
         hdul.writeto(fname, overwrite=True)
 
     def remove_flows(self):
@@ -683,8 +696,8 @@ class rosaZylaDestretch:
             save_array = np.zeros(master_dv.shape)
             save_array[0, 0, :, :] += translations[0, index]
             save_array[0, 1, :, :] += translations[1, index]
-            save_array[1, 0, :, :] = flow_detr_shifts[0, :, :, index] + grid_y + shifts_bulk_sum[0, index]
-            save_array[1, 1, :, :] = flow_detr_shifts[1, :, :, index] + grid_x + shifts_bulk_sum[1, index]
+            save_array[1, 0, :, :] = flow_detr_shifts[0, :, :, index] + grid_y + shifts_bulk[0, index]
+            save_array[1, 1, :, :] = flow_detr_shifts[1, :, :, index] + grid_x + shifts_bulk[1, index]
             writeFile = os.path.join(self.dstrBase, str(i).zfill(5))
             np.save(writeFile + ".npy", save_array)
 
