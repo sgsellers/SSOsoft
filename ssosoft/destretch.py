@@ -375,7 +375,7 @@ class rosaZylaDestretch:
         coarse_dstr = []
         for i in tqdm(range(len(spklFlist)), desc="Appling de-flowed destretch"):
             target_image = self.read_speckle(spklFlist[i])
-            dstr_vec = self.read_speckle(self.dstrVectorList[i])
+            dstr_vec = np.load(self.dstrVectorList[i])
             d = Destretch(target_image, target_image, self.kernels, warp_vectors=dstr_vec)
             dstrim = d.perform_destretch()
             fname = os.path.join(
