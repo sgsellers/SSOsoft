@@ -121,6 +121,7 @@ class rosaZylaDestretch:
         """
         config = configparser.ConfigParser()
         config.read(self.configFile)
+        self.dstrVectorList = []
         self.workBase = config[self.channel]['workBase']
         self.hdrBase = os.path.join(self.workBase, 'hdrs')
         self.hdrList = sorted(glob.glob(self.hdrBase + "/*.txt"))
@@ -696,8 +697,8 @@ class rosaZylaDestretch:
             save_array = np.zeros(master_dv.shape)
             save_array[0, 0, :, :] += translations[0, index]
             save_array[0, 1, :, :] += translations[1, index]
-            save_array[1, 0, :, :] = flow_detr_shifts[0, :, :, index] + grid_y + shifts_bulk[0, index]
-            save_array[1, 1, :, :] = flow_detr_shifts[1, :, :, index] + grid_x + shifts_bulk[1, index]
+            save_array[1, 0, :, :] = flow_detr_shifts[0, :, :, index] + grid_y + shifts_bulk_sum[0, index]
+            save_array[1, 1, :, :] = flow_detr_shifts[1, :, :, index] + grid_x + shifts_bulk_sum[1, index]
             writeFile = os.path.join(self.dstrBase, str(i).zfill(5))
             np.save(writeFile + ".npy", save_array)
 
