@@ -71,8 +71,10 @@ class rosaZylaDestretch:
         self.speckleBase = ""
         self.speckleFileForm = ""
         self.postSpeckleBase = ""
+        self.postDeflowBase = ""
         self.kernels = None
         self.dstrBase = ""
+        self.dstrFlows = ""
         self.dstrVectorList = []
         # Relative to reference channel
         self.bulkTranslation = 0  # flipud, fliplr, flip, 0, or other angle
@@ -109,6 +111,7 @@ class rosaZylaDestretch:
                 self.destretch_zyla()
             else:
                 self.destretch_rosa()
+        return
 
     def configure_destretch(self):
         """Set up destretch with relative channels, kernels, alignment params, rotation, etc.
@@ -128,6 +131,16 @@ class rosaZylaDestretch:
         self.speckleBase = os.path.join(self.workBase, 'speckle')
         self.speckleFileForm = config[self.channel]['speckledFileForm']
         self.postSpeckleBase = os.path.join(self.workBase, "postSpeckle")
+        self.postDeflowBase = os.path.join(self.workBase, "flowPreservedDestretch")
+        c_dirs = [self.postSpeckleBase, self.postDeflowBase]
+        for i in c_dirs:
+            if not os.path.isdir(i):
+                print("{0}: os.mkdir: attempting to create directory:""{1}".format(__name__, i))
+                try:
+                    os.mkdir(i)
+                except Exception as err:
+                    print("An exception was raised: {0}".format(err))
+                    raise
         self.kernels = [int(i) for i in config[self.channel]['dstrKernel'].split(',')]
         self.referenceChannel = config[self.channel]['dstrChannel']
         self.flowWindow = int(config[self.channel]['flowWindow'])
@@ -138,15 +151,18 @@ class rosaZylaDestretch:
         self.ncores = int(config['KISIP_ENV']['kisipEnvMpiNproc'])
         if self.referenceChannel == self.channel:
             self.dstrBase = os.path.join(self.workBase, "destretch_vectors")
+            self.dstrFlows = os.path.join(self.workBase, "destretch_vectors_noflow")
             self.dstrMethod = config[self.channel]['dstrMethod']
             self.dstrWindow = int(config[self.channel]['dstrWindow'])
-            if not os.path.isdir(self.dstrBase):
-                print("{0}: os.mkdir: attempting to create directory:""{1}".format(__name__, self.dstrBase))
-                try:
-                    os.mkdir(self.dstrBase)
-                except Exception as err:
-                    print("An exception was raised: {0}".format(err))
-                    raise
+            c_dirs = [self.dstrBase, self.dstrFlows]
+            for i in c_dirs:
+                if not os.path.isdir(i):
+                    print("{0}: os.mkdir: attempting to create directory:""{1}".format(__name__, i))
+                    try:
+                        os.mkdir(i)
+                    except Exception as err:
+                        print("An exception was raised: {0}".format(err))
+                        raise
         else:
             # Keyword bulk translation can be a number, but may be a string.
             # Rather than write a function that attempts to identify the nature of the string,
@@ -157,6 +173,7 @@ class rosaZylaDestretch:
                 self.bulkTranslation = config[self.channel]['bulkTranslation']
 
             self.dstrBase = os.path.join(config[self.referenceChannel]['workBase'], "destretch_vectors")
+            self.dstrFlows = os.path.join(config[self.referenceChannel]['workBase'], "destretch_vectors_noflow")
             if not os.path.isdir(self.dstrBase):
                 print(
                     "Destretch: {0}, No destretch vectors found for reference channel: {1}".format(
@@ -165,6 +182,7 @@ class rosaZylaDestretch:
                     )
                 )
                 raise
+        return
 
     def perform_bulk_translation(self, image):
         """Performs the bulk translation specified in config file."""
@@ -237,6 +255,7 @@ class rosaZylaDestretch:
             chanim = self.perform_bulk_translation(channelfile[1].data)
 
         self.determine_relative_rotation(chanim, refim)
+        return
 
     def read_speckle(self, fname):
         """Read Speckle-o-gram"""
@@ -245,95 +264,28 @@ class rosaZylaDestretch:
     def destretch_rosa(self):
         self.configure_destretch()
         if self.referenceChannel == self.channel:
-            self.destretch_reference_coarse()
+            self.destretch_reference()
             self.remove_flows()
-            self.destretch_reference_fine()
+            self.apply_flow_vectors()
         if self.referenceChannel != self.channel:
             self.align_derotate_channels()
             self.destretch_to_reference()
+        return
 
     def destretch_zyla(self):
         self.configure_destretch()
-        self.destretch_reference_coarse()
+        self.destretch_reference()
         self.remove_flows()
-        self.destretch_reference_fine()
+        self.apply_flow_vectors()
+        return
 
-    def destretch_reference_coarse(self):
+    def destretch_reference(self):
         """Used when there is no reference channel, or when destretching the reference channel.
         Performs initial coarse destretch. Loops over the first 1 or 2 entries in self.kernels.
         1 entry, if leading kernel != 0 (i.e., no fine align)
         2 entry, if leading kernel == 0 (i.e., perform fine align)
         Write files to the self.dstrBase directory, and append filename to self.dstrVectorList.
         """
-        spklFlist = sorted(
-            glob.glob(
-                os.path.join(
-                    self.speckleBase,
-                    '*.final'
-                )
-            )
-        )
-        try:
-            self.assert_flist(spklFlist)
-        except AssertionError as err:
-            print("Error: speckleList: {0}".format(err))
-            raise
-
-        if self.dstrMethod == "running":
-            reference_cube = np.zeros((self.dstrWindow, self.dataShape[0], self.dataShape[1]))
-        elif self.dstrMethod == "reference":
-            reference = self.read_speckle(spklFlist[self.dstrWindow])
-
-        if len(self.kernels) > 1:
-            if self.kernels[0] == 0:
-                kernels = self.kernels[:2]
-            else:
-                kernels = self.kernels[:1]
-        else:
-            kernels = self.kernels
-        for i in tqdm(range(len(spklFlist)), desc="Coarse Destretching " + self.channel):
-            # if self.dstrMethod == 'running':
-            img = self.read_speckle(spklFlist[i])
-            if (self.dstrMethod == 'running') & (i == 0):
-                reference_cube[0, :, :] = img
-                reference = reference_cube[0, :, :]
-            elif (self.dstrMethod == 'running') & (i == 1):
-                reference = reference_cube[0, :, :]
-                img = self.read_speckle(spklFlist[i])
-            elif (self.dstrMethod == 'running') & (i < self.dstrWindow):
-                reference = np.nanmean(reference_cube[:i, :, :], axis=0)
-                img = self.read_speckle(spklFlist[i])
-            elif (self.dstrMethod == 'running') & (i > self.dstrWindow):
-                reference = np.nanmean(reference_cube, axis=0)
-
-            d_obj = Destretch(
-                img,
-                reference,
-                kernels,
-                return_vectors=True
-            )
-            dstr_im, dstr_vecs = d_obj.perform_destretch()
-            if type(dstr_vecs) != list:
-                dstr_vecs = [dstr_vecs]
-
-            if self.dstrMethod == 'running':
-                reference_cube[int(i % self.dstrWindow), :, :] = dstr_im
-
-            dvec_name = os.path.join(self.dstrBase, str(i).zfill(5)+".npy")
-            self.dstrVectorList.append(dvec_name)
-            np.save(dvec_name, dstr_vecs)
-
-    def destretch_reference_fine(self):
-        """Secondary Fine Destretch. If there are no additional kernel sizes to destretch after the deflow kernels,
-        just apply the deflowed vectors and save the fits file."""
-        # STEP -1: Cut kernel list to only fine kernels
-        # STEP 0: Loop over speckle images
-        # STEP 1: Apply destretch. Return image.
-        # STEP 2: If there are no fine kernels, write the image + vectors
-        # STEP 3: If there ARE fine kernels, destretch to fine grid
-        # STEP 4: Write fine-kernel destretch vectors (just the fine kernels)
-        # STEP 5: Write FITS
-
         spklFlist = sorted(
             glob.glob(
                 os.path.join(
@@ -363,45 +315,14 @@ class rosaZylaDestretch:
             print("Error: subalphaList: {0}".format(err))
             raise
 
-        if (self.kernels[0] == 0) & (len(self.kernels) > 2):
-            kernels = self.kernels[2:]
-            finish_dstr = False
-        elif (self.kernels[0] != 0) & (len(self.kernels) > 1):
-            kernels = self.kernels[1:]
-            finish_dstr = False
-        else:
-            kernels = self.kernels
-            finish_dstr = True
-
-        coarse_dstr = []
-        for i in tqdm(range(len(spklFlist)), desc="Appling de-flowed destretch"):
-            target_image = self.read_speckle(spklFlist[i])
-            dstr_vec = np.load(self.dstrVectorList[i])
-            d = Destretch(target_image, target_image, self.kernels, warp_vectors=dstr_vec)
-            dstrim = d.perform_destretch()
-            fname = os.path.join(
-                self.postSpeckleBase,
-                self.dstrFilePattern.format(
-                    self.date,
-                    self.time,
-                    i
-                )
-            )
-            alpha = np.fromfile(alphaFlist[i], dtype=np.float32)[0]
-            self.write_fits(fname, dstrim, self.hdrList[i], alpha=alpha)
-            coarse_dstr.append(fname)
-
-        if finish_dstr:
-            return
-
         if self.dstrMethod == "running":
             reference_cube = np.zeros((self.dstrWindow, self.dataShape[0], self.dataShape[1]))
         elif self.dstrMethod == "reference":
-            reference = fits.open(coarse_dstr[self.dstrWindow])[0].data
+            reference = self.read_speckle(spklFlist[self.dstrWindow])
 
-        for i in tqdm(range(len(coarse_dstr)), desc='Applying Fine Destretch'):
-            vecs_master = np.load(self.dstrVectorList[i])
-            img = fits.open(coarse_dstr[i])[0].data
+        for i in tqdm(range(len(spklFlist)), desc="Destretching " + self.channel):
+            # if self.dstrMethod == 'running':
+            img = self.read_speckle(spklFlist[i])
             if (self.dstrMethod == 'running') & (i == 0):
                 reference_cube[0, :, :] = img
                 reference = reference_cube[0, :, :]
@@ -417,21 +338,20 @@ class rosaZylaDestretch:
             d_obj = Destretch(
                 img,
                 reference,
-                kernels,
+                self.kernels,
                 return_vectors=True
             )
             dstr_im, dstr_vecs = d_obj.perform_destretch()
             if type(dstr_vecs) != list:
                 dstr_vecs = [dstr_vecs]
 
-            vecs_master = vecs_master + dstr_vecs
-
             if self.dstrMethod == 'running':
                 reference_cube[int(i % self.dstrWindow), :, :] = dstr_im
 
             # Write FITS and vectors
-            writeFile = os.path.join(self.dstrBase, str(i).zfill(5))
-            np.save(writeFile + ".npy", vecs_master)
+            dvec_name = os.path.join(self.dstrBase, str(i).zfill(5)+".npy")
+            self.dstrVectorList.append(dvec_name)
+            np.save(dvec_name, dstr_vecs)
 
             fname = os.path.join(
                 self.postSpeckleBase,
@@ -443,6 +363,58 @@ class rosaZylaDestretch:
             )
             alpha = np.fromfile(alphaFlist[i], dtype=np.float32)[0]
             self.write_fits(fname, dstr_im, self.hdrList[i], alpha=alpha)
+        return
+
+    def apply_flow_vectors(self):
+        """Apply flow-removed dstr vectors, write fits files to new directory."""
+        dstrFlist = sorted(
+            glob.glob(
+                os.path.join(
+                    self.postSpeckleBase,
+                    '*.fits'
+                )
+            )
+        )
+        try:
+            self.assert_flist(dstrFlist)
+        except AssertionError as err:
+            print("Error: dstrFlist: {0}".format(err))
+            raise
+
+        deflowFlist = sorted(
+            glob.glob(
+                os.path.join(
+                    self.dstrFlows,
+                    '*.npy'
+                )
+            )
+        )
+        try:
+            self.assert_flist(deflowFlist)
+        except AssertionError as err:
+            print("Error: deflowFlist: {0}".format(err))
+            raise
+
+        for i in tqdm(range(len(dstrFlist)), desc="Appling de-flowed destretch"):
+            target_file = fits.open(dstrFlist[i])
+            target_image = target_file[0].data
+            dstr_vec = np.load(deflowFlist[i])
+            d = Destretch(target_image, target_image, self.kernels, warp_vectors=dstr_vec)
+            dstrim = d.perform_destretch()
+            fname = os.path.join(
+                self.postDeflowBase,
+                self.dstrFilePattern.format(
+                    self.date,
+                    self.time,
+                    i
+                )
+            )
+            hdr = target_file[0].header
+            hdr['PRSTEP4'] = ('FLOW-PRESERVING-DESTRETCH', 'pyDestretch with flow preservation')
+            hdul = fits.HDUList(fits.PrimaryHDU(dstrim, header=hdr))
+            hdul.writeto(fname, overwrite=True)
+            target_file.close()
+        return
 
     def destretch_to_reference(self):
         """Destretch to a reference list of vectors"""
@@ -476,7 +448,6 @@ class rosaZylaDestretch:
                 )
             )
         )
-
         try:
             self.assert_flist(alphaFlist)
         except AssertionError as err:
@@ -491,12 +462,20 @@ class rosaZylaDestretch:
                 )
             )
         )
-
         try:
             self.assert_flist(self.dstrVectorList)
         except AssertionError as err:
             print("Error: Vector List: {0}".format(err))
             raise
+
+        deflowFlist = sorted(
+            glob.glob(
+                os.path.join(
+                    self.dstrFlows,
+                    '*.npy'
+                )
+            )
+        )
 
         if len(spklFlist) != len(self.dstrVectorList):
             dstr_vec_increment = len(spklFlist)/len(self.dstrVectorList)
@@ -525,13 +504,47 @@ class rosaZylaDestretch:
             )
             alpha = np.fromfile(alphaFlist[i], dtype=np.float32)[0]
             self.write_fits(fname, dstrim, self.hdrList[i], alpha=alpha)
-            dstr_ctr += dstr_vec_increment
 
-    def write_fits(self, fname, data, hdr, alpha=None):
+            if len(deflowFlist) > 0:
+                vecs = np.load(deflowFlist[i])
+                d = Destretch(
+                    img,
+                    img,
+                    self.kernels,
+                    warp_vectors=vecs
+                )
+                dstrim = d.perform_destretch()
+                fname = os.path.join(
+                    self.postDeflowBase,
+                    self.dstrFilePattern.format(
+                        self.date,
+                        self.time,
+                        i
+                    )
+                )
+                self.write_fits(fname, dstrim, self.hdrList[i], alpha=alpha, prstep=4)
+
+            dstr_ctr += dstr_vec_increment
+        return
+
+    def write_fits(self, fname, data, hdr, alpha=None, prstep=3):
         """Write destretched FITS files."""
         allowed_keywords = ['DATE', 'EXPOSURE', 'HIERARCH']
         header = open(hdr, 'r').readlines()
         hdul = fits.HDUList(fits.PrimaryHDU(data))
+        prstep_flags = ['PRSTEP1', 'PRSTEP2', 'PRSTEP3', 'PRSTEP4']
+        prstep_values = [
+            'DARK-SUBTRACTION,FLATFIELDING',
+            'SPECKLE-DECONVOLUTION',
+            'DESTRETCHING',
+            'FLOW-PRESERVING-DESTRETCHING'
+        ]
+        prstep_comments = [
+            '',
+            'KISIP v0.6',
+            'pyDestretch',
+            'pyDestretch with flow preservation'
+        ]
         for i in range(len(header)):
             slug = header[i].split("=")[0]
             field = header[i].split("=")[-1].split("/")[0]
@@ -543,7 +556,10 @@ class rosaZylaDestretch:
         hdul[0].header['AUTHOR'] = 'sellers'
         if alpha:
             hdul[0].header['SPKLALPH'] = alpha
+        for i in range(prstep):
+            hdul[0].header[prstep_flags[i]] = (prstep_values[i], prstep_comments[i])
         hdul.writeto(fname, overwrite=True)
+        return
 
     def remove_flows(self):
         """Function to perform destretch on single channel, removing flows."""
@@ -574,18 +590,7 @@ class rosaZylaDestretch:
                 template_coords.shape[0],
                 template_coords.shape[1],
                 template_coords.shape[2],
-                smooth_number
-            ),
-            dtype=np.float32
-        )
-        shifts_bulk = np.zeros((2, smooth_number), dtype=np.float32)
-        shifts_bulk_sum = np.zeros((2, smooth_number), dtype=np.float32)
-        shifts_bulk_corr = np.zeros(
-            (
-                template_coords.shape[0],
-                template_coords.shape[1],
-                template_coords.shape[2],
-                smooth_number
+                smooth_number * 4
             ),
             dtype=np.float32
         )
@@ -594,12 +599,12 @@ class rosaZylaDestretch:
                 template_coords.shape[0],
                 template_coords.shape[1],
                 template_coords.shape[2],
-                smooth_number
+                smooth_number * 4
             ),
             dtype=np.float32
         )
 
-        translations = np.zeros((2, smooth_number), dtype=np.float32)
+        translations = np.zeros((2, smooth_number * 4), dtype=np.float32)
 
         for i in tqdm(range(len(destretch_coord_list)), desc="Removing Flows"):
             master_dv = np.load(destretch_coord_list[i]).astype(np.float32)
@@ -625,7 +630,7 @@ class rosaZylaDestretch:
             #   to progress to the end of the array.
             if i == 0:
                 # Have to pre-fill arrays on 0th step
-                for j in tqdm(range(smooth_number), desc="Setting up arrays"):
+                for j in tqdm(range(smooth_number * 4), desc="Setting up arrays"):
                     dvs = np.load(destretch_coord_list[j]).astype(np.float32)
                     translations[:, j] = dvs[0, :, 0, 0]
                     coords = dvs[index_in_file]
@@ -633,15 +638,12 @@ class rosaZylaDestretch:
 
                     shifts_all[0, :, :, j] = coords[0, :, :] - grid_y
                     shifts_all[1, :, :, j] = coords[1, :, :] - grid_x
-                    shifts_bulk[:, j] = np.nanmedian(shifts_all[:, :, :, j], axis=(1, 2))
-                    shifts_bulk_corr[0, :, :, j] = shifts_all[0, :, :, j] - shifts_bulk[0, j]
-                    shifts_bulk_corr[1, :, :, j] = shifts_all[1, :, :, j] - shifts_bulk[1, j]
+                    # Testing, but I don't think we need bulk shifts.
+                    # These should already be removed if the leading kernel is 0. If it isn't, feck em. [for now]
                     if j == 0:
-                        shifts_bulk_sum[:, j] = shifts_bulk[:, j]
-                        shifts_corr_sum[:, :, :, j] = shifts_bulk_corr[:, :, :, j]
+                        shifts_corr_sum[:, :, :, j] = shifts_all[:, :, :, j]
                     else:
-                        shifts_bulk_sum[:, j] = shifts_bulk_sum[:, j-1] + shifts_bulk[:, j]
-                        shifts_corr_sum[:, :, :, j] = shifts_corr_sum[:, :, :, j-1] + shifts_bulk_corr[:, :, :, j]
+                        shifts_corr_sum[:, :, :, j] = shifts_corr_sum[:, :, :, j-1] + shifts_all[:, :, :, j]
                 index = i
                 corr_sum = da.from_array(shifts_corr_sum)
                 corr_sum = corr_sum.rechunk({0: 'auto', 1: 'auto', 2: 'auto', 3: -1})
@@ -655,18 +657,15 @@ class rosaZylaDestretch:
                 flows = median_filtered.map_overlap(_unifilt_wrapper, depth=0, window=smooth_number).compute()
 
                 flow_detr_shifts = shifts_corr_sum - np.array(flows)
-            elif i < int(smooth_number/2):
+            elif i < int(smooth_number * 2):
                 index = i
-            elif i > len(destretch_coord_list) - int(smooth_number/2):
-                index = i % smooth_number
+            elif i > len(destretch_coord_list) - int(smooth_number * 2):
+                index = i % (smooth_number * 2)
             else:
-                index = int(smooth_number / 2)
+                index = int(smooth_number * 2)
                 # Increment the flow arrays forward one after previous step...
                 translations[:, :-1] = translations[:, 1:]
                 shifts_all[:, :, :, :-1] = shifts_all[:, :, :, 1:]
-                shifts_bulk[:, :-1] = shifts_bulk[:, 1:]
-                shifts_bulk_corr[:, :, :, :-1] = shifts_bulk_corr[:, :, :, 1:]
-                shifts_bulk_sum[:, :-1] = shifts_bulk_sum[:, 1:]
                 shifts_corr_sum[:, :, :, :-1] = shifts_corr_sum[:, :, :, 1:]
 
                 # Fill last index with the coordinates smooth_number/2 after current iteration
@@ -675,11 +674,7 @@ class rosaZylaDestretch:
                 translations[:, -1] = add_to_end[0, :, 0, 0]
                 shifts_all[0, :, :, -1] = coords[0, :, :] - grid_y
                 shifts_all[1, :, :, -1] = coords[1, :, :] - grid_x
-                shifts_bulk[:, -1] = np.nanmedian(shifts_all[:, :, :, -1], axis=(1, 2))
-                shifts_bulk_corr[0, :, :, -1] = shifts_all[0, :, :, -1] - shifts_bulk[0, -1]
-                shifts_bulk_corr[1, :, :, -1] = shifts_all[1, :, :, -1] - shifts_bulk[1, -1]
-                shifts_bulk_sum[:, -1] = shifts_bulk_sum[:, -2] + shifts_bulk[:, -1]
-                shifts_corr_sum[:, :, :, -1] = shifts_corr_sum[:, :, :, -2] + shifts_bulk_corr[:, :, :, -1]
+                shifts_corr_sum[:, :, :, -1] = shifts_corr_sum[:, :, :, -2] + shifts_all[:, :, :, -1]
 
                 corr_sum = da.from_array(shifts_corr_sum)
                 corr_sum = corr_sum.rechunk({0: 'auto', 1: 'auto', 2: 'auto', 3: -1})
@@ -697,13 +692,15 @@ class rosaZylaDestretch:
             save_array = np.zeros(master_dv.shape)
             save_array[0, 0, :, :] += translations[0, index]
             save_array[0, 1, :, :] += translations[1, index]
-            save_array[1, 0, :, :] = flow_detr_shifts[0, :, :, index] + grid_y + shifts_bulk_sum[0, index]
-            save_array[1, 1, :, :] = flow_detr_shifts[1, :, :, index] + grid_x + shifts_bulk_sum[1, index]
-            writeFile = os.path.join(self.dstrBase, str(i).zfill(5))
+            save_array[1, 0, :, :] = flow_detr_shifts[0, :, :, index] + grid_y
+            save_array[1, 1, :, :] = flow_detr_shifts[1, :, :, index] + grid_x
+            writeFile = os.path.join(self.dstrFlows, str(i).zfill(5))
             np.save(writeFile + ".npy", save_array)
+        return
 
     def assert_flist(self, flist):
         assert (len(flist) != 0), "List contains no matches"
+        return
 
     def determine_relative_rotation(self, image, reference):
         """Determines the relative rotation between two images, using feature matching from opencv.
@@ -760,3 +757,5 @@ class rosaZylaDestretch:
         self.theta = theta
         self.offset = shifts
         self.magnification = scale
+
+        return
