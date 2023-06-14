@@ -561,8 +561,9 @@ class rosaZylaDestretch:
         hdul.writeto(fname, overwrite=True)
         return
 
-    def remove_flows(self):
-        """Function to perform destretch on single channel, removing flows."""
+    def remove_flows(self, index_in_file=-1):
+        """Function to perform destretch on single channel, removing flows.
+        By default, this runs over the last kernel."""
         destretch_coord_list = self.dstrVectorList
         smooth_number = self.flowWindow
         if self.dstrMethod == 'reference':
@@ -570,15 +571,12 @@ class rosaZylaDestretch:
         else:
             median_number = self.dstrWindow
 
-        if self.kernels[0] == 0:
-            index_in_file = 1
-        else:
-            index_in_file = 0
+        index_in_file = -1
 
         template_coords = np.load(destretch_coord_list[0])
         # If the shape of this is nk, 2, ny, nx, truncate to the last along the 0th axis
         if len(template_coords.shape) > 3:
-            template_coords = template_coords[-1, :, :, :]
+            template_coords = template_coords[index_in_file, :, :, :]
         grid_x, grid_y = np.meshgrid(
             np.arange(template_coords.shape[-1]),
             np.arange(template_coords.shape[-2])
@@ -689,11 +687,9 @@ class rosaZylaDestretch:
 
                 flow_detr_shifts = shifts_corr_sum - np.array(flows)
 
-            save_array = np.zeros(master_dv.shape)
-            save_array[0, 0, :, :] += translations[0, index]
-            save_array[0, 1, :, :] += translations[1, index]
-            save_array[1, 0, :, :] = flow_detr_shifts[0, :, :, index] + grid_y
-            save_array[1, 1, :, :] = flow_detr_shifts[1, :, :, index] + grid_x
+            save_array = master_dv
+            save_array[index_in_file, 0, :, :] = flow_detr_shifts[0, :, :, index] + grid_y
+            save_array[index_in_file, 1, :, :] = flow_detr_shifts[1, :, :, index] + grid_x
             writeFile = os.path.join(self.dstrFlows, str(i).zfill(5))
             np.save(writeFile + ".npy", save_array)
         return
