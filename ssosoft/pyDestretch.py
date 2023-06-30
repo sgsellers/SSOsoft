@@ -77,19 +77,18 @@ def _image_align(image, reference, tolerance=None):
 class Destretch:
     def __init__(self, destretch_target, reference_image, kernel_sizes,
                  warp_vectors=None, return_vectors=False):
-        """Initializing the destretch class WITHOUT a reference image.
-        The reference image can be provided later, but does not have to be, as the class expects warp_params.
+        """Initializing the destretch class
 
         Parameters:
         -----------
         destretch_target : array-like
             The 2d image to be destretched. Any looping must be done outside the class. I'll provide an example script.
-        kernel_sizes : list
-            The series of kernel sizes that the destretch is run over.
-            A leading zeros indicates that fine aligment should be performed.
         reference_image : array-like
             If warp_vectors is provided, reference_image is used for alignment purposes.
             Else, reference_image is used to calculate warp_vectors.
+        kernel_sizes : list
+            The series of kernel sizes that the destretch is run over.
+            A leading zeros indicates that fine aligment should be performed.
         warp_vectors : None or array-like
             If an array, assumed to be an arroy of valid warp vectors.
             If none, then reference_image should be provided.

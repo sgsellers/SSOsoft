@@ -9,6 +9,18 @@ from tqdm import tqdm
 import scipy.ndimage as scindi
 import os
 import dask.array as da
+import dask
+
+
+@dask.delayed
+def _med_uni_filt(array1d, median_window, uniform_window, coord1, coord2, coord3):
+    """Helper dask function that performs a median, then uniform filter on a 1d array of data.
+    It then returns the 1d array, as well as its location in the original array, which are given as arguments.
+    See the flow-removal functions below."""
+    mf = scindi.median_filter(array1d, size=median_window, mode='nearest')
+    uf = scindi.uniform_filter1d(mf, uniform_window, mode='nearest')
+    ret_list = [uf, coord1, coord2, coord3]
+    return ret_list
 
 
 def _medfilt_wrapper(array, window):
@@ -23,7 +35,7 @@ class rosaZylaDestretch:
     """
 
     """
-    def __init__(self, instruments, configFile):
+    def __init__(self, instruments, configFile, experimental="N"):
         """Unified SSOC Destretch module. Pass a configuration file (modified version of SSOSoft config file) and an
         instrument name, or list of instrument names. If it's a single instrument, it'll perform the iterative destretch
         defined by the config file. If it's a list of instruments, it'll perform the destretch specified in the config
@@ -92,6 +104,7 @@ class rosaZylaDestretch:
         self.hdrList = []
         self.burstNum = ""
         self.ncores = 0
+        self.experimental = experimental
 
     def perform_destretch(self):
         """Perform SSOC destretch. You want a different destretch? You want flow-destructive? Code it yourself.
@@ -265,7 +278,10 @@ class rosaZylaDestretch:
         self.configure_destretch()
         if self.referenceChannel == self.channel:
             self.destretch_reference()
-            self.remove_flows()
+            if self.experimental != 'n':
+                self.remove_flows_alternate()
+            else:
+                self.remove_flows()
             self.apply_flow_vectors()
         if self.referenceChannel != self.channel:
             self.align_derotate_channels()
@@ -275,6 +291,10 @@ class rosaZylaDestretch:
     def destretch_zyla(self):
         self.configure_destretch()
         self.destretch_reference()
+        if self.experimental != 'n':
+            self.remove_flows_alternate()
+        else:
+            self.remove_flows()
         self.remove_flows()
         self.apply_flow_vectors()
         return
@@ -561,7 +581,7 @@ class rosaZylaDestretch:
         hdul.writeto(fname, overwrite=True)
         return
 
-    def remove_flows(self, index_in_file=-1):
+    def remove_flows(self):
         """Function to perform destretch on single channel, removing flows.
         By default, this runs over the last kernel."""
         destretch_coord_list = self.dstrVectorList
@@ -668,6 +688,165 @@ class rosaZylaDestretch:
 
                 # Fill last index with the coordinates smooth_number/2 after current iteration
                 add_to_end = np.load(destretch_coord_list[i + int(smooth_number/2) - 1])
+                coords = add_to_end[index_in_file]
+                translations[:, -1] = add_to_end[0, :, 0, 0]
+                shifts_all[0, :, :, -1] = coords[0, :, :] - grid_y
+                shifts_all[1, :, :, -1] = coords[1, :, :] - grid_x
+                shifts_corr_sum[:, :, :, -1] = shifts_corr_sum[:, :, :, -2] + shifts_all[:, :, :, -1]
+
+                corr_sum = da.from_array(shifts_corr_sum)
+                corr_sum = corr_sum.rechunk({0: 'auto', 1: 'auto', 2: 'auto', 3: -1})
+
+                median_filtered = corr_sum.map_overlap(
+                    _medfilt_wrapper,
+                    depth=0,
+                    window=median_number).compute()
+                median_filtered = da.from_array(median_filtered)
+                median_filtered = median_filtered.rechunk({0: 'auto', 1: 'auto', 2: 'auto', 3: -1})
+                flows = median_filtered.map_overlap(_unifilt_wrapper, depth=0, window=smooth_number).compute()
+
+                flow_detr_shifts = shifts_corr_sum - np.array(flows)
+
+            save_array = master_dv
+            save_array[index_in_file, 0, :, :] = flow_detr_shifts[0, :, :, index] + grid_y
+            save_array[index_in_file, 1, :, :] = flow_detr_shifts[1, :, :, index] + grid_x
+            writeFile = os.path.join(self.dstrFlows, str(i).zfill(5))
+            np.save(writeFile + ".npy", save_array)
+        return
+
+    def remove_flows_alternate(self):
+        """Alternate implementation of flow removal that utilizes dask delayed to parallelize the calculation of flows.
+        I believe this will be faster than the other implementation, which uses dask arrays, but am not certain.
+        """
+        destretch_coord_list = self.dstrVectorList
+        smooth_number = self.flowWindow
+        if self.dstrMethod == 'reference':
+            median_number = 10
+        else:
+            median_number = self.dstrWindow
+
+        index_in_file = -1
+
+        template_coords = np.load(destretch_coord_list[0])
+        # If the shape of this is nk, 2, ny, nx, truncate to the last along the 0th axis
+        if len(template_coords.shape) > 3:
+            template_coords = template_coords[index_in_file, :, :, :]
+        grid_x, grid_y = np.meshgrid(
+            np.arange(template_coords.shape[-1]),
+            np.arange(template_coords.shape[-2])
+        )
+        # Given that a typical observing day comprises ~1400 files, we cannot hold everything in memory.
+        # So we should only load in the number corresponding to the flowWindow
+        shifts_all = np.zeros(
+            (
+                template_coords.shape[0],
+                template_coords.shape[1],
+                template_coords.shape[2],
+                smooth_number * 4
+            ),
+            dtype=np.float32
+        )
+        shifts_corr_sum = np.zeros(
+            (
+                template_coords.shape[0],
+                template_coords.shape[1],
+                template_coords.shape[2],
+                smooth_number * 4
+            ),
+            dtype=np.float32
+        )
+
+        translations = np.zeros((2, smooth_number * 4), dtype=np.float32)
+
+        for i in tqdm(range(len(destretch_coord_list)), desc="Removing Flows"):
+            master_dv = np.load(destretch_coord_list[i]).astype(np.float32)
+            master_coords = master_dv[index_in_file]
+            master_coords[master_coords == -1] = np.nan
+            # Explanation time.
+            # The algorithm here has 4 base cases:
+            #   1.) 0th iteration,
+            #   2.) iteration number < smooth_number/2,
+            #   3.) iteration number > smooth_number/2 AND iteration_number < number of files - smooth_number/2
+            #   4.) iteration number > number of files - smooth_number/2
+            # Essentially, the goal is to:
+            #   a.) keep the current frame in the center of our window
+            #   b.) Do as few calculations as possible.
+            # 1.) So for i == 0, we set up our arrays for the first smooth_number files in the list.
+            #   Do the uniform/median filter, and take the 0th index of the calculated flows.
+            #   NOT the middle index, cause nothing's happened yet, flow-wise.
+            # 2.) This case, we essentially do not iterate, just save progressive indices until we're in the center
+            #   of the array. No need to recalculate.
+            # 3.) Now we increment forward one. Shift the arrays so the 0th index is overwritten, and the last can
+            #   be filled. Fill the last, recalculate the flows, take the middle index to save
+            # 4.) Now there's no more data to fill. No need to increment or recalculate, just allow the save index
+            #   to progress to the end of the array.
+            if i == 0:
+                # Have to pre-fill arrays on 0th step
+                for j in tqdm(range(smooth_number * 4), desc="Setting up arrays"):
+                    dvs = np.load(destretch_coord_list[j]).astype(np.float32)
+                    translations[:, j] = dvs[0, :, 0, 0]
+                    coords = dvs[index_in_file]
+                    coords[coords == -1] = np.nan
+
+                    shifts_all[0, :, :, j] = coords[0, :, :] - grid_y
+                    shifts_all[1, :, :, j] = coords[1, :, :] - grid_x
+                    # Testing, but I don't think we need bulk shifts.
+                    # These should already be removed if the leading kernel is 0. If it isn't, feck em. [for now]
+                    if j == 0:
+                        shifts_corr_sum[:, :, :, j] = shifts_all[:, :, :, j]
+                    else:
+                        shifts_corr_sum[:, :, :, j] = shifts_corr_sum[:, :, :, j - 1] + shifts_all[:, :, :, j]
+                index = i
+                # I am becoming convinced that this is not as efficient as it could be.
+                # The dask arrays are statically chunked, but we're losing a significant amount of time to
+                # Conversion and chunking.
+                # What if we went with a dask delayed approach instead?
+                # Write a delayed function that takes:
+                #   a 1-D array of smooth vectors
+                #   their x-coordinate in the array
+                #   their y-coordinate in the array
+                #   their z-coordinate in the array
+                # And returns an array containing:
+                #   the flow value
+                #   its x, y, and z coordinate
+                # Run the dask delayed on each image (i.e., it'll do this 1M -- 4M times.
+                # Then we have a list of these arrays. Reconstruct the flow array from the arrays contained in the list
+                # And subtract from the shifts_corr_sum array as normal
+                # Better write this in a separate function until we can verify it's faster.
+
+                flow_list = []
+                for c0 in range(shifts_corr_sum.shape[0]):
+                    for c1 in range(shifts_corr_sum.shape[1]):
+                        for c2 in range(shifts_corr_sum.shape[2]):
+                            flow_list.append(
+                                _med_uni_filt(
+                                    shifts_corr_sum[c0, c1, c2, :],
+                                    median_number,
+                                    smooth_number,
+                                    c0,
+                                    c1,
+                                    c2
+                                )
+                            )
+                flows_flat = dask.compute(flow_list)[0]
+                flows = np.zeros(shifts_corr_sum.shape)
+                for f in flows_flat:
+                    flows[f[1], f[2], f[3], :] = f[0]
+
+                flow_detr_shifts = shifts_corr_sum - flows
+            elif i < int(smooth_number * 2):
+                index = i
+            elif i > len(destretch_coord_list) - int(smooth_number * 2):
+                index = i % (smooth_number * 2)
+            else:
+                index = int(smooth_number * 2)
+                # Increment the flow arrays forward one after previous step...
+                translations[:, :-1] = translations[:, 1:]
+                shifts_all[:, :, :, :-1] = shifts_all[:, :, :, 1:]
+                shifts_corr_sum[:, :, :, :-1] = shifts_corr_sum[:, :, :, 1:]
+
+                # Fill last index with the coordinates smooth_number/2 after current iteration
+                add_to_end = np.load(destretch_coord_list[i + int(smooth_number / 2) - 1])
                 coords = add_to_end[index_in_file]
                 translations[:, -1] = add_to_end[0, :, 0, 0]
                 shifts_all[0, :, :, -1] = coords[0, :, :] - grid_y
