@@ -79,11 +79,13 @@ class rosaZylaDestretch:
         self.instruments = instruments
         self.referenceChannel = ""
         self.workBase = ""
+        self.dstrFrom = ""
         self.hdrBase = ""
         self.speckleBase = ""
         self.speckleFileForm = ""
         self.postSpeckleBase = ""
         self.postDeflowBase = ""
+        self.postDestretchBase = ""
         self.kernels = None
         self.dstrBase = ""
         self.dstrFlows = ""
@@ -105,6 +107,7 @@ class rosaZylaDestretch:
         self.burstNum = ""
         self.ncores = 0
         self.experimental = experimental
+        self.repair_tolerance = 0
 
     def perform_destretch(self):
         """Perform SSOC destretch. You want a different destretch? You want flow-destructive? Code it yourself.
@@ -126,6 +129,34 @@ class rosaZylaDestretch:
                 self.destretch_rosa()
         return
 
+    def destretch_rosa(self):
+        self.configure_destretch()
+        if self.dstrFrom.lower() == "speckle":
+            self.speckleToFits()
+        if self.referenceChannel == self.channel:
+            self.destretch_reference()
+            if self.experimental != 'n':
+                self.remove_flows_alternate()
+            else:
+                self.remove_flows()
+            self.apply_flow_vectors()
+        if self.referenceChannel != self.channel:
+            self.align_derotate_channels()
+            self.destretch_to_reference()
+        return
+
+    def destretch_zyla(self):
+        self.configure_destretch()
+        if self.dstrFrom.lower() == "speckle":
+            self.speckleToFits()
+        self.destretch_reference()
+        if self.experimental != 'n':
+            self.remove_flows_alternate()
+        else:
+            self.remove_flows()
+        self.apply_flow_vectors()
+        return
+
     def configure_destretch(self):
         """Set up destretch with relative channels, kernels, alignment params, rotation, etc.
         In here we need:
@@ -139,13 +170,15 @@ class rosaZylaDestretch:
         config.read(self.configFile)
         self.dstrVectorList = []
         self.workBase = config[self.channel]['workBase']
+        self.dstrFrom = config[self.channel]['dstrFrom']
         self.hdrBase = os.path.join(self.workBase, 'hdrs')
         self.hdrList = sorted(glob.glob(self.hdrBase + "/*.txt"))
         self.speckleBase = os.path.join(self.workBase, 'speckle')
         self.speckleFileForm = config[self.channel]['speckledFileForm']
         self.postSpeckleBase = os.path.join(self.workBase, "postSpeckle")
+        self.postDestretchBase = os.path.join(self.workBase, "splineDestretch")
         self.postDeflowBase = os.path.join(self.workBase, "flowPreservedDestretch")
-        c_dirs = [self.postSpeckleBase, self.postDeflowBase]
+        c_dirs = [self.postSpeckleBase, self.postDestretchBase, self.postDeflowBase]
         for i in c_dirs:
             if not os.path.isdir(i):
                 print("{0}: os.mkdir: attempting to create directory:""{1}".format(__name__, i))
@@ -195,6 +228,69 @@ class rosaZylaDestretch:
                     )
                 )
                 raise
+
+        # Lets the user define a more lenient tolerance for control point repair in destretch
+        # Fully optional keyword, defaults to 0.3
+        # If you're seeing a lot of flows "snapping" in your final product, maybe increase this value
+        if 'repairTolerance' in [configPair[0] for configPair in config.items(self.channel)]:
+            if config[self.channel]['repairTolerance'] == '':
+                if "ZYLA" in self.channel:
+                    self.repair_tolerance = 0.4
+                elif "ROSA" in self.channel:
+                    self.repair_tolerance = 0.3
+                else:
+                    self.repair_tolerance = 0.3
+            else:
+                self.repair_tolerance = float(config[self.channel]['repairTolerance'])
+        elif "ZYLA" in self.channel:
+            self.repair_tolerance = 0.4
+        elif "ROSA" in self.channel:
+            self.repair_tolerance = 0.3
+        return
+
+    def speckleToFits(self):
+        """Function to dump speckle *.final files to fits format in the postSpeckle directory"""
+        spklFlist = sorted(
+            glob.glob(
+                os.path.join(
+                    self.speckleBase,
+                    '*.final'
+                )
+            )
+        )
+        try:
+            self.assert_flist(spklFlist)
+        except AssertionError as err:
+            print("Error: speckleList: {0}".format(err))
+            raise
+
+        alphaFlist = sorted(
+            glob.glob(
+                os.path.join(
+                    self.speckleBase,
+                    '*.subalpha'
+                )
+            )
+        )
+        try:
+            self.assert_flist(alphaFlist)
+        except AssertionError as err:
+            print("Error: subalphaList: {0}".format(err))
+            raise
+
+        for i in range(len(spklFlist)):
+            spklImage = self.read_speckle(spklFlist[i])
+            hdrFile = self.hdrList[i]
+            alpha = np.fromfile(alphaFlist[i], dtype=np.float32)[0]
+            fname = os.path.join(
+                self.postSpeckleBase,
+                self.speckleFileForm.format(
+                    self.date,
+                    self.time,
+                    i
+                )
+            )
+            self.write_fits(fname, spklImage, hdrFile, alpha=alpha, prstep=1)
         return
 
     def perform_bulk_translation(self, image):
@@ -274,31 +370,6 @@ class rosaZylaDestretch:
         """Read Speckle-o-gram"""
         return np.fromfile(fname, dtype=np.float32).reshape((self.dataShape[0], self.dataShape[1]))
 
-    def destretch_rosa(self):
-        self.configure_destretch()
-        if self.referenceChannel == self.channel:
-            self.destretch_reference()
-            if self.experimental != 'n':
-                self.remove_flows_alternate()
-            else:
-                self.remove_flows()
-            self.apply_flow_vectors()
-        if self.referenceChannel != self.channel:
-            self.align_derotate_channels()
-            self.destretch_to_reference()
-        return
-
-    def destretch_zyla(self):
-        self.configure_destretch()
-        self.destretch_reference()
-        if self.experimental != 'n':
-            self.remove_flows_alternate()
-        else:
-            self.remove_flows()
-        self.remove_flows()
-        self.apply_flow_vectors()
-        return
-
     def destretch_reference(self):
         """Used when there is no reference channel, or when destretching the reference channel.
         Performs initial coarse destretch. Loops over the first 1 or 2 entries in self.kernels.
@@ -306,52 +377,36 @@ class rosaZylaDestretch:
         2 entry, if leading kernel == 0 (i.e., perform fine align)
         Write files to the self.dstrBase directory, and append filename to self.dstrVectorList.
         """
-        spklFlist = sorted(
+        postSpklFlist = sorted(
             glob.glob(
                 os.path.join(
-                    self.speckleBase,
-                    '*.final'
+                    self.postSpeckleBase,
+                    '*.fits'
                 )
             )
         )
         try:
-            self.assert_flist(spklFlist)
+            self.assert_flist(postSpklFlist)
         except AssertionError as err:
             print("Error: speckleList: {0}".format(err))
-            raise
-
-        alphaFlist = sorted(
-            glob.glob(
-                os.path.join(
-                    self.speckleBase,
-                    '*.subalpha'
-                )
-            )
-        )
-
-        try:
-            self.assert_flist(alphaFlist)
-        except AssertionError as err:
-            print("Error: subalphaList: {0}".format(err))
             raise
 
         if self.dstrMethod == "running":
             reference_cube = np.zeros((self.dstrWindow, self.dataShape[0], self.dataShape[1]))
         elif self.dstrMethod == "reference":
-            reference = self.read_speckle(spklFlist[self.dstrWindow])
+            reference = fits.open(postSpklFlist[self.dstrWindow])[-1].data
 
-        for i in tqdm(range(len(spklFlist)), desc="Destretching " + self.channel):
+        for i in tqdm(range(len(postSpklFlist)), desc="Destretching " + self.channel):
             # if self.dstrMethod == 'running':
-            img = self.read_speckle(spklFlist[i])
+            file = fits.open(postSpklFlist[i])
+            img = file[-1].data
             if (self.dstrMethod == 'running') & (i == 0):
                 reference_cube[0, :, :] = img
                 reference = reference_cube[0, :, :]
             elif (self.dstrMethod == 'running') & (i == 1):
                 reference = reference_cube[0, :, :]
-                img = self.read_speckle(spklFlist[i])
             elif (self.dstrMethod == 'running') & (i < self.dstrWindow):
                 reference = np.nanmean(reference_cube[:i, :, :], axis=0)
-                img = self.read_speckle(spklFlist[i])
             elif (self.dstrMethod == 'running') & (i > self.dstrWindow):
                 reference = np.nanmean(reference_cube, axis=0)
 
@@ -359,7 +414,8 @@ class rosaZylaDestretch:
                 img,
                 reference,
                 self.kernels,
-                return_vectors=True
+                return_vectors=True,
+                repair_tolerance=self.repair_tolerance
             )
             dstr_im, dstr_vecs = d_obj.perform_destretch()
             if type(dstr_vecs) != list:
@@ -374,15 +430,14 @@ class rosaZylaDestretch:
             np.save(dvec_name, dstr_vecs)
 
             fname = os.path.join(
-                self.postSpeckleBase,
+                self.postDestretchBase,
                 self.dstrFilePattern.format(
                     self.date,
                     self.time,
                     i
                 )
             )
-            alpha = np.fromfile(alphaFlist[i], dtype=np.float32)[0]
-            self.write_fits(fname, dstr_im, self.hdrList[i], alpha=alpha)
+            self.write_fits(fname, dstr_im, file[-1].header, prstep=3)
         return
 
     def apply_flow_vectors(self):
@@ -390,7 +445,7 @@ class rosaZylaDestretch:
         dstrFlist = sorted(
             glob.glob(
                 os.path.join(
-                    self.postSpeckleBase,
+                    self.postDestretchBase,
                     '*.fits'
                 )
             )
@@ -417,7 +472,7 @@ class rosaZylaDestretch:
 
         for i in tqdm(range(len(dstrFlist)), desc="Appling de-flowed destretch"):
             target_file = fits.open(dstrFlist[i])
-            target_image = target_file[0].data
+            target_image = target_file[-1].data
             dstr_vec = np.load(deflowFlist[i])
             d = Destretch(target_image, target_image, self.kernels, warp_vectors=dstr_vec)
             dstrim = d.perform_destretch()
@@ -429,15 +484,11 @@ class rosaZylaDestretch:
                     i
                 )
             )
-            hdr = target_file[0].header
-            hdr['PRSTEP4'] = ('FLOW-PRESERVING-DESTRETCH', 'pyDestretch with flow preservation')
-            hdul = fits.HDUList(fits.PrimaryHDU(dstrim, header=hdr))
-            hdul.writeto(fname, overwrite=True)
-            target_file.close()
+            self.write_fits(fname, dstrim, target_file[-1].header, prstep=4)
         return
 
     def destretch_to_reference(self):
-        """Destretch to a reference list of vectors"""
+        """Destretch to a reference list of vectors
         # Step 0: Get list of files from self.dstrBase,
         #   which should be set up in the config file from self.referenceChannel
         # Step 1: From the list of destretch targets and the list of vectors, see if there's a dimension mismatch
@@ -446,32 +497,19 @@ class rosaZylaDestretch:
         #   to round()
         # Step 3: Apply destretch
         # Step 4: Write FITS.
-        spklFlist = sorted(
+        """
+        postSpklFlist = sorted(
             glob.glob(
                 os.path.join(
-                    self.speckleBase,
+                    self.postDestretchBase,
                     '*.final'
                 )
             )
         )
         try:
-            self.assert_flist(spklFlist)
+            self.assert_flist(postSpklFlist)
         except AssertionError as err:
             print("Error: speckleList: {0}".format(err))
-            raise
-
-        alphaFlist = sorted(
-            glob.glob(
-                os.path.join(
-                    self.speckleBase,
-                    '*.subalpha'
-                )
-            )
-        )
-        try:
-            self.assert_flist(alphaFlist)
-        except AssertionError as err:
-            print("Error: subalphaList: {0}".format(err))
             raise
 
         self.dstrVectorList = sorted(
@@ -497,13 +535,14 @@ class rosaZylaDestretch:
             )
         )
 
-        if len(spklFlist) != len(self.dstrVectorList):
-            dstr_vec_increment = len(spklFlist)/len(self.dstrVectorList)
+        if len(postSpklFlist) != len(self.dstrVectorList):
+            dstr_vec_increment = len(postSpklFlist)/len(self.dstrVectorList)
         else:
             dstr_vec_increment = 1
         dstr_ctr = 0
-        for i in tqdm(range(len(spklFlist)), desc="Appling Destretch Vectors..."):
-            img = self.read_speckle(spklFlist[i])
+        for i in tqdm(range(len(postSpklFlist)), desc="Appling Destretch Vectors..."):
+            file = fits.open(postSpklFlist[i])
+            img = file[-1].data
             img = self.perform_bulk_translation(img)
             img = self.perform_fine_translation(img)
             vecs = np.load(self.dstrVectorList[int(round(dstr_ctr))])
@@ -515,15 +554,14 @@ class rosaZylaDestretch:
             )
             dstrim = d.perform_destretch()
             fname = os.path.join(
-                self.postSpeckleBase,
+                self.postDestretchBase,
                 self.dstrFilePattern.format(
                     self.date,
                     self.time,
                     i
                 )
             )
-            alpha = np.fromfile(alphaFlist[i], dtype=np.float32)[0]
-            self.write_fits(fname, dstrim, self.hdrList[i], alpha=alpha)
+            self.write_fits(fname, dstrim, file[-1].header, prstep=3)
 
             if len(deflowFlist) > 0:
                 vecs = np.load(deflowFlist[i])
@@ -542,7 +580,7 @@ class rosaZylaDestretch:
                         i
                     )
                 )
-                self.write_fits(fname, dstrim, self.hdrList[i], alpha=alpha, prstep=4)
+                self.write_fits(fname, dstrim, file[-1].header, prstep=4)
 
             dstr_ctr += dstr_vec_increment
         return
@@ -550,8 +588,10 @@ class rosaZylaDestretch:
     def write_fits(self, fname, data, hdr, alpha=None, prstep=3):
         """Write destretched FITS files."""
         allowed_keywords = ['DATE', 'EXPOSURE', 'HIERARCH']
-        header = open(hdr, 'r').readlines()
-        hdul = fits.HDUList(fits.PrimaryHDU(data))
+        if type(hdr) is fits.header.Header:
+            hdul = fits.HDUList(fits.PrimaryHDU(data, header=hdr))
+        else:
+            hdul = fits.HDUList(fits.PrimaryHDU(data))
         prstep_flags = ['PRSTEP1', 'PRSTEP2', 'PRSTEP3', 'PRSTEP4']
         prstep_values = [
             'DARK-SUBTRACTION,FLATFIELDING',
@@ -565,14 +605,17 @@ class rosaZylaDestretch:
             'pyDestretch',
             'pyDestretch with flow preservation'
         ]
-        for i in range(len(header)):
-            slug = header[i].split("=")[0]
-            field = header[i].split("=")[-1].split("/")[0]
-            if len(header[i].split("=")[-1].split("/")) == 1:
-                field = field.split("\n")[0].strip()
-            field = field.strip()[1:-1].strip()
-            if any(substring in slug for substring in allowed_keywords):
-                hdul[0].header[slug] = field
+
+        if type(hdr) is str:
+            header = open(hdr, 'r').readlines()
+            for i in range(len(header)):
+                slug = header[i].split("=")[0]
+                field = header[i].split("=")[-1].split("/")[0]
+                if len(header[i].split("=")[-1].split("/")) == 1:
+                    field = field.split("\n")[0].strip()
+                field = field.strip()[1:-1].strip()
+                if any(substring in slug for substring in allowed_keywords):
+                    hdul[0].header[slug] = field
         hdul[0].header['AUTHOR'] = 'sellers'
         if alpha:
             hdul[0].header['SPKLALPH'] = alpha
