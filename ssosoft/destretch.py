@@ -284,11 +284,7 @@ class rosaZylaDestretch:
             alpha = np.fromfile(alphaFlist[i], dtype=np.float32)[0]
             fname = os.path.join(
                 self.postSpeckleBase,
-                self.speckleFileForm.format(
-                    self.date,
-                    self.time,
-                    i
-                )
+                os.path.split(spklFlist[i])[-1] + '.fits'
             )
             self.write_fits(fname, spklImage, hdrFile, alpha=alpha, prstep=1)
         return
