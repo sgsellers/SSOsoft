@@ -497,8 +497,8 @@ class rosaZylaDestretch:
         postSpklFlist = sorted(
             glob.glob(
                 os.path.join(
-                    self.postDestretchBase,
-                    '*.final'
+                    self.postSpeckleBase,
+                    '*.fits'
                 )
             )
         )
