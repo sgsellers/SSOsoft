@@ -135,11 +135,9 @@ class rosaZylaDestretch:
             self.speckleToFits()
         if self.referenceChannel == self.channel:
             self.destretch_reference()
-            if self.experimental != 'n':
-                self.remove_flows_alternate()
-            else:
+            if self.flowWindow:
                 self.remove_flows()
-            self.apply_flow_vectors()
+                self.apply_flow_vectors()
         if self.referenceChannel != self.channel:
             self.align_derotate_channels()
             self.destretch_to_reference()
@@ -150,11 +148,9 @@ class rosaZylaDestretch:
         if self.dstrFrom.lower() == "speckle":
             self.speckleToFits()
         self.destretch_reference()
-        if self.experimental != 'n':
-            self.remove_flows_alternate()
-        else:
+        if self.flowWindow:
             self.remove_flows()
-        self.apply_flow_vectors()
+            self.apply_flow_vectors()
         return
 
     def configure_destretch(self):
@@ -177,8 +173,7 @@ class rosaZylaDestretch:
         self.speckleFileForm = config[self.channel]['speckledFileForm']
         self.postSpeckleBase = os.path.join(self.workBase, "postSpeckle")
         self.postDestretchBase = os.path.join(self.workBase, "splineDestretch")
-        self.postDeflowBase = os.path.join(self.workBase, "flowPreservedDestretch")
-        c_dirs = [self.postSpeckleBase, self.postDestretchBase, self.postDeflowBase]
+        c_dirs = [self.postSpeckleBase, self.postDestretchBase]
         for i in c_dirs:
             if not os.path.isdir(i):
                 print("{0}: os.mkdir: attempting to create directory:""{1}".format(__name__, i))
@@ -189,18 +184,34 @@ class rosaZylaDestretch:
                     raise
         self.kernels = [int(i) for i in config[self.channel]['dstrKernel'].split(',')]
         self.referenceChannel = config[self.channel]['dstrChannel']
-        self.flowWindow = int(config[self.channel]['flowWindow'])
+        self.flowWindow = config[self.channel]['flowWindow']
+        if self.flowWindow.upper() != "NONE":
+            self.flowWindow = int(self.flowWindow)
+        else:
+            self.flowWindow = None
+        self.postDeflowBase = os.path.join(self.workBase, "flowPreservedDestretch")
+        if not os.path.isdir(self.postDeflowBase):
+            print("{0}: os.mkdir: attempting to create directory:""{1}".format(__name__, self.postDeflowBase))
+            try:
+                os.mkdir(self.postDeflowBase)
+            except Exception as err:
+                print("An exception was raised: {0}".format(err))
+                raise
         self.date = config[self.channel]['obsDate']
         self.time = config[self.channel]['obsTime']
         self.dstrFilePattern = config[self.channel]['destretchedFileForm']
         self.burstNum = config[self.channel]['burstNumber']
         self.ncores = int(config['KISIP_ENV']['kisipEnvMpiNproc'])
         if self.referenceChannel == self.channel:
+            c_dirs = [self.dstrBase]
             self.dstrBase = os.path.join(self.workBase, "destretch_vectors")
-            self.dstrFlows = os.path.join(self.workBase, "destretch_vectors_noflow")
+            if self.flowWindow:
+                self.dstrFlows = os.path.join(self.workBase, "destretch_vectors_noflow")
+                c_dirs.append(self.dstrFlows)
+            else:
+                self.dstrFlows = None
             self.dstrMethod = config[self.channel]['dstrMethod']
             self.dstrWindow = int(config[self.channel]['dstrWindow'])
-            c_dirs = [self.dstrBase, self.dstrFlows]
             for i in c_dirs:
                 if not os.path.isdir(i):
                     print("{0}: os.mkdir: attempting to create directory:""{1}".format(__name__, i))
@@ -522,14 +533,20 @@ class rosaZylaDestretch:
             print("Error: Vector List: {0}".format(err))
             raise
 
-        deflowFlist = sorted(
-            glob.glob(
-                os.path.join(
-                    self.dstrFlows,
-                    '*.npy'
+        if self.dstrFlows:
+            deflowFlist = sorted(
+                glob.glob(
+                    os.path.join(
+                        self.dstrFlows,
+                        '*.npy'
+                    )
                 )
             )
-        )
+            try:
+                self.assert_flist(deflowFlist)
+            except AssertionError as err:
+                print("Error: Vector List: {0}".format(err))
+                raise
 
         if len(postSpklFlist) != len(self.dstrVectorList):
             dstr_vec_increment = len(postSpklFlist)/len(self.dstrVectorList)
@@ -559,24 +576,25 @@ class rosaZylaDestretch:
             )
             self.write_fits(fname, dstrim, file[-1].header, prstep=3)
 
-            if len(deflowFlist) > 0:
-                vecs = np.load(deflowFlist[i])
-                d = Destretch(
-                    img,
-                    img,
-                    self.kernels,
-                    warp_vectors=vecs
-                )
-                dstrim = d.perform_destretch()
-                fname = os.path.join(
-                    self.postDeflowBase,
-                    self.dstrFilePattern.format(
-                        self.date,
-                        self.time,
-                        i
+            if self.flowWindow:
+                if len(deflowFlist) > 0:
+                    vecs = np.load(deflowFlist[i])
+                    d = Destretch(
+                        img,
+                        img,
+                        self.kernels,
+                        warp_vectors=vecs
                     )
-                )
-                self.write_fits(fname, dstrim, file[-1].header, prstep=4)
+                    dstrim = d.perform_destretch()
+                    fname = os.path.join(
+                        self.postDeflowBase,
+                        self.dstrFilePattern.format(
+                            self.date,
+                            self.time,
+                            i
+                        )
+                    )
+                    self.write_fits(fname, dstrim, file[-1].header, prstep=4)
 
             dstr_ctr += dstr_vec_increment
         return
