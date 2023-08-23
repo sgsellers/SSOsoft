@@ -213,6 +213,7 @@ class rosaZylaDestretch:
             self.dstrMethod = config[self.channel]['dstrMethod']
             self.dstrWindow = int(config[self.channel]['dstrWindow'])
             for i in c_dirs:
+                print(c_dirs)
                 if not os.path.isdir(i):
                     print("{0}: os.mkdir: attempting to create directory:""{1}".format(__name__, i))
                     try:
