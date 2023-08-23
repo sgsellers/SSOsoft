@@ -203,8 +203,8 @@ class rosaZylaDestretch:
         self.burstNum = config[self.channel]['burstNumber']
         self.ncores = int(config['KISIP_ENV']['kisipEnvMpiNproc'])
         if self.referenceChannel == self.channel:
-            c_dirs = [self.dstrBase]
             self.dstrBase = os.path.join(self.workBase, "destretch_vectors")
+            c_dirs = [self.dstrBase]
             if self.flowWindow:
                 self.dstrFlows = os.path.join(self.workBase, "destretch_vectors_noflow")
                 c_dirs.append(self.dstrFlows)
@@ -213,7 +213,6 @@ class rosaZylaDestretch:
             self.dstrMethod = config[self.channel]['dstrMethod']
             self.dstrWindow = int(config[self.channel]['dstrWindow'])
             for i in c_dirs:
-                print(c_dirs)
                 if not os.path.isdir(i):
                     print("{0}: os.mkdir: attempting to create directory:""{1}".format(__name__, i))
                     try:
@@ -231,7 +230,8 @@ class rosaZylaDestretch:
                 self.bulkTranslation = config[self.channel]['bulkTranslation']
 
             self.dstrBase = os.path.join(config[self.referenceChannel]['workBase'], "destretch_vectors")
-            self.dstrFlows = os.path.join(config[self.referenceChannel]['workBase'], "destretch_vectors_noflow")
+            if self.flowWindow:
+                self.dstrFlows = os.path.join(config[self.referenceChannel]['workBase'], "destretch_vectors_noflow")
             if not os.path.isdir(self.dstrBase):
                 print(
                     "Destretch: {0}, No destretch vectors found for reference channel: {1}".format(
