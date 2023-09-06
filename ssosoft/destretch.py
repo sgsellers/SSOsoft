@@ -105,7 +105,6 @@ class rosaZylaDestretch:
         self.dstrFilePattern = ""
         self.hdrList = []
         self.burstNum = ""
-        self.ncores = 0
         self.experimental = experimental
         self.repair_tolerance = 0
 
@@ -201,7 +200,6 @@ class rosaZylaDestretch:
         self.time = config[self.channel]['obsTime']
         self.dstrFilePattern = config[self.channel]['destretchedFileForm']
         self.burstNum = config[self.channel]['burstNumber']
-        self.ncores = int(config['KISIP_ENV']['kisipEnvMpiNproc'])
         if self.referenceChannel == self.channel:
             self.dstrBase = os.path.join(self.workBase, "destretch_vectors")
             c_dirs = [self.dstrBase]
