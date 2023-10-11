@@ -904,6 +904,20 @@ class rosaZylaCal:
 						self.gainFile
 						)
 					)
+
+		if os.path.exists(self.noiseFile):
+			self.logger.info("Noise KISIP file already exists: {0}".format(self.noiseFile))
+		else:
+			self.logger.info(
+				"Saving KISIP noise: {0}".format(
+					os.path.join(
+						self.workBase,
+						self.noiseFile
+					)
+				)
+			)
+			self.rosa_zyla_compute_noise_file()
+
 		if os.path.exists(self.noiseFileFits):
 			self.logger.info("Noise FITS file already exists: {0}".format(self.noiseFileFits))
 		else:
