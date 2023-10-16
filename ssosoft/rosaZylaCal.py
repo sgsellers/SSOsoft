@@ -233,7 +233,7 @@ class rosaZylaCal:
 				)
 		i=0
 		if "ROSA" in self.instrument:
-			with fits.open(self.flatList) as hdu:
+			with fits.open(self.flatList[0]) as hdu:
 				if len(hdu[1:]) >= self.burstNumber:
 					while i < self.burstNumber:
 						self.noise[i, :, :] = hdu[1:][i].data - self.avgDark
