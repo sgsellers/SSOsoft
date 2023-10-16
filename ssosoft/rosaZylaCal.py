@@ -232,6 +232,14 @@ class rosaZylaCal:
 				dtype=np.float32
 				)
 		i=0
+		if "ROSA" in self.instrument:
+			while i < self.burstNumber:
+				for flat in self.flatList:
+					with fits.open(flat) as hdu:
+						for hduExt in hdu[1:]
+							self.noise[i, :, :] = hduExt.data - self.avgDark
+							i += 1
+		else:
 		for flat in self.flatList[0:self.burstNumber]:
 			self.noise[i, :, :]=(self.rosa_zyla_read_binary_image(flat)
 					-self.avgDark)
