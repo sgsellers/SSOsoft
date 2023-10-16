@@ -240,10 +240,10 @@ class rosaZylaCal:
 							self.noise[i, :, :] = hduExt.data - self.avgDark
 							i += 1
 		else:
-		for flat in self.flatList[0:self.burstNumber]:
-			self.noise[i, :, :]=(self.rosa_zyla_read_binary_image(flat)
-					-self.avgDark)
-			i+=1
+			for flat in self.flatList[0:self.burstNumber]:
+				self.noise[i, :, :]=(self.rosa_zyla_read_binary_image(flat)
+						-self.avgDark)
+				i+=1
 		self.noise=np.multiply(self.noise, self.gain)
 		
 		self.logger.info("Noise cube complete. "
