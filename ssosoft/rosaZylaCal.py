@@ -233,12 +233,17 @@ class rosaZylaCal:
 				)
 		i=0
 		if "ROSA" in self.instrument:
-			while i < self.burstNumber:
-				for flat in self.flatList:
-					with fits.open(flat) as hdu:
-						for hduExt in hdu[1:]:
-							self.noise[i, :, :] = hduExt.data - self.avgDark
-							i += 1
+			with fits.open(self.flatList) as hdu:
+				if len(hdu[1:]) >= self.burstNumber:
+					while i < self.burstNumber:
+						self.noise[i, :, :] = hdu[1:][i].data - self.avgDark
+						i += 1
+				else:
+					for hduExt in hdu[1:]:
+						self.noise[i, :, :] = hduExt.data - self.avgDark
+						i += 1
+					while i < self.burstNumber:
+						self.noise[i, :, :] = np.nanmean(self.noise[:i, :, :], axis=0)
 		else:
 			for flat in self.flatList[0:self.burstNumber]:
 				self.noise[i, :, :]=(self.rosa_zyla_read_binary_image(flat)
