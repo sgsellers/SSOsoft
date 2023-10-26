@@ -189,7 +189,7 @@ class rosaZylaDestretch:
         else:
             self.flowWindow = None
         self.postDeflowBase = os.path.join(self.workBase, "flowPreservedDestretch")
-        if (not os.path.isdir(self.postDeflowBase)) & (self.flowWindow is not None):
+        if (not os.path.isdir(self.postDeflowBase)) and (not self.flowWindow):
             print("{0}: os.mkdir: attempting to create directory:""{1}".format(__name__, self.postDeflowBase))
             try:
                 os.mkdir(self.postDeflowBase)
