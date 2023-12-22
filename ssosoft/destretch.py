@@ -611,6 +611,11 @@ class rosaZylaDestretch:
             'SCINT', 'LLVL',
             'RSUN_REF'
         ]
+        asec_comment_keywords = [
+        'CDELT1', 'CDELT2',
+        'CRPIX1', 'CRPIX2',
+        'RSUN_REF'
+        ]
         if type(hdr) is fits.header.Header:
             hdul = fits.HDUList(fits.PrimaryHDU(data, header=hdr))
         else:
@@ -638,7 +643,10 @@ class rosaZylaDestretch:
                     field = field.split("\n")[0].strip()
                 field = field.strip()[1:-1].strip()
                 if any(substring in slug for substring in allowed_keywords):
-                    hdul[0].header[slug] = field
+                    if any(substring in slug for substring in asec_comment_keywords):
+                        hdul[0].header[slug] = (field, 'arcsec')
+                    else:
+                        hdul[0].header[slug] = field
         hdul[0].header['AUTHOR'] = 'sellers'
         if alpha:
             hdul[0].header['SPKLALPH'] = alpha

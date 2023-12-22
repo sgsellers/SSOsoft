@@ -852,6 +852,7 @@ class rosaZylaCal:
         burstCube = np.zeros(burstShape, dtype=np.float32)
         burst = 0
         batch = -1
+        self.parse_dcss()
         if 'ZYLA' in self.instrument:
             lastBurst = len(self.dataList) // self.burstNumber
             lastFile = lastBurst * self.burstNumber
