@@ -600,7 +600,17 @@ class rosaZylaDestretch:
 
     def write_fits(self, fname, data, hdr, alpha=None, prstep=3):
         """Write destretched FITS files."""
-        allowed_keywords = ['DATE', 'EXPOSURE', 'HIERARCH']
+        allowed_keywords = [
+            'DATE', 'EXPOSURE', 'HIERARCH',
+            'CRVAL1', 'CRVAL2',
+            'CTYPE1', 'CTYPE2',
+            'CUNIT1', 'CUNIT2',
+            'CDELT1', 'CDELT2',
+            'CRPIX1', 'CRPIX2',
+            'CROTAN',
+            'SCINT', 'LLVL',
+            'RSUN_REF'
+        ]
         if type(hdr) is fits.header.Header:
             hdul = fits.HDUList(fits.PrimaryHDU(data, header=hdr))
         else:
