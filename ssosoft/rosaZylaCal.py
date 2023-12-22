@@ -812,7 +812,7 @@ class rosaZylaCal:
 
         self.DCSSLat = np.array(lat)
         self.DCSSLon = np.array(lon)
-        self.DCSSTimes = np.array(timestamp)
+        self.DCSSTimes = np.array(timestamp, dtype='datetime64[ms]')
         self.DCSSSee = np.array(scin)
         self.DCSSLlvl = np.array(llvl)
         self.DCSSSdim = np.array(srad)
