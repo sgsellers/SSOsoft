@@ -641,7 +641,7 @@ class rosaZylaDestretch:
                 field = header[i].split("=")[-1].split("/")[0]
                 if len(header[i].split("=")[-1].split("/")) == 1:
                     field = field.split("\n")[0].strip()
-                field = field.strip()[:-1].strip()
+                field = field.strip()
                 if any(substring in slug for substring in allowed_keywords):
                     if any(substring in slug for substring in asec_comment_keywords):
                         hdul[0].header[slug] = (field, 'arcsec')
