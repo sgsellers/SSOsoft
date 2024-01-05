@@ -107,6 +107,8 @@ class rosaZylaDestretch:
         self.burstNum = ""
         self.experimental = experimental
         self.repair_tolerance = 0
+        self.wave = ""
+        self.exptime = ''
         # New as of 2024-01-05, list of translations required to get images pointed north.
         self.master_translation = []
         # For compatibility with older datasets that weren't destretched.
@@ -209,6 +211,8 @@ class rosaZylaDestretch:
                 raise
         self.date = config[self.channel]['obsDate']
         self.time = config[self.channel]['obsTime']
+        self.wave = config[self.channel]['wavelengthnm']
+        self.exptime = config[self.channel]['expTimems']
         self.dstrFilePattern = config[self.channel]['destretchedFileForm']
         self.burstNum = config[self.channel]['burstNumber']
         # Keyword bulk translation can be a number, but may be a string.
@@ -701,7 +705,16 @@ class rosaZylaDestretch:
                         else:
                             hdul[0].header[slug] = field
         hdul[0].header['NSUMEXP'] = (self.burstNum, "Frames used in speckle reconstruction")
+        hdul[0].header['TEXPOSUR'] = (self.exptime, "ms, Single-frame exposure time")
         hdul[0].header['AUTHOR'] = 'sellers'
+        hdul[0].header['TELESCOP'] = "DST"
+        if "ROSA" in self.channel.upper():
+            hdul[0].header['INSTR'] = "ROSA"
+        if "ZYLA" in self.channel.upper():
+            hdul[0].header['INSTR'] = "HARDCAM"
+        hdul[0].header['WAVE'] = self.wave
+        hdul[0].header['WAVEUNIT'] = "nm"
+
         if alpha:
             hdul[0].header['SPKLALPH'] = alpha
         for i in range(prstep):
