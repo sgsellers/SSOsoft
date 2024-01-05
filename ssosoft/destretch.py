@@ -306,7 +306,7 @@ class rosaZylaDestretch:
             print("Error: subalphaList: {0}".format(err))
             raise
 
-        for i in range(len(spklFlist)):
+        for i in tqdm.tqdm(range(len(spklFlist)), desc="Converting Speckle to FITS"):
             spklImage = self.read_speckle(spklFlist[i])
             spklImage = self.perform_bulk_translation(spklImage)
             spklImage = self.perform_fine_translation(spklImage)
@@ -433,6 +433,9 @@ class rosaZylaDestretch:
         except AssertionError as err:
             print("Error: speckleList: {0}".format(err))
             raise
+
+        test_image = fits.open(postSpklFlist[0])[-1].data
+        self.dataShape = (test_image.shape[0], test_image.shape[1])
 
         if self.dstrMethod == "running":
             reference_cube = np.zeros((self.dstrWindow, self.dataShape[0], self.dataShape[1]))
