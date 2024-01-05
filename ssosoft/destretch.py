@@ -676,7 +676,7 @@ class rosaZylaDestretch:
         prstep_comments = [
             'SSOsoft',
             'KISIP v0.6',
-            'SSOsoft'
+            'SSOsoft',
             'pyDestretch',
             'pyDestretch with flow preservation'
         ]
@@ -690,10 +690,16 @@ class rosaZylaDestretch:
                 if field.isnumeric():
                     field = float(field)
                 if any(substring in slug for substring in allowed_keywords):
-                    if any(substring in slug for substring in asec_comment_keywords):
-                        hdul[0].header[slug] = (field, 'arcsec')
+                    if "DATE" in slug:
+                        hdul[0].header['STARTOBS'] = (field, "Date of start of observation")
+                        hdul[0].header['DATE_OBS'] = (field, "Date of start of observation")
+                        hdul[0].header['DATE-BEG'] = (field, "Date of start of observation")
+                        hdul[0].header['DATE'] = (np.datetime64('now').astype(str), "Date of file creation")
                     else:
-                        hdul[0].header[slug] = field
+                        if any(substring in slug for substring in asec_comment_keywords):
+                            hdul[0].header[slug] = (field, 'arcsec')
+                        else:
+                            hdul[0].header[slug] = field
         hdul[0].header['AUTHOR'] = 'sellers'
         if alpha:
             hdul[0].header['SPKLALPH'] = alpha
