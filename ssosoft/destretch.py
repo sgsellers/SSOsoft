@@ -317,7 +317,7 @@ class rosaZylaDestretch:
                 self.postSpeckleBase,
                 os.path.split(spklFlist[i])[-1] + '.fits'
             )
-            self.write_fits(fname, spklImage, hdrFile, alpha=alpha, prstep=2)
+            self.write_fits(fname, spklImage, hdrFile, alpha=alpha, prstep=3)
         self.master_translation_done = True
         return
 
