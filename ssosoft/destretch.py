@@ -306,7 +306,7 @@ class rosaZylaDestretch:
             print("Error: subalphaList: {0}".format(err))
             raise
 
-        for i in tqdm.tqdm(range(len(spklFlist)), desc="Converting Speckle to FITS"):
+        for i in tqdm(range(len(spklFlist)), desc="Converting Speckle to FITS"):
             spklImage = self.read_speckle(spklFlist[i])
             spklImage = self.perform_bulk_translation(spklImage)
             spklImage = self.perform_fine_translation(spklImage)
