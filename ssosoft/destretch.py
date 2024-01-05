@@ -107,6 +107,16 @@ class rosaZylaDestretch:
         self.burstNum = ""
         self.experimental = experimental
         self.repair_tolerance = 0
+        # New as of 2024-01-05, list of translations required to get images pointed north.
+        self.master_translation = []
+        # For compatibility with older datasets that weren't destretched.
+        # Going straight from speckle, we perform the master/bulk/fine translations in the speckle to fits function.
+        # Then it doesn't need to be performed in the destretch function.
+        # BUT older datasets don't HAVE speckle files, and go straight from postspeckle fits to spline destretch.
+        # We still want those translations, so we have to do them in the destretch function where they're read in.
+        # Since it's the same function handling both new and old, we set a flag that we fip to true if the translations
+        # have already been performed, and use it on the second translation opportunity.
+        self.master_translation_done = False
 
     def perform_destretch(self):
         """Perform SSOC destretch. You want a different destretch? You want flow-destructive? Code it yourself.
@@ -131,6 +141,8 @@ class rosaZylaDestretch:
     def destretch_rosa(self):
         self.configure_destretch()
         if self.dstrFrom.lower() == "speckle":
+            if self.referenceChannel != self.channel:
+                self.align_derotate_channels()
             self.speckleToFits()
         if self.referenceChannel == self.channel:
             self.destretch_reference()
@@ -138,7 +150,6 @@ class rosaZylaDestretch:
                 self.remove_flows()
                 self.apply_flow_vectors()
         if self.referenceChannel != self.channel:
-            self.align_derotate_channels()
             self.destretch_to_reference()
         return
 
@@ -200,6 +211,14 @@ class rosaZylaDestretch:
         self.time = config[self.channel]['obsTime']
         self.dstrFilePattern = config[self.channel]['destretchedFileForm']
         self.burstNum = config[self.channel]['burstNumber']
+        # Keyword bulk translation can be a number, but may be a string.
+        # Rather than write a function that attempts to identify the nature of the string,
+        # We'll just use a fallback. Try to convert to float. If it fails, leave it as a string.
+        # Also, you should be able to bulk translate the channel if it's the reference channel, so jot that down
+        if config[self.channel]['bulkTranslation'].replace(".", "").replace("-", "").isnumeric():
+            self.bulkTranslation = float(config[self.channel]['bulkTranslation'])
+        else:
+            self.bulkTranslation = config[self.channel]['bulkTranslation']
         if self.referenceChannel == self.channel:
             self.dstrBase = os.path.join(self.workBase, "destretch_vectors")
             c_dirs = [self.dstrBase]
@@ -219,14 +238,6 @@ class rosaZylaDestretch:
                         print("An exception was raised: {0}".format(err))
                         raise
         else:
-            # Keyword bulk translation can be a number, but may be a string.
-            # Rather than write a function that attempts to identify the nature of the string,
-            # We'll just use a fallback. Try to convert to float. If it fails, leave it as a string.
-            if config[self.channel]['bulkTranslation'].replace(".", "").replace("-", "").isnumeric():
-                self.bulkTranslation = float(config[self.channel]['bulkTranslation'])
-            else:
-                self.bulkTranslation = config[self.channel]['bulkTranslation']
-
             self.dstrBase = os.path.join(config[self.referenceChannel]['workBase'], "destretch_vectors")
             if self.flowWindow:
                 self.dstrFlows = os.path.join(config[self.referenceChannel]['workBase'], "destretch_vectors_noflow")
@@ -238,6 +249,13 @@ class rosaZylaDestretch:
                     )
                 )
                 raise
+        if "SHARED" in list(config.keys()):
+            if "ROSA" in self.channel:
+                if 'rosaTranslation'.lower() in list(config['SHARED'].keys()):
+                    self.master_translation = config['SHARED']['rosaTranslation'].split(',')
+            if "ZYLA" in self.channel:
+                if 'zylaTranslation'.lower() in list(config['SHARED'].keys()):
+                    self.master_translation = config['SHARED']['zylaTranslation'].split(',')
 
         # Lets the user define a more lenient tolerance for control point repair in destretch
         # Fully optional keyword, defaults to 0.3
@@ -290,13 +308,17 @@ class rosaZylaDestretch:
 
         for i in range(len(spklFlist)):
             spklImage = self.read_speckle(spklFlist[i])
+            spklImage = self.perform_bulk_translation(spklImage)
+            spklImage = self.perform_fine_translation(spklImage)
+            spklImage = self.perform_master_translation(spklImage)
             hdrFile = self.hdrList[i]
             alpha = np.fromfile(alphaFlist[i], dtype=np.float32)[0]
             fname = os.path.join(
                 self.postSpeckleBase,
                 os.path.split(spklFlist[i])[-1] + '.fits'
             )
-            self.write_fits(fname, spklImage, hdrFile, alpha=alpha, prstep=1)
+            self.write_fits(fname, spklImage, hdrFile, alpha=alpha, prstep=2)
+        self.master_translation_done = True
         return
 
     def perform_bulk_translation(self, image):
@@ -313,6 +335,21 @@ class rosaZylaDestretch:
         elif ((type(self.bulkTranslation) == float) or
               (type(self.bulkTranslation) == int)) and (self.bulkTranslation != 0):
             return scindi.rotate(image, self.bulkTranslation, reshape=False, cval=image[0, 0])
+
+
+    def perform_master_translation(self, image):
+        """
+        Performs the master translations for the instrument specified in the 'SHARED' section of the config file.
+        """
+        for i in self.master_translation:
+            if "rot90" in i.lower():
+                image = np.rot90(image)
+            if "fliplr" in i.lower():
+                image = np.fliplr(image)
+            if "flipud" in i.lower():
+                image = np.flipud(image)
+        return image
+
 
     def perform_fine_translation(self, image):
         """Performs fine detrotation and shifts between cameras."""
@@ -406,6 +443,9 @@ class rosaZylaDestretch:
             # if self.dstrMethod == 'running':
             file = fits.open(postSpklFlist[i])
             img = file[-1].data
+            if not self.master_translation_done:
+                img = self.perform_bulk_translation(img)
+                img = self.perform_master_translation(img)
             if (self.dstrMethod == 'running') & (i == 0):
                 reference_cube[0, :, :] = img
                 reference = reference_cube[0, :, :]
@@ -443,7 +483,7 @@ class rosaZylaDestretch:
                     i
                 )
             )
-            self.write_fits(fname, dstr_im, file[-1].header, prstep=3)
+            self.write_fits(fname, dstr_im, file[-1].header, prstep=4)
         return
 
     def apply_flow_vectors(self):
@@ -490,7 +530,7 @@ class rosaZylaDestretch:
                     i
                 )
             )
-            self.write_fits(fname, dstrim, target_file[-1].header, prstep=4)
+            self.write_fits(fname, dstrim, target_file[-1].header, prstep=5)
         return
 
     def destretch_to_reference(self):
@@ -555,8 +595,10 @@ class rosaZylaDestretch:
         for i in tqdm(range(len(postSpklFlist)), desc="Appling Destretch Vectors..."):
             file = fits.open(postSpklFlist[i])
             img = file[-1].data
-            img = self.perform_bulk_translation(img)
-            img = self.perform_fine_translation(img)
+            if not self.master_translation_done:
+                img = self.perform_bulk_translation(img)
+                img = self.perform_fine_translation(img)
+                img = self.perform_master_translation(img)
             vecs = np.load(self.dstrVectorList[int(round(dstr_ctr))])
             d = Destretch(
                 img,
@@ -573,7 +615,7 @@ class rosaZylaDestretch:
                     i
                 )
             )
-            self.write_fits(fname, dstrim, file[-1].header, prstep=3)
+            self.write_fits(fname, dstrim, file[-1].header, prstep=4)
 
             if self.flowWindow:
                 if len(deflowFlist) > 0:
@@ -593,12 +635,12 @@ class rosaZylaDestretch:
                             i
                         )
                     )
-                    self.write_fits(fname, dstrim, file[-1].header, prstep=4)
+                    self.write_fits(fname, dstrim, file[-1].header, prstep=5)
 
             dstr_ctr += dstr_vec_increment
         return
 
-    def write_fits(self, fname, data, hdr, alpha=None, prstep=3):
+    def write_fits(self, fname, data, hdr, alpha=None, prstep=4):
         """Write destretched FITS files."""
         allowed_keywords = [
             'DATE', 'EXPOSURE', 'HIERARCH',
@@ -620,16 +662,18 @@ class rosaZylaDestretch:
             hdul = fits.HDUList(fits.PrimaryHDU(data, header=hdr))
         else:
             hdul = fits.HDUList(fits.PrimaryHDU(data))
-        prstep_flags = ['PRSTEP1', 'PRSTEP2', 'PRSTEP3', 'PRSTEP4']
+        prstep_flags = ['PRSTEP1', 'PRSTEP2', 'PRSTEP3', 'PRSTEP4', 'PRSTEP5']
         prstep_values = [
             'DARK-SUBTRACTION,FLATFIELDING',
             'SPECKLE-DECONVOLUTION',
+            'ALIGN TO SOLAR NORTH',
             'DESTRETCHING',
             'FLOW-PRESERVING-DESTRETCHING'
         ]
         prstep_comments = [
-            '',
+            'SSOsoft',
             'KISIP v0.6',
+            'SSOsoft'
             'pyDestretch',
             'pyDestretch with flow preservation'
         ]
@@ -637,11 +681,11 @@ class rosaZylaDestretch:
         if type(hdr) is str:
             header = open(hdr, 'r').readlines()
             for i in range(len(header)):
-                slug = header[i].split("=")[0]
+                slug = header[i].split("=")[0].strip()
                 field = header[i].split("=")[-1].split("/")[0]
-                if len(header[i].split("=")[-1].split("/")) == 1:
-                    field = field.split("\n")[0].strip()
-                field = field.strip()
+                field = field.replace("\n","").replace("\'","").strip()
+                if field.isnumeric():
+                    field = float(field)
                 if any(substring in slug for substring in allowed_keywords):
                     if any(substring in slug for substring in asec_comment_keywords):
                         hdul[0].header[slug] = (field, 'arcsec')
