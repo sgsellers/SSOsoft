@@ -700,6 +700,7 @@ class rosaZylaDestretch:
                             hdul[0].header[slug] = (field, 'arcsec')
                         else:
                             hdul[0].header[slug] = field
+        hdul[0].header['NSUMEXP'] = (self.burstNum, "Frames used in speckle reconstruction")
         hdul[0].header['AUTHOR'] = 'sellers'
         if alpha:
             hdul[0].header['SPKLALPH'] = alpha
