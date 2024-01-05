@@ -699,6 +699,8 @@ class rosaZylaDestretch:
                         hdul[0].header['DATE_OBS'] = (field, "Date of start of observation")
                         hdul[0].header['DATE-BEG'] = (field, "Date of start of observation")
                         hdul[0].header['DATE'] = (np.datetime64('now').astype(str), "Date of file creation")
+                    elif "RSUN" in slug:
+                        hdul[0].header['RSUN_ARC'] = (field, "Diameter of Sun in arcsec")
                     else:
                         if any(substring in slug for substring in asec_comment_keywords):
                             hdul[0].header[slug] = (field, 'arcsec')
