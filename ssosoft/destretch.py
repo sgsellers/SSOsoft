@@ -660,6 +660,11 @@ class rosaZylaDestretch:
             'SCINT', 'LLVL',
             'RSUN_REF'
         ]
+        float_keywords = [
+            'CRVAL1', 'CRVAL2',
+            'CROTAN',
+            'SCINT', 'LLVL',
+        ]
         asec_comment_keywords = [
         'CDELT1', 'CDELT2',
         'CRPIX1', 'CRPIX2',
@@ -700,10 +705,12 @@ class rosaZylaDestretch:
                         hdul[0].header['DATE-BEG'] = (field, "Date of start of observation")
                         hdul[0].header['DATE'] = (np.datetime64('now').astype(str), "Date of file creation")
                     elif "RSUN" in slug:
-                        hdul[0].header['RSUN_ARC'] = (field, "Diameter of Sun in arcsec")
+                        hdul[0].header['RSUN_ARC'] = (round(float(field), 3), "Diameter of Sun in arcsec")
+                    elif any(substring in slug for substring in float_keywords):
+                        hdul[0].header[slug] = round(float(field), 3)
                     else:
                         if any(substring in slug for substring in asec_comment_keywords):
-                            hdul[0].header[slug] = (field, 'arcsec')
+                            hdul[0].header[slug] = (round(float(field), 3), 'arcsec')
                         else:
                             hdul[0].header[slug] = field
         hdul[0].header['NSUMEXP'] = (self.burstNum, "Frames used in speckle reconstruction")
