@@ -917,7 +917,7 @@ class rosaZylaCal:
                         text_file.write("CROTAN  ="+str(rotan)+'\n')
                         text_file.write("SCINT   ="+str(scin)+'\n')
                         text_file.write("LLVL    ="+str(llvl)+'\n')
-                        text_file.write("RSUN_REF="+str(solrad))
+                        text_file.write("RSUN_ARC="+str(solrad))
 
 
                     text_file.close()

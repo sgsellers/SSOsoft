@@ -131,7 +131,7 @@ class rosaZylaDestretch:
                     self.dataShape = (2048, 2048)
                     self.destretch_zyla()
                 else:
-                    self.dataShape = (1002, 1004)
+                    # self.dataShape = (1002, 1004)
                     self.destretch_rosa()
         else:
             if "ZYLA" in self.instruments:
