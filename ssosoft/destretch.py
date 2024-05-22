@@ -656,13 +656,13 @@ class rosaZylaDestretch:
             'CUNIT1', 'CUNIT2',
             'CDELT1', 'CDELT2',
             'CRPIX1', 'CRPIX2',
-            'CROTAN',
+            'CROTA2',
             'SCINT', 'LLVL',
             'RSUN_REF'
         ]
         float_keywords = [
             'CRVAL1', 'CRVAL2',
-            'CROTAN',
+            'CROTA2',
             'SCINT', 'LLVL',
         ]
         asec_comment_keywords = [
