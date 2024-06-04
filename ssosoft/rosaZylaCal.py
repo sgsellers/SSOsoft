@@ -300,7 +300,7 @@ class rosaZylaCal:
         config = configparser.ConfigParser()
         config.read(self.configFile)
 
-        self.burstNumber = np.int(config[self.instrument]['burstNumber'])
+        self.burstNumber = int(config[self.instrument]['burstNumber'])
         self.burstFileForm = config[self.instrument]['burstFileForm']
         self.darkBase = config[self.instrument]['darkBase']
         self.dataBase = config[self.instrument]['dataBase']
