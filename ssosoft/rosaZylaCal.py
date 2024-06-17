@@ -328,7 +328,7 @@ class rosaZylaCal:
         self.gainFile = os.path.join(self.workBase, '{0}_gain.fits'.format(self.instrument))
         self.noiseFileFits = os.path.join(self.workBase, '{0}_noise.fits'.format(self.instrument))
 
-		## Directories preSpeckleBase, speckleBase, and postSpeckle
+        ## Directories preSpeckleBase, speckleBase, and postSpeckle
         ## must exist or be created in order to continue.
         for dirBase in [self.preSpeckleBase, self.speckleBase, self.postSpeckleBase, self.hdrBase]:
             if not os.path.isdir(dirBase):
@@ -751,7 +751,10 @@ class rosaZylaCal:
 
     def parse_dcss(self):
         """
-        Parser for DCSS logs to set up time, scintillation, light level, and pointing arrays
+        Parser for DCSS logs to set up time, scintillation, light level, and pointing arrays.
+        Modified 2024-06-17 to add ability to read ICC logs as well.
+        These are largly similar, but DATE and TIME are seperate lines, VTT is used in place of DST,
+        and there are no equal signs.
         """
         # No DCSS Log Set
         if self.DCSSLog == "":
@@ -773,10 +776,31 @@ class rosaZylaCal:
                         line.split("=")[1].split("/")[0].strip().replace("\'","")
                     )
                 )
+            # Reconstructing ICC Datetimes, which are kept in "DATE" and "TIME" lines
+            # DCSS has WP_TIME, RM1_TIME, PT4_TIME, etc... we want to make sure we're not
+            # getting these lines.  Since ICC logs don't have the underscore character
+            # (except in CTRK TRACK_ERROR), we can filter by "_".
+            # This is a blatant hack, but it works.
+            elif ("TIME" in line) & ("_" not in line):
+                timestamp.append(line.split(" ")[-1].replace("\n", ""))
+            elif "DATE" in line:
+                date = line.replace("\n", "").split(" ")[-1].split("/")
+                year = "20" + date[-1]
+                month = date[0]
+                day = date[1]
+                fdate = "-".join([year, month, day])
+                timestamp[-1] = fdate + "T" + timestamp[-1]
+
             if "DST_SLAT" in line:
                 lat.append(
                     float(
                         line.split("=")[1].split("/")[0].strip()
+                    )
+                )
+            elif "VTT SLAT" in line:
+                lat.append(
+                    float(
+                        line.split(" ")[-1].replace("\n", "")
                     )
                 )
             if "DST_SLNG" in line:
@@ -785,10 +809,22 @@ class rosaZylaCal:
                         line.split("=")[1].split("/")[0].strip()
                     )
                 )
+            elif "VTT SLNG" in line:
+                lon.append(
+                    float(
+                        line.split(" ")[-1].replace("\n", "")
+                    )
+                )
             if "DST_SEE" in line:
                 scin.append(
                     float(
                         line.split("=")[1].split("/")[0].strip()
+                    )
+                )
+            elif "VTT SEE" in line:
+                scin.append(
+                    float(
+                        line.split(" ")[-1].replace("\n", "")
                     )
                 )
             if "DST_LLVL" in line:
@@ -797,16 +833,34 @@ class rosaZylaCal:
                         line.split("=")[1].split("/")[0].strip()
                     )
                 )
+            elif "VTT LLVL" in line:
+                llvl.append(
+                    float(
+                        line.split(" ")[-1].replace("\n", "")
+                    )
+                )
             if "DST_GDRN" in line:
                 gdran.append(
                     float(
                         line.split("=")[1].split("/")[0].strip()
                     )
                 )
+            elif "VTT GDRN" in line:
+                gdran.append(
+                    float(
+                        line.split(" ")[-1].replace("\n" ,"")
+                    )
+                )
             if "DST_SDIM" in line:
                 srad.append(
                     float(
                         line.split("=")[1].split("/")[0].strip()
+                    )
+                )
+            elif "VTT SDIM" in line:
+                srad.append(
+                    float(
+                        line.split(" ")[-1].replace("\n", "")
                     )
                 )
 
