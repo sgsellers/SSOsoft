@@ -914,10 +914,12 @@ class rosaZylaCal:
             for file in self.dataList[:lastFile]:
                 data = self.rosa_zyla_read_binary_image(file)
                 burstCube[i, :, :] = rosa_zyla_flatfield_correction(data)
+                burstThsnds = burst // 1000
+                burstHndrds = burst % 1000
+                if i == 0:
+                    startdate = self.zyla_time(1000 * burstThsnds + burstHndrds).fits
                 i += 1
                 if i == self.burstNumber:
-                    burstThsnds = burst // 1000
-                    burstHndrds = burst % 1000
                     burstFile = os.path.join(
                         self.preSpeckleBase,
                         (self.burstFileForm).format(
@@ -937,7 +939,8 @@ class rosaZylaCal:
                         )
                     )
                     text_file = open(hdrFile + '.txt', "w")
-                    text_file.write('DATE    =' + self.zyla_time(1000 * burstThsnds + burstHndrds).fits + "\n")
+                    text_file.write("STARTOBS=" + startdate + "\n")
+                    text_file.write('ENDOBS=' + self.zyla_time(1000 * burstThsnds + burstHndrds).fits + "\n")
                     text_file.write('EXPOSURE=' + self.expTimems + "\n")
                     if self.DCSSLog != "":
                         zyla_idx = _find_nearest(
@@ -997,6 +1000,8 @@ class rosaZylaCal:
                         if (burst == 0) and (i == 0):
                             lastBurst = len(self.dataList) * len(hdu[1:]) // self.burstNumber
                         burstCube[i, :, :] = rosa_zyla_flatfield_correction(hduExt.data)
+                        if i == 0:
+                            startdate = hduExt.header['DATE']
                         i += 1
                         header_index += 1
                         if i == self.burstNumber:
@@ -1026,6 +1031,8 @@ class rosaZylaCal:
                             if header_index >= 257:
                                 header_index = header_index - 256
                             text_file.write(repr(hdu[header_index].header) + "\n")
+                            text_file.write("STARTOBS=" + startdate + "\n")
+                            text_file.write("ENDOBS=" + hdu[header_index].header['DATE'] + '\n')
                             # text_file.write("\n")
                             # text_file.write(repr(hdu[0].header))
                             if self.DCSSLog != "":

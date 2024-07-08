@@ -650,7 +650,8 @@ class rosaZylaDestretch:
     def write_fits(self, fname, data, hdr, alpha=None, prstep=4):
         """Write destretched FITS files."""
         allowed_keywords = [
-            'DATE', 'EXPOSURE', 'HIERARCH',
+            'DATE', 'STARTOBS', 'ENDOBS',
+            'EXPOSURE', 'HIERARCH',
             'CRVAL1', 'CRVAL2',
             'CTYPE1', 'CTYPE2',
             'CUNIT1', 'CUNIT2',
@@ -699,13 +700,16 @@ class rosaZylaDestretch:
                 if field.isnumeric():
                     field = float(field)
                 if any(substring in slug for substring in allowed_keywords):
-                    if "DATE" in slug:
+                    if "STARTOBS" in slug:
                         hdul[0].header['STARTOBS'] = (field, "Date of start of observation")
                         hdul[0].header['DATE_OBS'] = (field, "Date of start of observation")
                         hdul[0].header['DATE-BEG'] = (field, "Date of start of observation")
                         hdul[0].header['DATE'] = (np.datetime64('now').astype(str), "Date of file creation")
+                    if "ENDOBS" in slug:
+                        hdul[0].header['ENDOBS'] = (field, "Date of end of observation")
+                        hdul[0].header['DATE-END'] = (field, "Date of end of observation")
                     elif "RSUN" in slug:
-                        hdul[0].header['RSUN_ARC'] = (round(float(field), 3), "Diameter of Sun in arcsec")
+                        hdul[0].header['RSUN_ARC'] = (round(float(field)/2, 3), "Radius of Sun in arcsec")
                     elif any(substring in slug for substring in float_keywords):
                         hdul[0].header[slug] = round(float(field), 3)
                     else:
@@ -713,14 +717,16 @@ class rosaZylaDestretch:
                             hdul[0].header[slug] = (round(float(field), 3), 'arcsec')
                         else:
                             hdul[0].header[slug] = field
+        hdul[0].header['BUNIT'] = 'DN'
         hdul[0].header['NSUMEXP'] = (self.burstNum, "Frames used in speckle reconstruction")
         hdul[0].header['TEXPOSUR'] = (self.exptime, "ms, Single-frame exposure time")
         hdul[0].header['AUTHOR'] = 'sellers'
         hdul[0].header['TELESCOP'] = "DST"
+        hdul[0].header['ORIGIN'] = 'SSOC'
         if "ROSA" in self.channel.upper():
-            hdul[0].header['INSTR'] = "ROSA"
+            hdul[0].header['INSTRUME'] = "ROSA"
         if "ZYLA" in self.channel.upper():
-            hdul[0].header['INSTR'] = "HARDCAM"
+            hdul[0].header['INSTRUME'] = "HARDCAM"
         hdul[0].header['WAVE'] = self.wave
         hdul[0].header['WAVEUNIT'] = "nm"
 
