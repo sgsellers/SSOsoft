@@ -478,9 +478,9 @@ class rosaZylaDestretch:
                 reference_cube[int(i % self.dstrWindow), :, :] = dstr_im
 
             # Write FITS and vectors
-            dvec_name = os.path.join(self.dstrBase, str(i).zfill(5)+".npy")
+            dvec_name = os.path.join(self.dstrBase, str(i).zfill(5)+".npz")
             self.dstrVectorList.append(dvec_name)
-            np.save(dvec_name, dstr_vecs)
+            np.savez(dvec_name, *dstr_vecs)
 
             fname = os.path.join(
                 self.postDestretchBase,
@@ -513,7 +513,7 @@ class rosaZylaDestretch:
             glob.glob(
                 os.path.join(
                     self.dstrFlows,
-                    '*.npy'
+                    '*.npz'
                 )
             )
         )
@@ -569,7 +569,7 @@ class rosaZylaDestretch:
             glob.glob(
                 os.path.join(
                     self.dstrBase,
-                    '*.npy'
+                    '*.npz'
                 )
             )
         )
@@ -584,7 +584,7 @@ class rosaZylaDestretch:
                 glob.glob(
                     os.path.join(
                         self.dstrFlows,
-                        '*.npy'
+                        '*.npz'
                     )
                 )
             )
@@ -606,7 +606,9 @@ class rosaZylaDestretch:
                 img = self.perform_bulk_translation(img)
                 img = self.perform_fine_translation(img)
                 img = self.perform_master_translation(img)
+            # Since we're using savez, we need to unpack the arrays into a list for destretch
             vecs = np.load(self.dstrVectorList[int(round(dstr_ctr))])
+            vecs = [vecs[k] for k in vecs.files]
             d = Destretch(
                 img,
                 img,
@@ -627,6 +629,7 @@ class rosaZylaDestretch:
             if self.flowWindow:
                 if len(deflowFlist) > 0:
                     vecs = np.load(deflowFlist[i])
+                    vecs = [vecs[k] for k in vecs.files]
                     d = Destretch(
                         img,
                         img,
@@ -867,7 +870,7 @@ class rosaZylaDestretch:
             save_array[index_in_file, 0, :, :] = flow_detr_shifts[0, :, :, index] + grid_y
             save_array[index_in_file, 1, :, :] = flow_detr_shifts[1, :, :, index] + grid_x
             writeFile = os.path.join(self.dstrFlows, str(i).zfill(5))
-            np.save(writeFile + ".npy", save_array)
+            np.save(writeFile + ".npz", save_array)
         return
 
     def remove_flows_alternate(self):
@@ -1026,7 +1029,7 @@ class rosaZylaDestretch:
             save_array[index_in_file, 0, :, :] = flow_detr_shifts[0, :, :, index] + grid_y
             save_array[index_in_file, 1, :, :] = flow_detr_shifts[1, :, :, index] + grid_x
             writeFile = os.path.join(self.dstrFlows, str(i).zfill(5))
-            np.save(writeFile + ".npy", save_array)
+            np.save(writeFile + ".npz", save_array)
         return
 
     def assert_flist(self, flist):
