@@ -495,18 +495,18 @@ class rosaZylaDestretch:
 
     def apply_flow_vectors(self):
         """Apply flow-removed dstr vectors, write fits files to new directory."""
-        dstrFlist = sorted(
+        postSpklFlist = sorted(
             glob.glob(
                 os.path.join(
-                    self.postDestretchBase,
+                    self.postSpeckleBase,
                     '*.fits'
                 )
             )
         )
         try:
-            self.assert_flist(dstrFlist)
+            self.assert_flist(postSpklFlist)
         except AssertionError as err:
-            print("Error: dstrFlist: {0}".format(err))
+            print("Error: postSpklFlist: {0}".format(err))
             raise
 
         deflowFlist = sorted(
@@ -523,11 +523,12 @@ class rosaZylaDestretch:
             print("Error: deflowFlist: {0}".format(err))
             raise
 
-        for i in tqdm(range(len(dstrFlist)), desc="Appling de-flowed destretch"):
-            target_file = fits.open(dstrFlist[i])
+        for i in tqdm(range(len(postSpklFlist)), desc="Appling de-flowed destretch"):
+            target_file = fits.open(postSpklFlist[i])
             target_image = target_file[-1].data
             dstr_vec = np.load(deflowFlist[i])
-            d = Destretch(target_image, target_image, self.kernels, warp_vectors=dstr_vec)
+            vecs = [dstr_vec[k] for k in dstr_vec.files]
+            d = Destretch(target_image, target_image, self.kernels, warp_vectors=vecs)
             dstrim = d.perform_destretch()
             fname = os.path.join(
                 self.postDeflowBase,
@@ -741,136 +742,78 @@ class rosaZylaDestretch:
         return
 
     def remove_flows(self):
-        """Function to perform destretch on single channel, removing flows.
-        By default, this runs over the last kernel."""
+        """Function to remove lateral solar flows from destretch vector.
+        It does this by loading the target control points from the saved destretch parameters,
+        then doing a median filter in the time-direction,
+        subtracting this median off of the target control points.
+        This runs over the last kernel."""
         destretch_coord_list = self.dstrVectorList
         smooth_number = self.flowWindow
-        if self.dstrMethod == 'reference':
-            median_number = 10
-        else:
-            median_number = self.dstrWindow
 
         index_in_file = -1
 
         template_coords = np.load(destretch_coord_list[0])
-        # If the shape of this is nk, 2, ny, nx, truncate to the last along the 0th axis
-        if len(template_coords.shape) > 3:
-            template_coords = template_coords[index_in_file, :, :, :]
-        grid_x, grid_y = np.meshgrid(
-            np.arange(template_coords.shape[-1]),
-            np.arange(template_coords.shape[-2])
-        )
-        # Given that a typical observing day comprises ~1400 files, we cannot hold everything in memory.
-        # So we should only load in the number corresponding to the flowWindow
+        tpl_coord_shape = template_coords[template_coords.files[index_in_file]].shape
         shifts_all = np.zeros(
             (
-                template_coords.shape[0],
-                template_coords.shape[1],
-                template_coords.shape[2],
-                smooth_number * 4
-            ),
-            dtype=np.float32
+                len(destretch_coord_list),
+                *tpl_coord_shape
+            )
         )
         shifts_corr_sum = np.zeros(
             (
-                template_coords.shape[0],
-                template_coords.shape[1],
-                template_coords.shape[2],
-                smooth_number * 4
-            ),
-            dtype=np.float32
+                len(destretch_coord_list),
+                *tpl_coord_shape
+            )
         )
-
-        translations = np.zeros((2, smooth_number * 4), dtype=np.float32)
-
-        for i in tqdm(range(len(destretch_coord_list)), desc="Removing Flows"):
-            master_dv = np.load(destretch_coord_list[i]).astype(np.float32)
-            master_coords = master_dv[index_in_file]
-            master_coords[master_coords == -1] = np.nan
-            # Explanation time.
-            # The algorithm here has 4 base cases:
-            #   1.) 0th iteration,
-            #   2.) iteration number < smooth_number/2,
-            #   3.) iteration number > smooth_number/2 AND iteration_number < number of files - smooth_number/2
-            #   4.) iteration number > number of files - smooth_number/2
-            # Essentially, the goal is to:
-            #   a.) keep the current frame in the center of our window
-            #   b.) Do as few calculations as possible.
-            # 1.) So for i == 0, we set up our arrays for the first smooth_number files in the list.
-            #   Do the uniform/median filter, and take the 0th index of the calculated flows.
-            #   NOT the middle index, cause nothing's happened yet, flow-wise.
-            # 2.) This case, we essentially do not iterate, just save progressive indices until we're in the center
-            #   of the array. No need to recalculate.
-            # 3.) Now we increment forward one. Shift the arrays so the 0th index is overwritten, and the last can
-            #   be filled. Fill the last, recalculate the flows, take the middle index to save
-            # 4.) Now there's no more data to fill. No need to increment or recalculate, just allow the save index
-            #   to progress to the end of the array.
-            if i == 0:
-                # Have to pre-fill arrays on 0th step
-                for j in tqdm(range(smooth_number * 4), desc="Setting up arrays"):
-                    dvs = np.load(destretch_coord_list[j]).astype(np.float32)
-                    translations[:, j] = dvs[0, :, 0, 0]
-                    coords = dvs[index_in_file]
-                    coords[coords == -1] = np.nan
-
-                    shifts_all[0, :, :, j] = coords[0, :, :] - grid_y
-                    shifts_all[1, :, :, j] = coords[1, :, :] - grid_x
-                    # Testing, but I don't think we need bulk shifts.
-                    # These should already be removed if the leading kernel is 0. If it isn't, feck em. [for now]
-                    if j == 0:
-                        shifts_corr_sum[:, :, :, j] = shifts_all[:, :, :, j]
-                    else:
-                        shifts_corr_sum[:, :, :, j] = shifts_corr_sum[:, :, :, j-1] + shifts_all[:, :, :, j]
-                index = i
-                corr_sum = da.from_array(shifts_corr_sum)
-                corr_sum = corr_sum.rechunk({0: 'auto', 1: 'auto', 2: 'auto', 3: -1})
-
-                median_filtered = corr_sum.map_overlap(
-                    _medfilt_wrapper,
-                    depth=0,
-                    window=median_number).compute()
-                median_filtered = da.from_array(median_filtered)
-                median_filtered = median_filtered.rechunk({0: 'auto', 1: 'auto', 2: 'auto', 3: -1})
-                flows = median_filtered.map_overlap(_unifilt_wrapper, depth=0, window=smooth_number).compute()
-
-                flow_detr_shifts = shifts_corr_sum - np.array(flows)
-            elif i < int(smooth_number * 2):
-                index = i
-            elif i > len(destretch_coord_list) - int(smooth_number * 2):
-                index = i % (smooth_number * 2)
+        translations = np.zeros((len(destretch_coord_list), 2))
+        for i in tqdm(range(len(destretch_coord_list)), desc="Loading Destretch Vectors"):
+            dstr = np.load(destretch_coord_list[i])
+            tcpl = dstr[dstr.files[index_in_file]]
+            # Ref. Control Point index depends on whether there are bulk shifts.
+            # If there are an odd number of arrays in the file, there are bulk shifts
+            if len(dstr) % 2 == 0:
+                rcpl = dstr[dstr.files[int(len(dstr)/2) - 1]]
             else:
-                index = int(smooth_number * 2)
-                # Increment the flow arrays forward one after previous step...
-                translations[:, :-1] = translations[:, 1:]
-                shifts_all[:, :, :, :-1] = shifts_all[:, :, :, 1:]
-                shifts_corr_sum[:, :, :, :-1] = shifts_corr_sum[:, :, :, 1:]
+                rcpl = dstr[dstr.files[int((len(dstr)/2))]]
+                translations[i] = dstr[dstr.files[0]]
+            shifts_all[i] = tcpl - rcpl
+            if i == 0:
+                shifts_corr_sum[i] = shifts_all[i]
+            else:
+                shifts_corr_sum[i] = shifts_corr_sum[i - 1] + shifts_all[i]
 
-                # Fill last index with the coordinates smooth_number/2 after current iteration
-                add_to_end = np.load(destretch_coord_list[i + int(smooth_number/2) - 1])
-                coords = add_to_end[index_in_file]
-                translations[:, -1] = add_to_end[0, :, 0, 0]
-                shifts_all[0, :, :, -1] = coords[0, :, :] - grid_y
-                shifts_all[1, :, :, -1] = coords[1, :, :] - grid_x
-                shifts_corr_sum[:, :, :, -1] = shifts_corr_sum[:, :, :, -2] + shifts_all[:, :, :, -1]
+        # Algorithm is:
+        #   1.) Get cumulative sum of all shifts in x/y
+        #   2.) Take median filter of cumulative sum
+        #   3.) Take uniform filter of median-filtered cumulative sum
+        #   4.) Subtract this uniform filter off the cumulative sum
+        #   5.) Add the reference control points back on to cumulative sum
+        #   6.) Save as target control points.
 
-                corr_sum = da.from_array(shifts_corr_sum)
-                corr_sum = corr_sum.rechunk({0: 'auto', 1: 'auto', 2: 'auto', 3: -1})
+        median_filtered = scindi.median_filter(
+            shifts_corr_sum,
+            size=(smooth_number, 1, 1, 1),
+            mode='nearest'
+        )
+        flows = scindi.uniform_filter(
+            median_filtered,
+            size=(smooth_number, 1, 1, 1),
+            mode='nearest'
+        )
+        flow_detr_shifts = shifts_corr_sum - flows
 
-                median_filtered = corr_sum.map_overlap(
-                    _medfilt_wrapper,
-                    depth=0,
-                    window=median_number).compute()
-                median_filtered = da.from_array(median_filtered)
-                median_filtered = median_filtered.rechunk({0: 'auto', 1: 'auto', 2: 'auto', 3: -1})
-                flows = median_filtered.map_overlap(_unifilt_wrapper, depth=0, window=smooth_number).compute()
-
-                flow_detr_shifts = shifts_corr_sum - np.array(flows)
-
-            save_array = master_dv
-            save_array[index_in_file, 0, :, :] = flow_detr_shifts[0, :, :, index] + grid_y
-            save_array[index_in_file, 1, :, :] = flow_detr_shifts[1, :, :, index] + grid_x
+        for i in tqdm(range(len(destretch_coord_list)), desc="Saving Flow-Detrended Vectors"):
+            original_file = np.load(destretch_coord_list[i])
+            original_arrays = [original_file[k] for k in original_file.files]
+            if len(original_arrays) % 2 == 0:
+                rcpl = dstr[dstr.files[int(len(dstr)/2) - 1]]
+            else:
+                rcpl = dstr[dstr.files[int((len(dstr)/2))]]
+            original_arrays[-1] = flow_detr_shifts[i] + rcpl
             writeFile = os.path.join(self.dstrFlows, str(i).zfill(5))
-            np.save(writeFile + ".npz", save_array)
+            np.savez(writeFile + '.npz', original_arrays)
+
         return
 
     def remove_flows_alternate(self):
