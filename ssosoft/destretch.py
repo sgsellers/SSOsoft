@@ -805,11 +805,12 @@ class rosaZylaDestretch:
 
         for i in tqdm(range(len(destretch_coord_list)), desc="Saving Flow-Detrended Vectors"):
             original_file = np.load(destretch_coord_list[i])
-            original_arrays = [original_file[k] for k in original_file.files][:-1]
+            original_arrays = [original_file[k] for k in original_file.files]
             if len(original_arrays) % 2 == 0:
                 rcpl = dstr[dstr.files[int(len(dstr)/2) - 1]]
             else:
                 rcpl = dstr[dstr.files[int((len(dstr)/2))]]
+            original_arrays = original_arrays[:-1]
             original_arrays.append(flow_detr_shifts[i] + rcpl)
             writeFile = os.path.join(self.dstrFlows, str(i).zfill(5))
             np.savez(writeFile + '.npz', original_arrays)
