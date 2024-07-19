@@ -813,7 +813,7 @@ class rosaZylaDestretch:
             original_arrays = original_arrays[:-1]
             original_arrays.append(flow_detr_shifts[i] + rcpl)
             writeFile = os.path.join(self.dstrFlows, str(i).zfill(5))
-            np.savez(writeFile + '.npz', original_arrays)
+            np.savez(writeFile + '.npz', *original_arrays)
 
         return
 
