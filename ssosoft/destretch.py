@@ -49,10 +49,10 @@ class rosaZylaDestretch:
 
         if type(instruments) == str:
             try:
-                assert (instruments.upper() in ['ZYLA', 'ROSA_3500', 'ROSA_4170', 'ROSA_CAK', 'ROSA_GBAND']
+                assert (instruments.upper() in ['ZYLA', 'ROSA_3500', 'ROSA_4170', 'ROSA_CAK', 'ROSA_GBAND', 'ROSA_RED']
                         ), ('Allowed values for <instrument>: '
                             'ZYLA, ROSA_3500, ROSA_4170, '
-                            'ROSA_CAK', 'ROSA_GBAND'
+                            'ROSA_CAK', 'ROSA_GBAND', 'ROSA_RED'
                             )
             except Exception as err:
                 print("Exception {0}".format(err))
@@ -60,11 +60,12 @@ class rosaZylaDestretch:
         elif type(instruments) == list:
             for instrument in instruments:
                 try:
-                    assert (instrument.upper() in ['ZYLA', 'ROSA_3500', 'ROSA_4170', 'ROSA_CAK', 'ROSA_GBAND']
-                            ), ('Allowed values for <instrument>: '
+                    assert (instrument.upper() in [
+                        'ZYLA', 'ROSA_3500', 'ROSA_4170', 'ROSA_CAK', 'ROSA_GBAND', 'ROSA_RED'
+                    ]), ('Allowed values for <instrument>: '
                                 'ZYLA, ROSA_3500, ROSA_4170, '
-                                'ROSA_CAK', 'ROSA_GBAND'
-                                )
+                                'ROSA_CAK', 'ROSA_GBAND', 'ROSA_RED'
+                         )
                 except Exception as err:
                     print("Exception {0}".format(err))
                     raise
