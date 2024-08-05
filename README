@@ -32,9 +32,9 @@ F. Woeger, National Solar Observatory).
 
 +---------------------------------------------------------+
 | +-----------------------------------------------------+ |
-| |		     !!!REPORT BUGS!!!		        | |
-| |						        | |
-| |	Please report any bugs to sellers@nmsu.edu.     | |
+| |		     !!!REPORT BUGS!!!		                    | |
+| |			  			                                | |
+| |  	Please report any bugs to sellers@nmsu.edu.     | |
 | +-----------------------------------------------------+ |
 +---------------------------------------------------------+
 
@@ -42,7 +42,7 @@ F. Woeger, National Solar Observatory).
 To do
 -----
 	
-	* Add support for FIRS, HSG, and SPINOR datasets
+	* Add support for FIRS and SPINOR datasets
 	* Add support for creating overview metrics
 
 
@@ -85,6 +85,7 @@ Astropy
 OpenCV
 Scipy
 tqdm
+Sunpy
 
 
 How to use
