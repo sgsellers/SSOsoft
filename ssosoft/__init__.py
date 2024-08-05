@@ -23,8 +23,8 @@ ssosoftConfig :
     including authorship, version, etc.
 """
 
-from kisipWrapper import *
-from ssosoft.imagers.rosaZylaCal import *
-from ssosoft.imagers.destretch import *
+from imagers.kisipWrapper import *
+from imagers.rosaZylaCal import *
+from imagers.destretch import *
 
-from ssosoft.spectral.hsgCal import *
+from spectral.hsgCal import *
