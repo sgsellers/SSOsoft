@@ -29,7 +29,7 @@ class hsgCal:
     To perform reductions using this package:
     1.) Install this package, along with the rest of SSOSoft.
     2.) Set the necessary instrument parameters in a configuration file.
-        (Use the included sampleConfig.ini as a template)
+        (Use the included rosazyla_sampleConfig.ini as a template)
     3.) Open a Python/iPython terminal and "from hsgCal import hsgCal"
     4.) Start an instance of the calibration class by using
         'h=hsgCal('<CAMERA>', '<CONFIGFILE>')'

@@ -37,7 +37,7 @@ class rosaZylaCal:
     1) Install the softwate using the included distutils script.
 
     2) Set the necessary instrument parameters in a configuration
-    file (use the included sampleConfig.ini as a template).
+    file (use the included rosazyla_sampleConfig.ini as a template).
 
     3) Open a Python terminal and do `import ssosoft`.
 

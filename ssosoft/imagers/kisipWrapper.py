@@ -19,7 +19,7 @@ class kisipWrapper:
 	Woeger & Luehe, 2008, SPIE, 7019E doi:10.1117/12.788062.
 
 	1) Set the necessary KISIP parameters in a configuration file
-	(use the included sampleConfig.ini as a template).
+	(use the included rosazyla_sampleConfig.ini as a template).
 
 	2) Prepare a dataset using the rosaZylaCal class.
 
