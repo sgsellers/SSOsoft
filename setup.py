@@ -3,7 +3,7 @@ from setuptools import setup
 setup(
     name='SSOsoft',
     version='2.0.0',
-    packages=['ssosoft'],
+    packages=['ssosoft', 'imagers', 'spectra'],
     url='https://github.com/sgsellers/SSOsoft',
     license='MIT License',
     author='Sean G. Sellers',
