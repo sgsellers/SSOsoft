@@ -22,10 +22,9 @@ ssosoftConfig :
     Metadata showing basic information about this release of SSOsoft,
     including authorship, version, etc.
 """
-import ssosoft.imagers
 
-from imagers.kisipWrapper import *
-from imagers.rosaZylaCal import *
-from imagers.destretch import *
+from ssosoft.imagers.kisipWrapper import *
+from ssosoft.imagers.rosaZylaCal import *
+from ssosoft.imagers.destretch import *
 
-from spectral.hsgCal import *
+from ssosoft.spectral.hsgCal import *
