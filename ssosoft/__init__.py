@@ -12,19 +12,19 @@ Classes
 -------
 
 kisipWrapper :
-	A wrapper class used for configuring and running the
-	Kiepenheuer-Institut Speckle Interfrerometry Package (KISIP).
+    A wrapper class used for configuring and running the
+    Kiepenheuer-Institut Speckle Interfrerometry Package (KISIP).
 rosaZylaCal :
-	A class containing all methods and attributes necessary for
-	flat-fielding and formatting of images for speckle analysis
-	by KISIP.
+    A class containing all methods and attributes necessary for
+    flat-fielding and formatting of images for speckle analysis
+    by KISIP.
 ssosoftConfig :
-	Metadata showing basic information about this release of SSOsoft,
-	including authorship, version, etc.
+    Metadata showing basic information about this release of SSOsoft,
+    including authorship, version, etc.
 """
 
-from imagers.kisipWrapper import *
-from imagers.rosaZylaCal import *
-from imagers.destretch import *
+from .imagers.kisipWrapper import *
+from .imagers.rosaZylaCal import *
+from .imagers.destretch import *
 
-from spectral.hsgCal import *
+from .spectral.hsgCal import *
