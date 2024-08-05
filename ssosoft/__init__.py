@@ -23,6 +23,8 @@ ssosoftConfig :
     including authorship, version, etc.
 """
 
+import imagers
+
 from imagers.kisipWrapper import *
 from imagers.rosaZylaCal import *
 from imagers.destretch import *
