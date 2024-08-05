@@ -85,7 +85,7 @@ class rosaZylaCal:
     -----------------------------------------------------------------
     """
 
-    from . import ssosoftConfig
+    from ssosoft import ssosoftConfig
 
     def __init__(self, instrument, configFile):
         """

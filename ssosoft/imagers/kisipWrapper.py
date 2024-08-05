@@ -64,7 +64,7 @@ class kisipWrapper:
 	are retreived by using the methods in the rosaZylaCal class.
 	"""
 
-	from . import ssosoftConfig
+	from ssosoft import ssosoftConfig
 
 	def __init__(self, rosaZylaCal):
 		"""
