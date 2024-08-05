@@ -13,7 +13,7 @@ dependencies = [
     'matplotlib',
     'sunpy',
     'setuptools',
-    'cv2'
+    'opencv-python'
 ]
 authors = [
     {name = 'Gordon A. MacDonald'},
