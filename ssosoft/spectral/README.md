@@ -12,7 +12,7 @@ containing data of the shape (1, ny, nx).
 
 Performing calibrations is done by setting up a configuration file, then in python:
 ```python
-import hsgPy.hsgCal as hsg
+import ssosoft.spectral.hsgCal as hsg
 h = hsg.hsgCal("CAMERA_NAME", "configfile.ini")
 h.hsg_run_calibration()
 ```
