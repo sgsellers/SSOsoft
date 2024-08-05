@@ -1,0 +1,31 @@
+[build-system]
+requires = ['setuptools >= 61.0']
+build-backend = 'setuptools.build_meta'
+
+[project]
+name = "SSOsoft-sellers"
+dynamic = ['version']
+dependencies = [
+    'numpy',
+    'astropy',
+    'scipy',
+    'tqdm',
+    'matplotlib',
+    'sunpy',
+    'setuptools',
+    'cv2'
+]
+authors = [
+    {name = 'Gordon A. MacDonald'},
+    {name = 'Sean G. Sellers', email = 'sellers@nmsu.edu'}
+]
+maintainers = [
+    {name = 'Sean G. Sellers', email='sellers@nmsu.edu'}
+]
+description = "Tools for reducing Dunn Solar Telescope data, authored G.A. MacDonald, expanded S.G. Sellers"
+readme = {file = "README", content-type = "text/markdown"}
+license = {text = "MIT License"}
+
+[project.urls]
+homepage = "http://ssoc.nmsu.edu"
+repository = "https://github.com/sgsellers/SSOsoft"
