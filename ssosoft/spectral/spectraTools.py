@@ -68,6 +68,65 @@ def find_line_core(profile, wvl=None):
     return center
 
 
+def linear_retarder(axis_angle, retardance):
+    """Returns Mueller matrix for a linear retarder
+
+    Parameters
+    ----------
+    axis_angle : float
+        Angle of fast axis in radians
+    retardance : float
+        Degree of retardance in radians
+
+    Returns
+    -------
+    retMueller : numpy.ndarray
+        Mueller matrix of retarder
+    """
+
+    c2 = np.cos(2*axis_angle)
+    s2 = np.sin(2*axis_angle)
+
+    retMueller = np.array(
+        [
+            [1, 0, 0, 0],
+            [0, c2**2 + s2**2 * np.cos(retardance), c2 * s2 * (1 - np.cos(retardance)), -s2 * np.sin(retardance)],
+            [0, c2 * s2 * (1 - np.cos(retardance)), s2**2 + c2**2 + np.cos(retardance), c2 * np.sin(retardance)],
+            [0, s2 * np.sin(retardance), -c2 * np.sin(retardance), np.cos(retardance)]
+        ]
+    )
+
+    return retMueller
+
+
+def linear_analyzer_polarizer(axis_angle):
+    """Returns the Mueller matrix for a linear polarizer
+
+    Parameters
+    ----------
+    axis_angle : float
+        Angle of the polarization axis in radians
+
+    Returns
+    -------
+    polMueller : numpy.ndarray
+        Mueller matrix of linear polarizer analyzer
+    """
+
+    c2 = np.cos(2*axis_angle)
+    s2 = np.sin(2*axis_angle)
+
+    polMueller = 0.5 * np.array(
+        [
+            [1, c2, s2, 0],
+            [c2, c2**2, c2*s2, 0],
+            [s2, c2*s2, s2**2, 0],
+            [0, 0, 0, 0]
+        ]
+    )
+    return polMueller
+
+
 def fts_window(wavemin, wavemax, atlas='FTS', norm=True, lines=False):
     """
     For a given wavelength range, return the solar reference spectrum within that range.
@@ -390,7 +449,9 @@ def spectral_skew(image, order=2, slit_reference=0.25):
     return -shifts
 
 
-def detect_beams_hairlines(image, threshold=0.5, hairline_width=5, line_width=15):
+def detect_beams_hairlines(
+        image, threshold=0.5, hairline_width=5, line_width=15, expected_hairlines=2
+):
     """
     Detects beam edges and intensity thresholds from an image (typically a flat).
     This function makes no assumptions as to the number of beams/slits used.
@@ -487,6 +548,23 @@ def detect_beams_hairlines(image, threshold=0.5, hairline_width=5, line_width=15
     beam_edges = np.array(edges).reshape(int(len(edges) / 2), 2)
     slit_edges = np.array(xedges).reshape(int(len(xedges) / 2), 2)
     hairline_centers = np.array(hairline_centers)
+
+    # Recursion in event of improperly detected hairlines
+    if (len(hairline_centers) < expected_hairlines) & (threshold > 5e-2):
+        beam_edges, slit_edges, hairline_centers = detect_beams_hairlines(
+            image, threshold=0.9*threshold,
+            hairline_width=hairline_width,
+            line_width=line_width,
+            expected_hairlines=expected_hairlines
+        )
+    elif (len(hairline_centers) > expected_hairlines) & (threshold < 0.95):
+        beam_edges, slit_edges, hairline_centers = detect_beams_hairlines(
+            image, threshold=1.1*threshold,
+            hairline_width=hairline_width,
+            line_width=line_width,
+            expected_hairlines=expected_hairlines
+        )
+
     return beam_edges, slit_edges, hairline_centers
 
 
