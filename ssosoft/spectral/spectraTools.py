@@ -551,6 +551,7 @@ def detect_beams_hairlines(
 
     # Recursion in event of improperly detected hairlines
     if (len(hairline_centers) < expected_hairlines) & (threshold < 0.95):
+        print("REC1")
         beam_edges, slit_edges, hairline_centers = detect_beams_hairlines(
             image, threshold=1.1*threshold,
             hairline_width=hairline_width,
@@ -558,6 +559,7 @@ def detect_beams_hairlines(
             expected_hairlines=expected_hairlines
         )
     elif (len(hairline_centers) > expected_hairlines) & (threshold > 5e-2):
+        print("REC2")
         beam_edges, slit_edges, hairline_centers = detect_beams_hairlines(
             image, threshold=0.9*threshold,
             hairline_width=hairline_width,
