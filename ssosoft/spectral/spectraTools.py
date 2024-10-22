@@ -34,6 +34,8 @@ def count_recursive_calls(func):
     def wrapper(*args, **kwargs):
         wrapper.num_calls += 1
         return func(*args, **kwargs)
+
+    wrapper.num_calls = 0
     return wrapper
 
 
