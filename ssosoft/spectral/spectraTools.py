@@ -26,6 +26,16 @@ functions represent bits of code that can be reused at a low level. See the indi
 docstrings for a comprehensive explanation of each function given below.
 """
 
+def count_recursive_calls(func):
+    """Fancy wrapper for counting number of recursions.
+    Used in spectraTools.detect_beams_hairlines
+    """
+
+    def wrapper(*args, **kwargs):
+        wrapper.num_calls += 1
+        return func(*args, **kwargs)
+    return wrapper
+
 
 def find_nearest(array, value):
     """
@@ -449,6 +459,7 @@ def spectral_skew(image, order=2, slit_reference=0.25):
     return -shifts
 
 
+@count_recursive_calls
 def detect_beams_hairlines(
         image, threshold=0.5, hairline_width=5, line_width=15, expected_hairlines=2
 ):
@@ -550,22 +561,35 @@ def detect_beams_hairlines(
     hairline_centers = np.array(hairline_centers)
     print(hairline_centers)
     # Recursion in event of improperly detected hairlines
-    if (len(hairline_centers) != expected_hairlines) & (threshold < 0.85):
+    if (len(hairline_centers) != expected_hairlines) & (threshold > 5e-2):
+        # Attempt to decrement the threshold until the correct number
+        # of hairlines is detected.
         print("REC1")
-        beam_edges, slit_edges, hairline_centers = detect_beams_hairlines(
-            image, threshold=1.1*threshold,
-            hairline_width=hairline_width,
-            line_width=line_width,
-            expected_hairlines=expected_hairlines
-        )
-    elif (len(hairline_centers) != expected_hairlines) & (threshold > 5e-2):
-        print("REC2")
         beam_edges, slit_edges, hairline_centers = detect_beams_hairlines(
             image, threshold=0.9*threshold,
             hairline_width=hairline_width,
             line_width=line_width,
             expected_hairlines=expected_hairlines
         )
+    elif threshold <= 5e-2:
+        # If the threshold falls without the correct number of hairlines
+        # being detected, reset the threshold and continue
+        print("REC2")
+        beam_edges, slit_edges, hairline_centers = detect_beams_hairlines(
+            image, threshold=0.85,
+            hairline_width=hairline_width,
+            line_width=line_width,
+            expected_hairlines=expected_hairlines
+        )
+        # If there's more than 50 recursions happening, that's enough to have
+        # looped from threshold 0.85 to 5e-2 twice without finding a correct
+        # solution. Raise an error.
+        if detect_beams_hairlines.num_calls > 50:
+            raise Exception(
+                "expected_hairlins={0}, correct number of hairlines not found within 50 iterations".format(
+                    expected_hairlines
+                )
+            )
 
     return beam_edges, slit_edges, hairline_centers
 
