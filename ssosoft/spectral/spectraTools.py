@@ -548,7 +548,7 @@ def detect_beams_hairlines(
     beam_edges = np.array(edges).reshape(int(len(edges) / 2), 2)
     slit_edges = np.array(xedges).reshape(int(len(xedges) / 2), 2)
     hairline_centers = np.array(hairline_centers)
-
+    print(hairline_centers)
     # Recursion in event of improperly detected hairlines
     if (len(hairline_centers) < expected_hairlines) & (threshold < 0.95):
         print("REC1")
