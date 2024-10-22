@@ -569,6 +569,16 @@ def detect_beams_hairlines(
     slit_edges = np.array(xedges).reshape(int(len(xedges) / 2), 2)
     hairline_centers = np.array(hairline_centers)
     # Recursion in event of improperly detected hairlines
+    # If there's more than 50 recursions happening, that's enough to have
+    # looped from threshold 0.85 to 5e-2 twice without finding a correct
+    # solution. Raise an error.
+    if detect_beams_hairlines.num_calls > 50:
+        raise Exception(
+            "expected_hairlines={0}, expected_beams={1}, expected_slits={2}, ".format(
+                expected_hairlines, expected_beams, expected_slits
+            ) + "expected number of hairlines, beams, or slits not found within 50 iterations"
+        )
+
     if (
             (
                 (len(hairline_centers) != expected_hairlines) or
@@ -594,15 +604,7 @@ def detect_beams_hairlines(
             line_width=line_width,
             expected_hairlines=expected_hairlines
         )
-        # If there's more than 50 recursions happening, that's enough to have
-        # looped from threshold 0.85 to 5e-2 twice without finding a correct
-        # solution. Raise an error.
-        if detect_beams_hairlines.num_calls > 50:
-            raise Exception(
-                "expected_hairlines={0}, expected_beams={1}, expected_slits={2}, ".format(
-                    expected_hairlines, expected_beams, expected_slits
-                ) + "expected number of hairlines, beams, or slits not found within 50 iterations"
-            )
+
 
     return beam_edges, slit_edges, hairline_centers
 
