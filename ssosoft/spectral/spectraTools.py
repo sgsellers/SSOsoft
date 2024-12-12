@@ -4,6 +4,7 @@ import tqdm
 
 
 import numpy as np
+import numpy.lib.recfunctions as nrec
 import numpy.polynomial.polynomial as npoly
 import matplotlib.pyplot as plt
 import scipy.integrate as scint
@@ -80,8 +81,9 @@ def find_line_core(profile, wvl=None):
     return center
 
 
-def linear_retarder(axis_angle, retardance):
-    """Returns Mueller matrix for a linear retarder
+def linearRetarder(axis_angle, retardance):
+    """Returns Mueller matrix for a linear retarder.
+    At some point, I'll come back to this and add in kwargs for dichroism
 
     Parameters
     ----------
@@ -103,7 +105,7 @@ def linear_retarder(axis_angle, retardance):
         [
             [1, 0, 0, 0],
             [0, c2**2 + s2**2 * np.cos(retardance), c2 * s2 * (1 - np.cos(retardance)), -s2 * np.sin(retardance)],
-            [0, c2 * s2 * (1 - np.cos(retardance)), s2**2 + c2**2 + np.cos(retardance), c2 * np.sin(retardance)],
+            [0, c2 * s2 * (1 - np.cos(retardance)), s2**2 + c2**2 * np.cos(retardance), c2 * np.sin(retardance)],
             [0, s2 * np.sin(retardance), -c2 * np.sin(retardance), np.cos(retardance)]
         ]
     )
@@ -111,13 +113,46 @@ def linear_retarder(axis_angle, retardance):
     return retMueller
 
 
-def linear_analyzer_polarizer(axis_angle):
-    """Returns the Mueller matrix for a linear polarizer
+def rotationMueller(phi, reverse=False):
+    """Sets up a Mueller matrix for rotation about the optical axis.
+    Used for transforming between reference frames
+
+    Parameters
+    ----------
+    phi : float
+        Rotation angle in radians
+    reverse: float
+        Flips the sign on the sins. The product of the reversed and natural
+        rotation matrix is the identity matrix
+
+    Returns
+    -------
+    rotationMueller
+    """
+
+    neg = -1 if reverse else 1
+
+    rotationMuellerMatrix = np.array([
+        [1, 0, 0, 0],
+        [0, np.cos(2*phi), neg * np.sin(2*phi), 0],
+        [0, neg * -np.sin(2*phi), np.cos(2*phi), 0],
+        [0, 0, 0, 1]
+    ])
+
+    return rotationMuellerMatrix
+
+
+def linearAnalyzerPolarizer(axis_angle, px=1, py=0):
+    """Returns the Mueller matrix for a non-ideal linear polarizer
 
     Parameters
     ----------
     axis_angle : float
         Angle of the polarization axis in radians
+    px : float
+        Efficiency in X
+    py : float
+        Efficiency in Y
 
     Returns
     -------
@@ -128,15 +163,139 @@ def linear_analyzer_polarizer(axis_angle):
     c2 = np.cos(2*axis_angle)
     s2 = np.sin(2*axis_angle)
 
-    polMueller = 0.5 * np.array(
+    alpha = px**2 + py**2
+    beta = (px**2 - py**2)/alpha
+    gamma = 2*px*py/alpha
+
+    polMueller = (alpha/2) * np.array(
         [
-            [1, c2, s2, 0],
-            [c2, c2**2, c2*s2, 0],
-            [s2, c2*s2, s2**2, 0],
-            [0, 0, 0, 0]
+            [1, beta * c2, beta * s2, 0],
+            [beta * c2, c2**2 + gamma*s2**2, (1-gamma) * c2*s2, 0],
+            [beta * s2, (1 - gamma) * c2*s2, s2**2 + gamma*c2**2, 0],
+            [0, 0, 0, gamma]
         ]
     )
     return polMueller
+
+
+def mirror(rs_over_rp, retardance):
+    """ Returns the Mueller matrix of a mirror
+
+    Parameters
+    ----------
+    rs_over_rp : float
+        Ratio of s- and p-polarization state reflectance
+    retardance : float
+        Degree of retardance in radians
+
+    Returns
+    -------
+    polMirror : numpy.ndarray
+        Mueller matrix of a mirror
+    """
+
+    polMirror = np.array([
+        [(1 + rs_over_rp)/2., (1 - rs_over_rp)/2., 0, 0],
+        [(1 - rs_over_rp)/2., (1 + rs_over_rp)/2., 0, 0],
+        [0, 0, np.sqrt(rs_over_rp)*np.cos(retardance), np.sqrt(rs_over_rp)*np.sin(retardance)],
+        [0, 0, -np.sqrt(rs_over_rp)*np.sin(retardance), np.sqrt(rs_over_rp)*np.cos(retardance)]
+    ])
+
+    return polMirror
+
+
+def matrix_inversion(input_array, output_array):
+    """
+    Simple matrix inversion and solve. Used in constructing Mueller matrix for optical train
+
+    Parameters
+    ----------
+    input_array : numpy.ndarray
+        Input Stokes Vector
+    output_array : numpy.ndarray
+        Output Stokes vector
+
+    Returns
+    -------
+    error : numpy.ndarray
+        Chi squared array
+    matrix : numpy.ndarray
+        Solution matrix
+    """
+
+    D = input_array.T @ input_array
+    D_inv = np.linalg.inv(D)
+    A = D_inv @ input_array.T
+    matrix = A @ output_array
+    chi = np.nansum((output_array-input_array@matrix)**2)/input_array.size
+
+    error = np.array([A[:, i]**2 for i in range(A.shape[1])])
+    error = np.sqrt(error * chi)
+    matrix = matrix.T
+
+    return error, matrix
+
+
+def check_mueller_physicality(mueller_mtx):
+    """Checks if an input matrix is a "reasonable" Mueller matrix. From J.C. del Toro Iniesta:
+        - First Element must be non-negative
+        - First row must be a physically meaningful Stokes vector, i.e.,
+            M00 >= sqrt(M01**2 + M02**2 + M03**2)
+        - First Column is a physically meaningful Stokes vector
+        C. Beck's algorithm does this by applying a Stokes vector defined between 0--2pi on
+        a grid of theta and phi where:
+        - I = 1
+        - Q = cos(phi) * sin(theta)
+        - U = sin(phi) * sin(theta)
+        - V = cos(theta)
+
+    Parameters
+    ----------
+    mueller_mtx : numpy.ndarray
+        4x4 Mueller matrix to check for physicality
+
+    Returns
+    -------
+    bool
+        False if matrix is found to unphysical, True otherwise
+    master_imin : float
+        Minimum value for the Stokes-I value of the output vector. Unphysical if < 0
+    master_pmin : float
+        Minimum value for I**2 - (Q**2 + U**2 + V**2). Unphysical if < 0
+
+    """
+
+    if mueller_mtx[0, 0] < 0:
+        return False
+
+    theta = np.arange(0, 1, 1/400) * 2 * np. pi
+    phi = np.arange(0, 1, 1/1000) * 2 * np.pi
+
+    master_pmin = 1
+    master_imin = 10
+
+    for i in range(len(theta)):
+        stokes_vec = np.array([
+            np.ones(len(phi)), # I
+            np.cos(phi) * np.sin(theta[i]), # Q
+            np.sin(phi) * np.sin(theta[i]), # U
+            np.cos(theta[i]) * np.ones(len(phi)) # V
+        ])
+
+        stokes_prime = np.array([
+            mueller_mtx @ stokes_vec[:, i] for i in range(len(phi))
+        ]).T
+
+        # Cast to 16-bit to avoid floating point errors in ideal Mueller matrices
+        pvec = (stokes_prime[0, :]**2 - np.nansum(stokes_prime[1:, :]**2, axis=0)).astype(np.float16)
+
+        master_pmin = np.nanmin(pvec) if np.nanmin(pvec) < master_pmin else master_pmin
+        master_imin = np.nanmin(stokes_prime[0, :]) if np.nanmin(stokes_prime[0, :]) < master_imin else master_imin
+
+        if (master_pmin < 0) or (master_imin < 0):
+            return False, master_imin, master_pmin
+
+    return True, master_imin, master_pmin
 
 
 def fts_window(wavemin, wavemax, atlas='FTS', norm=True, lines=False):
@@ -454,7 +613,7 @@ def spectral_skew(image, order=2, slit_reference=0.25):
     core_linear = lincoeff[0] + yrange * lincoeff[1]
     shifts = (core_polynomial - core_linear[int(slit_reference * image.shape[0])])
 
-    if np.nanmean(shifts) >= 7.5:
+    if np.abs(np.nanmean(shifts)) >= 7.5:
         warnings.warn(
             "Large average shift (" + str(np.nanmean(shifts)) + ") measured along the slit. Check your inputs.")
 
@@ -934,151 +1093,302 @@ def moment_analysis(wave, intens, refwvl, continuumCorrect=True):
     return I, v, w
 
 
-def fit_profile_old(shift, reference_profile, mean_profile):
-    """
-    For use with scipy.optimize.curve_fit; this function shifts reference profile by "shift"
-    and returns its chi-squared value relative to mean_profile
-
-    :param shift: float
-        Value for shift
-    :param reference_profile: array-like
-        The reference profile to shift against
-    :param mean_profile: array-like
-        The mean profile to shift to match reference
-    :return chisq: float
-        Chisquared value for reference relative to shifted mean profile
-    """
-    shifted_mean = scind.shift(mean_profile, shift, mode='nearest')
-    divided = reference_profile / shifted_mean
-    lincoef = np.polynomial.polynomial.Polynomial.fit(
-        np.arange(len(divided)), divided, 1
-    ).convert().coef
-    fit_line = np.arange(len(divided)) * lincoef[1] + lincoef[0]
-
-    return chi_square(divided, fit_line)
-
-
 def chi_square(fit, prior):
     return np.nansum((fit - prior) ** 2) / len(fit)
 
 
-def create_gaintables_old(flat, lines_indices,
-                          hairline_positions=None, neighborhood=6,
-                          iterations=3, hairline_width=3, edge_padding=10):
+def image_align(image, reference):
     """
-    Creates the gain of a given input flat field beam.
-    This assumes a deskewed field, and will determine the shift of the template mean profile, then detrend the spectral
-    profile, leaving only the background detector flat field.
-    :param flat: numpy.ndarray
-        Dark-corrected flat field image to determine the gain for
-    :param lines_indices: list
-        Indices of the spectral line to use for deskew. Form [idx_low, idx_hi]
-    :param hairline_positions: list
-        List of hairline y-centers. If None, hairlines are not masked. May cause issues in line position finding.
-    :param neighborhood: int
-        Size of region to use for mean profile calculation.
-        Selects a region at the position of the profile +/- neighborhood/2
-    :param iterations: int
-        Number of iterations to perform on the gain table.
-    :param hairline_width: int
-        Width of hairlines for masking. Default is 3
-    :param edge_padding: int
-        Cuts the profile arrays by this amount on each end to avoid edge effects.
-    :return gaintable: numpy.ndarray
-        Gain table from iterating along overlapping subdivisions
-    :return coarse_gaintable: numpy.ndarray
-        Gain table from using full slit-averaged profile
-    :return init_skew_shifts: numpy.ndarray
-        Shifts used in initial flat field deskew. Can be applied to final gain-corrected science maps.
+    Wraps scipy.signal.fftconvolve to align two images.
+
+    Parameters
+    ----------
+    image : numpy.ndarray
+        2D image to align
+    reference : numpy.ndarray
+        2d reference image for alignment
+
+    Returns
+    -------
+    aligned_image : numpy.ndarray
+        Aligned image
+    shifts : numpy.ndarray
+        Shifts to align image
     """
-    masked_flat = flat.copy()
-    if hairline_positions is not None:
-        for line in hairline_positions:
-            masked_flat[int(line - hairline_width - 1):int(line + hairline_width), :] = np.nan
-    init_skew_shifts = spectral_skew(masked_flat[:, lines_indices[0]:lines_indices[1]])
-    init_deskew = np.zeros(masked_flat.shape)
-    for i in range(masked_flat.shape[0]):
-        init_deskew[i, :] = scind.shift(masked_flat[i, :], init_skew_shifts[i], mode='nearest')
-    mean_profile = np.nanmean(
-        init_deskew[
-            int(init_deskew.shape[0] / 2 - 30):int(init_deskew.shape[0] / 2 + 30), :
-        ],
-        axis=0
+
+    y0 = image.shape[0] / 2.
+    x0 = image.shape[1] / 2.
+    y0_ref = reference.shape[0] / 2.
+    x0_ref = reference.shape[1] / 2.
+
+    shifts = np.zeros(2)
+    aligned_image = np.zeros(image.shape)
+
+    img = image - np.nanmean(image)
+    ref = reference - np.nanmean(reference)
+
+    corrmap = scig.fftconvolve(img, ref[::-1, ::-1], mode='same')
+
+    y, x = np.unravel_index(np.argmax(corrmap), corrmap.shape)
+    shifts[0] = (y0 - y - (y0 - y0_ref))
+    shifts[1] = (x0 - x - (x0 - x0_ref))
+
+    scind.shift(image, shifts, output=aligned_image, mode='constant', cval=np.nanmean(image))
+
+    return aligned_image, shifts
+
+
+def grating_calculations(
+        gpmm, blaze, alpha, pix_size, wavelength, order,
+        collimator=3040, camera=1700, slit_width=40, slit_scale=3.76*1559/780,
+        grating_length=206, pupil_diameter=762*1559/54864, slit_camera=780
+):
+    """
+    Basic grating calculation set. Calculates dispersion,
+    Parameters
+    ----------
+    gpmm : float
+        lines per mm of grating
+    blaze : float
+        blaze angle of grating [degrees]
+    alpha : float
+        incident angle of light/tilt angle of grating [degrees]
+    pix_size : float
+        size of detector pixels [um]
+    collimator : float
+        focal length of spectrograph collimator [mm]. For SPINOR/HSG, this is usually 3040 mm
+    camera : float
+        focal length of spectrograph camera lens [mm]. For SPINOR/HSG, this is usually 1700 mm
+    slit_width : float
+        Width of spectrograph slit [um].
+    slit_scale : float
+        Plate scale of image on slit unit.
+        Typically ~7.52 asec/mm for the 780 mm lens that we usually use to feed HSG/SPINOR/FIRS
+    grating_length : float
+        Length in mm of grating. Typically 206 for SPINOR/HSG/FIRS gratings.
+    pupil_diameter : float
+        Diameter of pupil [mm] before the lens that images the field onto the slit unit.
+        Default value is the DST Port 4 pupil, evaluates to ~21.65 mm
+    slit_camera : float
+        Focal length of camera lens on the slit unit. Usually 780 mm
+
+    Returns
+    -------
+    grating_params : numpy.rec.recarray
+        Numpy recarray containing the following attributes:
+        eff : float
+            Grating efficiency
+        shade : float
+            Grating shading percent
+        net_eff : float
+            Combined efficiency from eff and shade
+        littrow : float
+            Littrow angle of the reflected beam
+        spectral_scale : float
+            Spectral pixel width
+        spectral_resolution : float
+            From slit width, diffraction resolution, etc.
+    """
+    # Conversion factors
+    angstrom_per_m = 1e10
+    um_per_m = 1e6
+    mm_per_m = 1e3
+
+    # f-number = focal length / diameter
+    fnum = slit_camera / pupil_diameter
+
+    # theta = arcsin(m * lambda * d - sin(alpha)), d = grating scale, m = order, alpha = incident angle
+    refl_angle = np.arcsin(
+        order * (wavelength/angstrom_per_m)  * (gpmm * mm_per_m ) - np.sin(alpha * np.pi/180)
+    ) * 180/np.pi
+
+    # magnification, M = cos(alpha)/cos(theta)
+    slit_mag = np.cos(alpha * np.pi/180.) / np.cos(refl_angle * np.pi/180.)
+
+    # Resolving power, R = W*m
+    # Here, W is really a stand-in for the number of illuminated rulings on the grating.
+    # m is, as always, the order
+    # We compare the projected width of the grating at the angle alpha
+    # size of the illuminated patch
+    n_lines = grating_length * gpmm
+    projected_width = (grating_length/mm_per_m) * np.cos(alpha * np.pi/180.)
+    geometric_width = (collimator/mm_per_m) / fnum
+    slit_diffraction_width = 2 * (collimator/mm_per_m) * (wavelength/angstrom_per_m) / (slit_width/um_per_m)
+    illumination_width = np.sqrt(geometric_width**2 + slit_diffraction_width**2)
+    # i.e., if the illumination width is smaller than projected width, some percent of the total
+    # number of rulings will be illuminated, expressed as a percent of the projection width.
+    # If the projected width is the limiting factor, 100% of the rules will be illuminated
+    effective_grating_width = np.nanmin([projected_width, illumination_width])/projected_width
+    grating_resolution = order * effective_grating_width * n_lines
+    diffraction_resolution_mA = 1000 * wavelength / grating_resolution
+
+    # Dispersion, D = camera * m * d / cos(theta)
+    dispersion = (camera/mm_per_m) * order * (gpmm*mm_per_m) / np.cos(refl_angle * np.pi/180)
+    # unitless quantity; m/m. Convert to um/mA
+    dispersion_um_mA = dispersion * um_per_m / angstrom_per_m / 1000
+    spectral_scale = pix_size / dispersion_um_mA
+    # Spectral slit width = camera * slit_width * slit_magnification / (dispersion * collimator)
+    spectral_slit_width = camera * slit_width * slit_mag / (dispersion_um_mA * collimator)
+
+    # Add diffraction resln., slit width, and pixel size in quadrature
+    spectral_resolution = np.sqrt(diffraction_resolution_mA**2 + spectral_scale**2 + spectral_slit_width**2)
+
+    # grating efficiency calculation:
+    # gamma = pi * 1/d * cos(theta) * [sin(alpha - blaze) + sin(theta - blaze)]/(lambda*cos(alpha - blaze))
+    # eff. (sin(gamma)/gamma)^2
+    gamma = np.pi * np.cos(
+        refl_angle * np.pi/180
+    ) * (np.sin((alpha - blaze)*np.pi/180) + np.sin((refl_angle - blaze)*np.pi/180))/(
+        gpmm*mm_per_m*(wavelength/angstrom_per_m)*np.cos((alpha - blaze)*np.pi/180)
     )
-    mean_profile_center = find_line_core(mean_profile[lines_indices[0] - 3:lines_indices[1] + 3]) + lines_indices[0] - 3
-    shifted_lines = np.zeros(masked_flat.shape)
-    sh = []
-    for i in range(masked_flat.shape[0]):
-        if i == 0:
-            last_nonnan = np.nan
-        line_position = find_line_core(
-            masked_flat[i, lines_indices[0] - 3:lines_indices[1] + 3]
-        ) + lines_indices[0] - 3
-        if np.isnan(line_position):
-            if np.isnan(last_nonnan):
-                shift = 0
-            else:
-                shift = last_nonnan - mean_profile_center
-        else:
-            shift = line_position - mean_profile_center
-            last_nonnan = line_position
-        sh.append(shift)
-        shifted_lines[i, :] = scind.shift(mean_profile, shift, mode='nearest')
-    coarse_gaintable = flat / shifted_lines
-    if hairline_positions is not None:
-        for line in hairline_positions:
-            coarse_gaintable[int(line - hairline_width - 1):int(line + hairline_width), :] = 1
+    grating_efficiency = (np.sin(gamma)/gamma)**2
+    incident_shade = 1 - np.sin(np.abs((alpha-blaze)*np.pi/180))/np.sin((90-blaze)*np.pi/180)
+    reflect_shade = 1 - np.sin(np.abs((refl_angle-blaze)*np.pi/180))/np.sin((90-blaze)*np.pi/180)
+    shade = np.nanmin([incident_shade, reflect_shade])
 
-    # Smooth rough gaintable in the chosen line
-    if lines_indices[0] < 20:
-        lowidx = 0
+    eff = grating_efficiency * shade
+
+    littrow = alpha - refl_angle
+
+    grating_params = np.arrays(
+        [
+            np.array(grating_efficiency),
+            np.array(shade),
+            np.array(eff),
+            np.array(littrow),
+            np.array(spectral_scale),
+            np.array(spectral_resolution)
+        ],
+        names=[
+            "Grating_Efficiency",
+            "Shading",
+            "Total_Efficiency",
+            "Littrow_Angle",
+            "Spectral_Pixel",
+            "Spectrograph_Resolution"
+        ]
+    )
+
+    return grating_params
+
+
+def solve_grating(
+        gpmm, blaze, pix_size, wavelength,
+        alpha=None,
+        collimator=3040, camera=1700, slit_width=40, slit_scale=3.76*1559/780,
+        grating_length=206, pupil_diameter=762*1559/54864, slit_camera=780,
+        minLaserAngle=1.7
+):
+    """
+    Solve for best grating angle and order for a given wavelength.
+    Wraps grating_calculations function to solve first for most efficient order
+    at alpha=blaze, then solves for alpha that maximizes efficiency in that order.
+    If alpha is given, rather than being None, just solves for order, assuming that
+    someone with a goal has decided on the best grating angle.
+
+    Most params are passthroughts to grating_calculations
+    Parameters
+    ----------
+    gpmm : float
+        Lines per mm of used grating
+    blaze : float
+        Blaze angle (in degrees)
+    pix_size : float
+        Size of camera pixels in um
+    wavelength : float
+        Wavelength of interest (in Angstrom)
+    alpha : None-type or float
+        If None, solves for the most efficient grating angle.
+        If grating angle is given (in degrees), solves for best order.
+    collimator : float
+        Focal length of collimator upstream of the grating.
+        For HSG/SPINOR, usually 3040 mm
+    camera : float
+        Focal length of camera lens downstream of grating
+        For HSG/SPINOR, ususally 1700 mm.
+    slit_width : float
+        Width of slit in um. Contributes to spectral resolution
+    slit_scale : float
+        Plate scale at the slit unit in arcsec/mm
+    grating_length : float
+        Length of ruled area in mm. Sets the number of illuminated lines
+    pupil_diameter : float
+        Diameter of pupil image upstream of slit unit. For DST, typically 21.65 mm
+    slit_camera : float
+        Focal length of camera lens that places the field on the slit unit.
+        For HSG/SPINOR, usually 780 mm
+    minLaserAngle : float or None
+        Minimum allowable reflection angle, referenced to incoming beam.
+        HSG/SPINOR in particular cannot accomodate angles less than 1.7 degrees,
+        as these angles clip the rastering box structure. Can be None if this is
+        of no concern
+
+    Returns
+    -------
+    grating_solution : numpy.recarray
+        Numpy structured array contating grating solution, to include:
+            Order : int
+            Alpha : float, degrees
+            Grating_Efficiency : float, fractional
+            Shading : float, fractional
+            Total_Efficiency : float, fractional
+            Littrow_Angle : float, degrees
+            Spectral_Pixel : float, milliangstroms
+            Spectrograph_Resolution : float, milliangstroms
+    """
+    if alpha is not None:
+        init_alpha = alpha
     else:
-        lowidx = lines_indices[0] - 20
-    if lines_indices[1] > flat.shape[0] - 20:
-        highidx = flat.shape[0] - 1
-    else:
-        highidx = lines_indices[1] + 20
-    for i in range(coarse_gaintable.shape[1]):
-        coarse_gaintable[lines_indices[0] - 7:lines_indices[1] + 7, i] = np.nanmean(coarse_gaintable[lowidx:highidx, i])
+        init_alpha = blaze
+    order_arr = np.arange(1, 150, 1).astype(int)
+    effs = np.array([
+        grating_calculations(
+            gpmm, blaze, init_alpha, pix_size, wavelength, x,
+            collimator=collimator, camera=camera, slit_width=slit_width,
+            slit_scale=slit_scale, grating_length=grating_length,
+            pupil_diameter=pupil_diameter, slit_camera=slit_camera
+        )['Total_Efficiency'] for x in order_arr
+    ])
 
-    corrected_flat = masked_flat / coarse_gaintable
+    bestOrder = order_arr[list(effs).index(np.nanmax(effs))]
 
-    for i in range(iterations):
-        # if neighborhood < 6:
-        #     neighborhood = 6
-        skew_shifts = spectral_skew(corrected_flat[:, lines_indices[0]:lines_indices[1]])
-        deskew_corrected_flat = np.zeros(corrected_flat.shape)
-        for j in range(corrected_flat.shape[0]):
-            deskew_corrected_flat[j, :] = scind.shift(corrected_flat[j, :], skew_shifts[j], mode='nearest')
-        shifted_lines = np.zeros(corrected_flat.shape)
-        if hairline_positions is not None:
-            for line in hairline_positions:
-                deskew_corrected_flat[
-                    int(line - hairline_width - 1):int(line + hairline_width), :
-                ] = deskew_corrected_flat[(int(line + hairline_width + 2))]
-                corrected_flat[
-                    int(line - hairline_width - 1):int(line + hairline_width), :
-                ] = corrected_flat[(int(line + hairline_width + 2))]
-        mean_profiles = scind.median_filter(deskew_corrected_flat, size=(neighborhood, 1))
-        # return mean_profiles
-        sh = []
-        for j in range(corrected_flat.shape[0]):
-            ref_profile = corrected_flat[j, :] / np.nanmedian(corrected_flat[j, :])
-            mean_profile = mean_profiles[j, :] / np.nanmedian(mean_profiles[j, :])
-            mean_profile = scind.shift(mean_profile, -skew_shifts[j], mode='nearest')
-            line_shift = iterate_shifts(
-                ref_profile[edge_padding:-edge_padding],
-                mean_profile[edge_padding:-edge_padding]
+    if alpha is None:
+        max_ang = blaze + 20
+        if max_ang >= 90:
+            max_ang = 89
+        alpha_arr = np.arange(blaze - 20, max_ang, 0.05)
+        effs = np.zeros(alpha_arr.shape)
+        littrow = np.zeros(alpha_arr.shape)
+        for a in range(len(alpha_arr)):
+            params = grating_calculations(
+                gpmm, blaze, alpha_arr[a], pix_size, wavelength, bestOrder,
+                collimator=collimator, camera=camera, slit_width=slit_width,
+                slit_scale=slit_scale, grating_length=grating_length,
+                pupil_diameter=pupil_diameter, slit_camera=slit_camera
             )
-            sh.append(line_shift)
-            shifted_lines[j, :] = scind.shift(mean_profile, line_shift, mode='nearest')
+            effs[a] = params["Total_Efficiency"]
+            littrow[a] = params["Littrow_Angle"]
 
-        gaintable = flat / shifted_lines
-        gaintable = gaintable / np.nanmedian(gaintable)
-        if hairline_positions is not None:
-            for line in hairline_positions:
-                gaintable[int(line - hairline_width - 1):int(line + hairline_width), :] = 1
-        corrected_flat = masked_flat / gaintable
-        # neighborhood = int(neighborhood / 2)
+        bestAlpha = alpha_arr[list(effs).index(np.nanmax(effs))]
+    else:
+        bestAlpha = alpha
 
-    return gaintable, coarse_gaintable, init_skew_shifts, shifted_lines
+    grating_params = grating_calculations(
+        gpmm, blaze, bestAlpha, pix_size, wavelength, bestOrder,
+        collimator=collimator, camera=camera, slit_width=slit_width,
+        slit_scale=slit_scale, grating_length=grating_length,
+        pupil_diameter=pupil_diameter, slit_camera=slit_camera
+    )
+    # Incorrect. Returns an iterable. Figure out how to return modded recarray.
+    grating_params = nrec.append_fields(
+        [grating_params],
+        ['Order', 'Alpha', 'Laser_Angle'],
+        [
+            np.array([bestOrder]),
+            np.array([round(bestAlpha, 2)]),
+            np.array([round(grating_params['Littrow_Angle']/2, 3)])
+        ],
+        asrecarray=True
+    )
+    return grating_params
+
