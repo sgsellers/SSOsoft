@@ -1,6 +1,6 @@
 import configparser
 
-from pyDestretch import *
+from .pyDestretch import *
 import numpy as np
 import cv2
 import glob

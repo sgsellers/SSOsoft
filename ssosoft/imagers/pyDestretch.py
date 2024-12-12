@@ -58,8 +58,8 @@ def _image_align(image, reference, tolerance=None):
 
     if tolerance is not None:
         if (shifts[0] > tolerance[0]) or (shifts[1] > tolerance[1]):
-            im_inv = 1. / img
-            ref_inv = 1. / ref
+            im_inv = img
+            ref_inv = ref
 
             corr_map_inv = scisig.fftconvolve(im_inv, ref_inv[::-1, ::-1], mode='same')
 
@@ -187,6 +187,10 @@ class Destretch:
                             prefilter=False,
                             cval=self.destretch_target[0, 0]
                         )
+                        mask = self.destretch_image == 0.
+                        self.destretch_image[mask] = self.destretch_target[mask]
+                        self.destretch_target = self.destretch_image
+
         # Rewrote self.warp_vectors to be a list of numpy arrays,
         # corresponding to two even-length sequential lists of reference then target control points
         # With a leading shifts if necessary. Only way to get a len(self.warp_vector) = 1 is shifts only
@@ -327,7 +331,7 @@ class Destretch:
              int(self.wxy),
              int(self.control_size[0]),
              int(self.control_size[1])),
-            dtype=np.csingle)
+            dtype=float)
         ly = int(self.bound_size[1])
         hy = ly + self.wxy
         for j in range(0, int(self.control_size[1])):
@@ -336,7 +340,7 @@ class Destretch:
             for i in range(0, int(self.control_size[0])):
                 z = self.reference_image[lx:hx, ly:hy]
                 z = z - np.sum(z) / (self.wxy ** 2)
-                reference_window[:, :, i, j] = np.conjugate(np.fft.fft(z * wander_mask))
+                reference_window[:, :, i, j] = z * wander_mask
                 lx += self.kernel_size
                 hx += self.kernel_size
             ly += self.kernel_size
@@ -385,10 +389,8 @@ class Destretch:
                 k_ty = np.sum(ss * ty) / nny
                 ss = (ss - (k_tx * tx + k_ty * ty)) * wander_mask
                 cc = scindi.shift(
-                    np.abs(
-                        np.fft.fft(
-                            np.fft.fft(ss) * reference_window[:, :, i, j]
-                        )
+                    scisig.fftconvolve(
+                        ss, reference_window[:, :, i, j][::-1, ::-1]
                     ),
                     [self.wxy / 2, self.wxy / 2],
                     mode='grid-wrap'
@@ -399,7 +401,6 @@ class Destretch:
                 if (mx_loc[0] * mx_loc[1] > 0) and (mx_loc[0] < (cc.shape[0] - 1)) and (mx_loc[1] < (cc.shape[1] - 1)):
                     denom = mx * 2 - cc[mx_loc[0] - 1, mx_loc[1]] - cc[mx_loc[0] + 1, mx_loc[1]]
                     xfra = (mx_loc[0] - 0.5) + (mx - cc[mx_loc[0] - 1, mx_loc[1]]) / denom
-
                     denom = mx * 2 - cc[mx_loc[0], mx_loc[1] - 1] - cc[mx_loc[0], mx_loc[1] + 1]
                     yfra = (mx_loc[1] - 0.5) + (mx - cc[mx_loc[0], mx_loc[1] - 1]) / denom
 
@@ -435,7 +436,7 @@ class Destretch:
         """
         kkx = rcps[0, 1, 0] - rcps[0, 0, 0]
         kky = rcps[1, 0, 1] - rcps[1, 0, 0]
-        limit = (np.amax([kkx, kky]) * tolerance) ** 2
+        limit = (np.amax(np.abs([kkx, kky])) * tolerance) ** 2
         difference = tcps - rcps
 
         bad_points = np.where((difference[0, :, :] ** 2 + difference[1, :, :] ** 2) > limit)
@@ -534,7 +535,7 @@ class Destretch:
         # This is apparently a kludge to increase the magnitude of error
         # since the curve generally doesn't pass through the tie points.
         # Essentially increases the displacement of every target control point by a factor of 1.1
-        target_control_points = 1.1 * (target_control_points - reference_control_points) + reference_control_points
+        target_control_points = 1.1*(target_control_points - reference_control_points) + reference_control_points
 
         # ds and dt are distances in x/y between reference control points, as they're an evenly spaced grid
         ds = reference_control_points[0, 1, 0] - reference_control_points[0, 0, 0]
