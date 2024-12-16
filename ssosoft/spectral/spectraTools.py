@@ -1250,7 +1250,7 @@ def grating_calculations(
 
     littrow = alpha - refl_angle
 
-    grating_params = np.arrays(
+    grating_params = np.rec.fromarrays(
         [
             np.array(grating_efficiency),
             np.array(shade),

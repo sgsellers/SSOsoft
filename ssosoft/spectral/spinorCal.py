@@ -12,6 +12,8 @@ import tqdm
 from astropy.constants import c
 import warnings
 
+from pandas.core.array_algos.transforms import shift
+
 from .spectraTools import linearAnalyzerPolarizer
 
 c_kms = c.value / 1e3
@@ -647,40 +649,68 @@ class SpinorCal:
             self.txmat[i] = xmat
             self.txmatinv[i] = np.linalg.inv(xmat)
             efficiencies = np.sqrt(np.sum(xmat**2, axis=1))
-
-            # Measurement of retardance from +-QU measurements
-            # +Q
-            lpPosQSelection = lpOnlySelection & (np.abs(polarizerAngle) < 1 | np.abs(polarizerAngle - 180) < 1)
+        #
+        #     # Measurement of retardance from +-QU measurements
+        #     # +Q
+            lpPosQSelection = (
+                (polarizerStaged.astype(bool) &
+                 ~retarderStaged.astype(bool)) &
+                ((np.abs(polarizerAngle) < 1) |
+                 (np.abs(polarizerAngle - 180) < 1))
+            )
+            posQVec = self.calcurves[:, :, i][np.repeat(lpPosQSelection[:, np.newaxis], 4, axis=1)]
             posQVec = np.nanmean(
-                self.calcurves[:, :, i][np.repeat(lpPosQSelection[:, np.newaxis], 4, axis=1)], axis=0
+                posQVec.reshape(int(posQVec.shape[0]/4), 4),
+                axis=0
             )
             stokesPosQ = self.txmatinv[i] @ posQVec
             stokesPosQ = stokesPosQ / stokesPosQ[0]
-            posQsqdiff = (stokesPosQ - np.array([1, 1, 0, 0])**2)
-            # -Q
-            lpNegQSelection = lpOnlySelection & (np.abs(polarizerAngle - 90) < 1 | np.abs(polarizerAngle - 270) < 1)
+            posQsqdiff = np.sum((stokesPosQ - np.array([1, 1, 0, 0]))**2)
+        #     # -Q
+            lpNegQSelection = (
+                (polarizerStaged.astype(bool) &
+                 ~retarderStaged.astype(bool)) &
+                ((np.abs(polarizerAngle - 90) < 1) |
+                 (np.abs(polarizerAngle - 270) < 1))
+            )
+            negQVec = self.calcurves[:, :, i][np.repeat(lpNegQSelection[:, np.newaxis], 4, axis=1)]
             negQVec = np.nanmean(
-                self.calcurves[:, :, i][np.repeat(lpNegQSelection[:, np.newaxis], 4, axis=1)], axis=0
+                negQVec.reshape(int(negQVec.shape[0] / 4), 4),
+                axis=0
             )
             stokesNegQ = self.txmatinv[i] @ negQVec
             stokesNegQ = stokesNegQ / stokesNegQ[0]
-            negQsqdiff = (stokesNegQ - np.array([1, -1, 0, 0]) ** 2)
-            # +U
-            lpPosUSelection = lpOnlySelection & (np.abs(polarizerAngle - 45) < 1 | np.abs(polarizerAngle - 225) < 1)
+            negQsqdiff = np.sum((stokesNegQ - np.array([1, -1, 0, 0])) ** 2)
+        #     # +U
+            lpPosUSelection = (
+                (polarizerStaged.astype(bool) &
+                 ~retarderStaged.astype(bool)) &
+                ((np.abs(polarizerAngle - 45) < 1) |
+                 (np.abs(polarizerAngle - 225) < 1))
+            )
+            posUVec = self.calcurves[:, :, i][np.repeat(lpPosUSelection[:, np.newaxis], 4, axis=1)]
             posUVec = np.nanmean(
-                self.calcurves[:, :, i][np.repeat(lpPosUSelection[:, np.newaxis], 4, axis=1)], axis=0
+                posUVec.reshape(int(posUVec.shape[0] / 4), 4),
+                axis=0
             )
             stokesPosU = self.txmatinv[i] @ posUVec
             stokesPosU = stokesPosU / stokesPosU[0]
-            posUsqdiff = (stokesPosU - np.array([1, 0, 1, 0]) ** 2)
-            # -U
-            lpNegUSelection = lpOnlySelection & (np.abs(polarizerAngle - 135) < 1 | np.abs(polarizerAngle - 135) < 1)
+            posUsqdiff = np.sum((stokesPosU - np.array([1, 0, 1, 0])) ** 2)
+        #     # -U
+            lpNegUSelection = (
+                (polarizerStaged.astype(bool) &
+                 ~retarderStaged.astype(bool)) &
+                ((np.abs(polarizerAngle - 135) < 1) |
+                 (np.abs(polarizerAngle - 315) < 1))
+            )
+            negUVec = self.calcurves[:, :, i][np.repeat(lpNegUSelection[:, np.newaxis], 4, axis=1)]
             negUVec = np.nanmean(
-                self.calcurves[:, :, i][np.repeat(lpNegUSelection[:, np.newaxis], 4, axis=1)], axis=0
+                negUVec.reshape(int(negUVec.shape[0] / 4), 4),
+                axis=0
             )
             stokesNegU = self.txmatinv[i] @ negUVec
             stokesNegU = stokesNegU / stokesNegU[0]
-            negUsqdiff = (stokesNegU - np.array([1, 0, -1, 0]) ** 2)
+            negUsqdiff = np.sum((stokesNegU - np.array([1, 0, -1, 0])) ** 2)
 
             self.txchi[i] = posQsqdiff + negQsqdiff + posUsqdiff + negUsqdiff
 
@@ -690,7 +720,11 @@ class SpinorCal:
                 print("Inverse:")
                 print(self.txmatinv[i])
                 print("Efficiencies:")
-                print("Q: "+efficiencies[1], "U: "+efficiencies[2], "V: "+efficiencies[3])
+                print(
+                    "Q: "+str(round(efficiencies[1], 4)),
+                    "U: "+str(round(efficiencies[2], 4)),
+                    "V: "+str(round(efficiencies[3], 4))
+                )
                 print("Average Deviation of cal vectors: ", np.sqrt(self.txchi[i])/4)
 
             # Check physicality & Efficiencies:
@@ -709,7 +743,7 @@ class SpinorCal:
                     str(muellerCheck[2])
                 )
 
-            if self.verbose:
+            if self.plot:
                 # Do plotting
                 fig = plt.figure("Subslit #"+str(i)+" of "+str(self.nSubSlits), figsize=(4, 4))
                 stokesfit = np.array([xmat @ inputStokes[j, :] for j in range(inputStokes.shape[0])])
@@ -726,12 +760,74 @@ class SpinorCal:
                     axes[j].set_title("STOKES-"+names[j])
                     if j == 3:
                         axes[j].legend()
+                fig.tight_layout()
                 if self.saveFigs:
                     fig.savefig(
                         os.path.join(self.calDirectory, "subslit"+str(i)+"_calcurves.png"),
                         bbox_inches='tight'
                     )
                 plt.show(block=False)
+
+        return
+
+
+    def reduce_spinor_maps(self):
+        """
+        Performs reduction of SPINOR science data maps.
+        Applies Dark Current, Lamp Gain, Solar Gain Corrections
+        Applies inverse spectrograph correction matric and telescope correction matrix to data.
+        Corrects QU for parallactic angle.
+        Performs simple I->QUV crosstalk estimation, and (optionally) V<-->QU crosstalk estimation.
+
+        Returns
+        -------
+
+        """
+
+        science_hdu = fits.open(self.scienceFile)
+        iquv_map = np.zeros((
+            np.diff(self.beamEdges, axis=1)[0],
+            len(science_hdu) - 1,
+            4
+        ))
+        # fuq yea science beam
+        science_beams = np.zeros((
+            len(science_hdu) - 1,
+            2,
+            4,
+            self.beamEdges[0, 1] - self.beamEdges[0, 0],
+            self.slitEdges[1] - self.slitEdges[0]
+        ))
+        shift = self.beam1Yshift if self.beam1Yshift else 0
+
+        for i in range(1, len(science_hdu)):
+            iquv = self.demodulate_spinor(
+                (science_hdu[i].data - self.solarDark)/self.lampGain/self.combinedGainTable
+            )
+            science_beams[i, 0, :, :, :] = iquv[
+                :,
+                self.beamEdges[0, 0]:self.beamEdges[0, 1],
+                self.slitEdges[0]:self.slitEdges[1]
+            ]
+            science_beams[:, i, :, 1] = np.flip(
+                scind.shift(
+                    iquv[
+                        :,
+                        self.beamEdges[1, 0]:self.beamEdges[1, 1],
+                        self.slitEdges[0]:self.slitEdges[1]
+                    ], (0, shift, 0)
+                )
+            )
+
+            # Now, to subpixel align the two beams, we have to align the hairlines
+            # Then the spectral lines. We'll have to pop a widget up for the spectral lines.
+            # For the hairlines, we should use the *raw* image, as the gain correction washes
+            # the hairlines out. So define a beam cutout for the 0th mod state
+
+            tmp_beams = np.zeros((
+                science_beams.shape[1:]
+            ))
+
 
         return
 
