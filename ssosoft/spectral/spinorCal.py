@@ -320,14 +320,18 @@ class SpinorCal:
         # Aligning the beams is tough with the type of mostly-1D structure in these spectral images
         # Rather than doing a 2D cross-correlation, we should average in both directions and do two 1D
         # cross correlations to determine the offset using numpy.correlate. Make sure mode='full'.
-        # X shift will be taken care of during skew calculation and gain creation
+        # We'll also do the x-shift. It should be taken care of during deskew, but sometimes the shift is large
         yshift = np.correlate(
             (np.nanmean(beam0, axis=0) - np.nanmean(beam0)),
             (np.nanmean(beam1, axis=0) - np.nanmean(beam1)),
             mode='full'
         ).argmax() - beam0.shape[1]
+        self.beam1Xshift = np.correlate(
+            (np.nanmean(beam0, axis=1) - np.nanmean(beam0)),
+            (np.nanmean(beam1, axis=1) - np.nanmean(beam1)),
+            mode='full'
+        ).argmax() - beam0.shape[0]
 
-        # beam1_aligned, alignment_shifts = spex.image_align(beam1, beam0)
         # Rather than doing a scipy.ndimage.shift, the better way to do it would
         # be to shift the self.beamEdges for beam 1.
         # This will require some extra work, as there's a possibility that
@@ -399,6 +403,8 @@ class SpinorCal:
             spex.find_line_core(fts_spec[x-20:x+9]) + x - 20 for x in ftsLines
         ]
 
+        self.spinorLineCores = spinorLineCores
+
         # Determine whether the spectrum is flipped by comparing the correlation
         # Value between the resampled FTS spectrum and the average spectrum, both
         # flipped and default.
@@ -424,7 +430,7 @@ class SpinorCal:
 
         beam1GainTable, beam1CoarseGainTable, beam1Skews = spex.create_gaintables(
             beam1LampGainCorrected,
-            [spinorLineCores[0] - 10, spinorLineCores[0] + 10],
+            [spinorLineCores[0] - 10 + self.beam1Xshift, spinorLineCores[0] + 10 + self.beam1Xshift],
             hairline_positions=self.hairlines[1] - self.beamEdges[1, 0],
             neighborhood=12,
             hairline_width=2
@@ -503,6 +509,7 @@ class SpinorCal:
              self.slitEdges[1] - self.slitEdges[0])
         )
         shift = self.beam1Yshift if self.beam1Yshift else 0
+        xshift = self.beam1Xshift
         ctr = 0
         for hdu in polfile[1:]:
             if "DARK" not in hdu.header['PT4_FS']:
@@ -517,7 +524,7 @@ class SpinorCal:
                     scind.shift(
                         data[
                             :, self.beamEdges[1, 0]:self.beamEdges[1, 1], self.slitEdges[0]:self.slitEdges[1]
-                        ], (0, shift, 0)
+                        ], (0, shift, xshift)
                     ),
                     axis=1
                 )
@@ -743,30 +750,30 @@ class SpinorCal:
                     str(muellerCheck[2])
                 )
 
-            if self.plot:
-                # Do plotting
-                fig = plt.figure("Subslit #"+str(i)+" of "+str(self.nSubSlits), figsize=(4, 4))
-                stokesfit = np.array([xmat @ inputStokes[j, :] for j in range(inputStokes.shape[0])])
-                ax_i = fig.add_subplot(411)
-                ax_q = fig.add_subplot(412)
-                ax_u = fig.add_subplot(413)
-                ax_v = fig.add_subplot(414)
-                axes = [ax_i, ax_q, ax_u, ax_v]
-                names = ['I', 'Q', 'U', 'V']
-                for j in range(4):
-                    axes[j].plot(self.calcurves[:, j, i], label='OBSERVED')
-                    axes[j].plot(inputStokes[:, j], label='INPUT', linestyle=':')
-                    axes[j].plot(stokesfit[:, j], label='FIT')
-                    axes[j].set_title("STOKES-"+names[j])
-                    if j == 3:
-                        axes[j].legend()
-                fig.tight_layout()
-                if self.saveFigs:
-                    fig.savefig(
-                        os.path.join(self.calDirectory, "subslit"+str(i)+"_calcurves.png"),
-                        bbox_inches='tight'
-                    )
-                plt.show(block=False)
+            # if self.plot:
+            #     # Do plotting
+            #     fig = plt.figure("Subslit #"+str(i)+" of "+str(self.nSubSlits), figsize=(4, 4))
+            #     stokesfit = np.array([xmat @ inputStokes[j, :] for j in range(inputStokes.shape[0])])
+            #     ax_i = fig.add_subplot(411)
+            #     ax_q = fig.add_subplot(412)
+            #     ax_u = fig.add_subplot(413)
+            #     ax_v = fig.add_subplot(414)
+            #     axes = [ax_i, ax_q, ax_u, ax_v]
+            #     names = ['I', 'Q', 'U', 'V']
+            #     for j in range(4):
+            #         axes[j].plot(self.calcurves[:, j, i], label='OBSERVED')
+            #         axes[j].plot(inputStokes[:, j], label='INPUT', linestyle=':')
+            #         axes[j].plot(stokesfit[:, j], label='FIT')
+            #         axes[j].set_title("STOKES-"+names[j])
+            #         if j == 3:
+            #             axes[j].legend()
+            #     fig.tight_layout()
+            #     if self.saveFigs:
+            #         fig.savefig(
+            #             os.path.join(self.calDirectory, "subslit"+str(i)+"_calcurves.png"),
+            #             bbox_inches='tight'
+            #         )
+            #     plt.show(block=False)
 
         return
 
@@ -786,7 +793,7 @@ class SpinorCal:
 
         science_hdu = fits.open(self.scienceFile)
         iquv_map = np.zeros((
-            np.diff(self.beamEdges, axis=1)[0],
+            int(np.diff(self.beamEdges, axis=1)[0]),
             len(science_hdu) - 1,
             4
         ))
@@ -800,23 +807,32 @@ class SpinorCal:
         ))
         shift = self.beam1Yshift if self.beam1Yshift else 0
 
+        # Interpolate telescope inverse matrix to entire slit from nsubslits
+        xinvInterp = scinterp.CubicSpline(
+            np.linspace(0, self.beamEdges[0, 1]-self.beamEdges[0, 0], self.nSubSlits),
+            self.txmatinv,
+            axis=0,
+        )(np.arange(0, self.beamEdges[0, 1]-self.beamEdges[0, 0]))
+
         for i in range(1, len(science_hdu)):
+            print(i)
+            print("Demod")
             iquv = self.demodulate_spinor(
                 (science_hdu[i].data - self.solarDark)/self.lampGain/self.combinedGainTable
             )
-            science_beams[i, 0, :, :, :] = iquv[
+            science_beams[i-1, 0, :, :, :] = iquv[
                 :,
                 self.beamEdges[0, 0]:self.beamEdges[0, 1],
                 self.slitEdges[0]:self.slitEdges[1]
             ]
-            science_beams[:, i, :, 1] = np.flip(
+            science_beams[i-1, 1, :, :, :] = np.flip(
                 scind.shift(
                     iquv[
                         :,
                         self.beamEdges[1, 0]:self.beamEdges[1, 1],
                         self.slitEdges[0]:self.slitEdges[1]
-                    ], (0, shift, 0)
-                )
+                    ], (0, shift, -self.beam1Xshift)
+                ), axis=1
             )
 
             # Now, to subpixel align the two beams, we have to align the hairlines
@@ -825,9 +841,106 @@ class SpinorCal:
             # the hairlines out. So define a beam cutout for the 0th mod state
 
             tmp_beams = np.zeros((
-                science_beams.shape[1:]
+                2,
+                science_beams.shape[-2],
+                science_beams.shape[-1]
             ))
+            tmp_beams[0] = (
+                    science_hdu[i].data[0] - self.solarDark
+            )[
+                self.beamEdges[0, 0]:self.beamEdges[0, 1],
+                self.slitEdges[0]:self.slitEdges[1]
+            ]
+            tmp_beams[1] = np.flip(
+                scind.shift(
+                    science_hdu[i].data[0][
+                        self.beamEdges[1, 0]:self.beamEdges[1, 1],
+                        self.slitEdges[0]:self.slitEdges[1]
+                    ], (shift, -self.beam1Xshift)
+                ), axis=0
+            )
 
+            hairlines = self.hairlines.copy()
+            hairlines[1] = self.beamEdges[1, 1] - hairlines[1] + shift
+
+            hairlines = hairlines.flatten()
+
+            hairline_skews = np.zeros((self.nhair, self.slitEdges[1] - self.slitEdges[0]))
+            print("Hair deskew")
+            for j in range(self.nhair):
+                hairline_skews[j, :] = spex.spectral_skew(
+                    np.rot90(
+                        tmp_beams[int(j / 2), int(hairlines[j] - 5):int(hairlines[j] + 7), :]
+                    ), order=1
+                )
+            avg_hairlines_skews = np.zeros((2, self.slitEdges[1] - self.slitEdges[0]))
+            avg_hairlines_skews[0] = np.nanmean(
+                hairline_skews[0:int(self.nhair/2), :], axis=0
+            )
+            avg_hairlines_skews[1] = np.nanmean(
+                hairline_skews[int(self.nhair/2):, :], axis=0
+            )
+            for j in range(avg_hairlines_skews.shape[1]):
+                science_beams[i-1, 0, :, :, j] = scind.shift(
+                    science_beams[i-1, 0, :, :, j], (0, avg_hairlines_skews[0, j]),
+                    mode='nearest'
+                )
+                science_beams[i-1, 1, :, :, j] = scind.shift(
+                    science_beams[i-1, 1, :, :, j], (0, avg_hairlines_skews[1, j]),
+                    mode='nearest'
+                )
+            print("Spec skew")
+            # Reuse spectral lines from gain table creation to deskew...
+            x1 = 10
+            x2 = 11
+            for k in range(5):
+                order = 1 if k < 2 else 2
+                spectral_skews = np.zeros((2, 2, science_beams.shape[-2]))
+                spectral_skews[0, 0] = spex.spectral_skew(
+                    science_beams[i-1, 0, 0, :, int(self.spinorLineCores[0] - x1):int(self.spinorLineCores[0]+x2)],
+                    slit_reference=0.5, order=order
+                )
+                spectral_skews[1, 0] = spex.spectral_skew(
+                    science_beams[i-1, 1, 0, :, int(self.spinorLineCores[0] - x1):int(self.spinorLineCores[0] + x2)],
+                    slit_reference=0.5, order=order
+                )
+                spectral_skews[0, 1] = spex.spectral_skew(
+                    science_beams[i - 1, 0, 0, :, int(self.spinorLineCores[1] - x1):int(self.spinorLineCores[1] + x2)],
+                    slit_reference=0.5, order=order
+                )
+                spectral_skews[1, 1] = spex.spectral_skew(
+                    science_beams[i - 1, 1, 0, :, int(self.spinorLineCores[1] - x1):int(self.spinorLineCores[1] + x2)],
+                    slit_reference=0.5, order=order
+                )
+                spectral_skews = np.nanmean(spectral_skews, axis=1)
+                for j in range(spectral_skews.shape[1]):
+                    science_beams[i-1, 0, :, j, :] = scind.shift(
+                        science_beams[i-1, 0, :, j, :], (0, spectral_skews[0, j])
+                    )
+                    science_beams[i-1, 1, :, j, :] = scind.shift(
+                        science_beams[i-1, 1, :, j, :], (0, spectral_skews[1, j])
+                    )
+                x1 -= 1
+                x2 -= 1
+
+            print("Comb beam")
+            combined_beams = np.zeros(science_beams.shape[2:])
+            combined_beams[0] = np.nanmean(science_beams[i-1, :, 0, :, :], axis=0)
+            combined_beams[1:] = (science_beams[i-1, 0, 1:, :, :] - science_beams[i-1, 1, 1:, :, :])/2
+            tmtx = self.get_telescope_matrix(
+                [science_hdu[i].header['DST_AZ'], science_hdu[i].header['DST_EL'], science_hdu[i].header['DST_TBL']]
+            )
+            inv_tmtx = np.linalg.inv(tmtx)
+            for j in range(combined_beams.shape[1]):
+                combined_beams[:, j, :] = inv_tmtx @ xinvInterp[j, :, :] @ combined_beams[:, j, :]
+
+            if self.plot:
+                print("plot")
+                fig = plt.figure(figsize=(20, 4))
+                for k in range(4):
+                    ax = fig.add_subplot(1, 4, k+1)
+                    ax.imshow(combined_beams[k], origin='lower')
+                plt.show()
 
         return
 
@@ -898,17 +1011,6 @@ class SpinorCal:
         phiElevation = (telescopeGeometry[1] + 90) * np.pi/180
         phiAzimuth = (telescopeGeometry[2] - telescopeGeometry[0] - 30.) * np.pi/180.
 
-        # print(entranceWindowRetardance)
-        # print(entranceWindowOrientation)
-        # print(exitWindowRetardance)
-        # print(exitWindowOrientation)
-        # print(refFrameOrientation)
-        # print(coelostatReflectance)
-        # print(coelostatRetardance)
-        # print(primaryReflectance)
-        # print(primaryRetardance)
-        # print(entranceWindowPolarizerOffset)
-
         # In order, the DST optical train is:
         #   1.) Entrance Window (Retarder)
         #   2.) Elevation Coelostat (Mirror)
@@ -922,31 +1024,23 @@ class SpinorCal:
         entranceWindowMueller = spex.linearRetarder(
             entranceWindowOrientation, entranceWindowRetardance
         )
-        # print(entranceWindowMueller)
         elevationMueller = spex.mirror(
             coelostatReflectance, coelostatRetardance
         )
-        # print(elevationMueller)
         azelRotationMueller = spex.rotationMueller(phiElevation)
-        # print(azelRotationMueller)
         azimuthMueller = spex.mirror(
             coelostatReflectance, coelostatRetardance
         )
-        # print(azimuthMueller)
         azvertRotationMueller = spex.rotationMueller(phiAzimuth)
-        # print(azvertRotationMueller)
         primaryMueller = spex.mirror(
             primaryReflectance, primaryRetardance
         )
-        # print(primaryMueller)
         exitWindowMueller = spex.linearRetarder(
             exitWindowOrientation, exitWindowRetardance
         )
-        # print(exitWindowMueller)
         refframeRotationMueller = spex.rotationMueller(
             refFrameOrientation
         )
-        # print(refframeRotationMueller)
 
         # There's probably a more compact way to do this,
         # but for now, we'll just go straight down the optical chain
