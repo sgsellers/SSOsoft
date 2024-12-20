@@ -3,16 +3,16 @@ import astropy.units as u
 import configparser
 import glob
 import matplotlib.pyplot as plt
+import matplotlib
 import numpy as np
 import os
 import scipy.ndimage as scind
 import scipy.interpolate as scinterp
 import scipy.io as scio
+import scipy.optimize as scopt
 import tqdm
 from astropy.constants import c
 import warnings
-
-from pandas.core.array_algos.transforms import shift
 
 from .spectraTools import linearAnalyzerPolarizer
 
@@ -133,6 +133,7 @@ class SpinorCal:
         self.polcalVecs = None
         self.tMatrix = None
         self.flipWave = False
+        self.crosstalkContinuum = None
 
         # Default polarization modulation from new modulator (2024-09)
         # I: ++++++++
@@ -146,9 +147,11 @@ class SpinorCal:
             [1, -1, -1, -1, -1, 1, 1, 1]
         ], dtype=int)
 
+        self.DSTLatitude = 32.786
+
         # Expressed as a fraction of mean(I). For polcals
         self.ilimt = [0.5, 1.5]
-        # It's about a half-wave plate.
+        # It's about a quarter-wave plate.
         self.calRetardance = 90
 
         return
@@ -404,6 +407,7 @@ class SpinorCal:
         ]
 
         self.spinorLineCores = spinorLineCores
+        self.ftsLineCores = ftsLineCores
 
         # Determine whether the spectrum is flipped by comparing the correlation
         # Value between the resampled FTS spectrum and the average spectrum, both
@@ -524,7 +528,7 @@ class SpinorCal:
                     scind.shift(
                         data[
                             :, self.beamEdges[1, 0]:self.beamEdges[1, 1], self.slitEdges[0]:self.slitEdges[1]
-                        ], (0, shift, xshift)
+                        ], (0, shift, -xshift)
                     ),
                     axis=1
                 )
@@ -792,15 +796,16 @@ class SpinorCal:
         """
 
         science_hdu = fits.open(self.scienceFile)
-        iquv_map = np.zeros((
-            int(np.diff(self.beamEdges, axis=1)[0]),
-            len(science_hdu) - 1,
-            4
-        ))
         # fuq yea science beam
         science_beams = np.zeros((
             len(science_hdu) - 1,
             2,
+            4,
+            self.beamEdges[0, 1] - self.beamEdges[0, 0],
+            self.slitEdges[1] - self.slitEdges[0]
+        ))
+        reducedData = np.zeros((
+            len(science_hdu) - 1,
             4,
             self.beamEdges[0, 1] - self.beamEdges[0, 0],
             self.slitEdges[1] - self.slitEdges[0]
@@ -934,15 +939,384 @@ class SpinorCal:
             for j in range(combined_beams.shape[1]):
                 combined_beams[:, j, :] = inv_tmtx @ xinvInterp[j, :, :] @ combined_beams[:, j, :]
 
-            if self.plot:
-                print("plot")
-                fig = plt.figure(figsize=(20, 4))
-                for k in range(4):
-                    ax = fig.add_subplot(1, 4, k+1)
-                    ax.imshow(combined_beams[k], origin='lower')
-                plt.show()
+            # Get parallactic angle for QU rotation correction
+            angular_geometry = self.spherical_coordinate_transform(
+                [science_hdu[i].header['DST_AZ'], science_hdu[i].header['DST_EL']]
+            )
+            # Sub off P0 angle
+            rotation = np.pi +angular_geometry[2] - science_hdu[i].header['DST_PEE'] * np.pi/180
+            crot = np.cos(-2*rotation)
+            srot = np.sin(-2*rotation)
 
-        return
+            # Make a copy, as the Q/U components are transformed from the originals.
+            qtmp = combined_beams[1, :, :].copy()
+            utmp = combined_beams[2, :, :].copy()
+            combined_beams[1, :, :] = crot*qtmp + srot*utmp
+            combined_beams[2, :, :] = -srot*qtmp + crot*utmp
+
+            if self.crosstalkContinuum is not None:
+                # Shape 3xNY
+                i2quv = np.mean(
+                    combined_beams[1:, :, self.crosstalkContinuum[0]:self.crosstalkContinuum[1]] /
+                    np.repeat(
+                        combined_beams[0, :, self.crosstalkContinuum[0]:self.crosstalkContinuum[1]][np.newaxis, :, :],
+                        3, axis=0
+                    ), axis=2
+                )
+                combined_beams[1:] = combined_beams[1:] - np.repeat(
+                    i2quv[:, :, np.newaxis], combined_beams.shape[2], axis=2
+                )
+            else:
+                for j in range(combined_beams.shape[1]):
+                    for k in range(1, 4):
+                        combined_beams[k, j, : ] = self.i2quv_crosstalk(
+                            combined_beams[0, j, :],
+                            combined_beams[k, j, :]
+                        )
+
+            # Reverse the wavelength axis if required.
+            combined_beams = combined_beams[:, :, ::self.flipWaveIdx]
+
+            reducedData[i - 1] = combined_beams
+
+            # Choose lines for analysis. Use same method of choice as hsgCal, where user sets
+            # approx. min/max, the code changes the bounds, and
+            if i == 1:
+                mean_profile = np.nanmean(combined_beams[0], axis=0)
+                approxWavelengthArray = self.spinor_wavelength_calibration(mean_profile)
+                print("Select spectral ranges (xmin, xmax) for overview maps. Close window when done.")
+                # Approximate indices of line cores
+                coarseIndices = spex.select_spans_singlepanel(mean_profile, xarr=approxWavelengthArray)
+                # Location of minimum in the range
+                minIndices = [
+                    spex.find_nearest(
+                        mean_profile[coarseIndices[x][0]:coarseIndices[x][1]],
+                        mean_profile[coarseIndices[x][0]:coarseIndices[x][1]].min()
+                    ) + coarseIndices[x][0] for x in range(coarseIndices.shape[0])
+                ]
+                print(minIndices)
+                # Location of exact line core
+                lineCores = [
+                    spex.find_line_core(mean_profile[x-5:x+7]) + x - 5 for x in minIndices
+                ]
+                # Find start and end indices that put line cores at the center of the window.
+                mapIndices = np.zeros(coarseIndices.shape)
+                for j in range(coarseIndices.shape[0]):
+                    averageDelta = np.mean(np.abs(coarseIndices[j, :] - lineCores[j]))
+                    mapIndices[j, 0] = int(round(lineCores[j] - averageDelta, 0))
+                    mapIndices[j, 1] = int(round(lineCores[j] + averageDelta, 0) + 1)
+                    print(mapIndices)
+
+            if self.plot:
+                plt.ion()
+                # Set up overview maps to blit new data into.
+                # Need maps for the slit images (IQUV) that are replaced at each step,
+                # As well as IQUV maps of the full field for each line selected.
+                # These latter will be filled as the map is processed.
+                if i == 1:
+                    fieldImages = np.zeros((
+                        len(lineCores), # Number of lines
+                        4, # Stokes-IQUV values
+                        combined_beams.shape[1],
+                        len(science_hdu[1:])
+                    ))
+                    figNum = 0
+                    slitFigure = plt.figure("Reduced Slit Images")
+                    slitGS = slitFigure.add_gridspec(2, 2, hspace=0.1, wspace=0.1)
+                    slitAxI = slitFigure.add_subplot(slitGS[0, 0])
+                    slitI = slitAxI.imshow(combined_beams[0], cmap='gray', origin='lower')
+                    slitAxI.text(10, 10, "I", color='C1')
+                    slitAxQ = slitFigure.add_subplot(slitGS[0, 1])
+                    slitQ = slitAxQ.imshow(combined_beams[1], cmap='gray', origin='lower')
+                    slitAxQ.text(10, 10, "Q", color='C1')
+                    slitAxU = slitFigure.add_subplot(slitGS[1, 0])
+                    slitU = slitAxU.imshow(combined_beams[2], cmap='gray', origin='lower')
+                    slitAxU.text(10, 10, "U", color='C1')
+                    slitAxV = slitFigure.add_subplot(slitGS[1, 1])
+                    slitV = slitAxV.imshow(combined_beams[3], cmap='gray', origin='lower')
+                    slitAxV.text(10, 10, "V", color='C1')
+                    slitFigure.tight_layout()
+
+                    figNum += 1
+
+                    lineFigure = []
+                    lineGS = []
+                    lineI = []
+                    lineQ = []
+                    lineU = []
+                    lineV = []
+                    lineIax = []
+                    lineQax = []
+                    lineUax = []
+                    lineVax = []
+                    for j in range(len(lineCores)):
+                        lineFigure.append(
+                            plt.figure("Line "+str(j))
+                        )
+                        lineGS.append(
+                            lineFigure[j].add_gridspec(2, 2, hspace=0.1, wspace=0.1)
+                        )
+                        lineIax.append(
+                            lineFigure[j].add_subplot(lineGS[j][0, 0])
+                        )
+                        lineI.append(
+                            lineIax[j].imshow(
+                                fieldImages[j, 0], origin='lower', cmap='gray'
+                            )
+                        )
+                        lineQax.append(
+                            lineFigure[j].add_subplot(lineGS[j][0, 1])
+                        )
+                        lineQ.append(
+                            lineQax[j].imshow(
+                                fieldImages[j, 1], origin='lower', cmap='gray'
+                            )
+                        )
+                        lineUax.append(
+                            lineFigure[j].add_subplot(lineGS[j][1, 0])
+                        )
+                        lineU.append(
+                            lineUax[j].imshow(
+                                fieldImages[j, 2], origin='lower', cmap='gray'
+                            )
+                        )
+                        lineVax.append(
+                            lineFigure[j].add_subplot(lineGS[j][1, 1])
+                        )
+                        lineV.append(
+                            lineVax[j].imshow(
+                                fieldImages[j, 2], origin='lower', cmap='gray'
+                            )
+                        )
+                        lineFigure[j].tight_layout()
+
+                        figNum += 1
+
+                slitI.set_array(combined_beams[0])
+                slitI.set_norm(
+                    matplotlib.colors.Normalize(
+                        vmin=np.mean(combined_beams[0])-3*np.std(combined_beams[0]),
+                        vmax=np.mean(combined_beams[0])+3*np.std(combined_beams[0])
+                    )
+                )
+                slitQ.set_array(combined_beams[1])
+                slitQ.set_norm(
+                    matplotlib.colors.Normalize(
+                        vmin=np.mean(combined_beams[1]) - 3 * np.std(combined_beams[1]),
+                        vmax=np.mean(combined_beams[1]) + 3 * np.std(combined_beams[1])
+                    )
+                )
+                slitU.set_array(combined_beams[2])
+                slitU.set_norm(
+                    matplotlib.colors.Normalize(
+                        vmin=np.mean(combined_beams[2]) - 3 * np.std(combined_beams[2]),
+                        vmax=np.mean(combined_beams[2]) + 3 * np.std(combined_beams[2])
+                    )
+                )
+                slitV.set_array(combined_beams[3])
+                slitV.set_norm(
+                    matplotlib.colors.Normalize(
+                        vmin=np.mean(combined_beams[3]) - 3 * np.std(combined_beams[3]),
+                        vmax=np.mean(combined_beams[3]) + 3 * np.std(combined_beams[3])
+                    )
+                )
+
+                slitFigure.canvas.draw()
+                slitFigure.canvas.flush_events()
+
+                for j in range(len(lineCores)):
+                    fieldImages[j, 0, :, i-1] = combined_beams[0, :, int(round(lineCores[j], 0))]
+                    fieldImages[j, 1:, :, i-1] = np.sum(
+                        np.abs(
+                            combined_beams[1:, :, int(mapIndices[j, 0]):int(mapIndices[j ,1])]
+                        ), axis=2
+                    )
+                    lineI[j].set_array(fieldImages[j, 0])
+                    lineI[j].set_norm(
+                        matplotlib.colors.Normalize(
+                            vmin=np.mean(fieldImages[j, 0, :, :i]) - 3 * np.std(fieldImages[j, 0, :, :i]),
+                            vmax=np.mean(fieldImages[j, 0, :, :i]) + 3 * np.std(fieldImages[j, 0, :, :i])
+                        )
+                    )
+                    lineQ[j].set_array(fieldImages[j, 1])
+                    lineQ[j].set_norm(
+                        matplotlib.colors.Normalize(
+                            vmin=np.mean(fieldImages[j, 1, :, :i]) - 3 * np.std(fieldImages[j, 1, :, :i]),
+                            vmax=np.mean(fieldImages[j, 1, :, :i]) + 3 * np.std(fieldImages[j, 1, :, :i])
+                        )
+                    )
+                    lineU[j].set_array(fieldImages[j, 1])
+                    lineU[j].set_norm(
+                        matplotlib.colors.Normalize(
+                            vmin=np.mean(fieldImages[j, 2, :, :i]) - 3 * np.std(fieldImages[j, 2, :, :i]),
+                            vmax=np.mean(fieldImages[j, 2, :, :i]) + 3 * np.std(fieldImages[j, 2, :, :i])
+                        )
+                    )
+                    lineV[j].set_array(fieldImages[j, 1])
+                    lineV[j].set_norm(
+                        matplotlib.colors.Normalize(
+                            vmin=np.mean(fieldImages[j, 3, :, :i]) - 3 * np.std(fieldImages[j, 3, :, :i]),
+                            vmax=np.mean(fieldImages[j, 3, :, :i]) + 3 * np.std(fieldImages[j, 3, :, :i])
+                        )
+                    )
+                    lineFigure[j].canvas.draw()
+                    lineFigure[j].canvas.flush_events()
+
+                # print("plot")
+                # fig = plt.figure(figsize=(20, 4))
+                # for k in range(4):
+                #     ax = fig.add_subplot(1, 4, k+1)
+                #     ax.imshow(combined_beams[k], origin='lower')
+                # plt.show()
+
+        return reducedData
+
+
+    def i2quv_crosstalk(self, stokesI, stokesQUV):
+        """
+        Corrects for Stokes-I => QUV crosstalk. In the old pipeline, this was done by
+        taking the ratio of a continuum section in I, and in QUV, then subtracting
+        QUV_nu = QUV_old - ratio * I.
+
+        We're going to take a slightly different approach. Instead of a single ratio value,
+        we'll use a line, mx+b, such that QUV_nu = QUV_old - (mx+b)*I.
+        We'll solve for m, b such that a second line m'x+b' fit to QUV_nu has m'=b'=0
+
+        Parameters
+        ----------
+        stokesI : numpy.ndarray
+            1D array of Stokes-I
+        stokesQUV : numpy.ndarray
+            1D array of Stokes-Q, U, or V
+
+        Returns
+        -------
+        correctedQUV : numpy.ndarray
+            1D array containing the Stokes-I crosstalk-corrected Q, U or V profile.
+
+        """
+
+        def model_function(list_of_params, i, quv):
+            """Fit model"""
+            xrange = np.arange(len(i))
+            ilinear = list_of_params[0]*xrange + list_of_params[1]
+            return quv - ilinear * i
+
+        def error_function(list_of_params, i, quv):
+            """Error function"""
+            quv_corr = model_function(list_of_params, i, quv)
+            xrange = np.arange(len(i))
+            polyfit = np.polyfit(xrange, quv_corr, 1)
+            return (xrange*polyfit[0] + polyfit[1]) - np.zeros(len(i))
+
+        fit_result = scopt.least_squares(
+            error_function,
+            x0=np.array([0, 0]),
+            args=[stokesI[50:-50], stokesQUV[50:-50]],
+            jac='3-point', tr_solver='lsmr'
+        )
+
+        ilinearParams = fit_result.x
+
+        correctedQUV = stokesQUV - (np.arange(len(stokesI))*ilinearParams[0] + ilinearParams[1])*stokesI
+
+        return correctedQUV
+
+
+    def spinor_wavelength_calibration(self, referenceProfile):
+        """
+        Determines wavelength array from grating parameters and FTS reference
+
+        Parameters
+        ----------
+        referenceProfile : numpy.ndarray
+            1D array containing a reference spectral profile from SPINOR
+
+        Returns
+        -------
+        wavelengthArray : numpy.ndarray
+            1D array containing corresponding wavelengths.
+
+        """
+
+        grating_params = spex.grating_calculations(
+            self.grating_rules, self.blaze_angle, self.grating_angle,
+            self.pixel_size, self.centralWavelength, self.spectral_order,
+            collimator=self.collimator, camera=self.camera, slit_width=self.slit_width,
+        )
+
+        # Getting Min/Max Wavelength for FTS comparison; padding by 30 pixels on either side
+        # Same selection process as in flat fielding.
+        apxWavemin = self.centralWavelength - np.nanmean(self.slitEdges) * grating_params['Spectral_Pixel'] / 1000
+        apxWavemax = self.centralWavelength + np.nanmean(self.slitEdges) * grating_params['Spectral_Pixel'] / 1000
+        apxWavemin -= 30 * grating_params['Spectral_Pixel'] / 1000
+        apxWavemax += 30 * grating_params['Spectral_Pixel'] / 1000
+        fts_wave, fts_spec = spex.fts_window(apxWavemin, apxWavemax)
+
+        ftsCore = sorted(np.array(self.ftsLineCores))
+        if self.flipWave:
+            spinorLineCores = sorted(self.slitEdges[1] - np.array(self.spinorLineCores))
+        else:
+            spinorLineCores = sorted(np.array(self.spinorLineCores))
+
+        ftsCoreWaves = [scinterp.CubicSpline(np.arange(len(fts_wave)), fts_wave)(lam) for lam in ftsCore]
+        # Update SPINOR selected line cores by redoing core finding with wide, then narrow range
+        spinorLineCores = np.array([
+            spex.find_line_core(
+                referenceProfile[int(lam) - 10:int(lam) + 11]
+            ) + int(lam) - 10 for lam in spinorLineCores
+        ])
+        spinorLineCores = np.array([
+            spex.find_line_core(
+                referenceProfile[int(lam) - 5:int(lam) + 7]
+            ) + int(lam) - 5
+            for lam in spinorLineCores
+        ])
+        angstrom_per_pixel = np.abs(ftsCoreWaves[1] - ftsCoreWaves[0]) / np.abs(spinorLineCores[1] - spinorLineCores[0])
+        zerowvl = ftsCoreWaves[0] - (angstrom_per_pixel * spinorLineCores[0])
+        wavelengthArray = (np.arange(0, len(referenceProfile)) * angstrom_per_pixel) + zerowvl
+        return wavelengthArray
+
+
+    def spherical_coordinate_transform(self, telescopeAngles):
+        """
+        Transforms from telescope pointing to parallatic angle using the site latitude
+
+        Parameters
+        ----------
+        telescopeAngles : list
+            List of telescope angles. In order, these should be (telescope_azimuth, telescope_elevation)
+
+        Returns
+        -------
+        coordinateAngles : list
+            List of telescope angles. In order, these will be (hour_angle, declination, parallatic angle)
+
+        """
+
+        sinLat = np.sin(self.DSTLatitude * np.pi/180.)
+        cosLat = np.cos(self.DSTLatitude * np.pi/180.)
+
+        sinAz = np.sin(telescopeAngles[0] * np.pi/180.)
+        cosAz = np.cos(telescopeAngles[0] * np.pi/180.)
+
+        sinEl = np.sin(telescopeAngles[1] * np.pi/180.)
+        cosEl = np.cos(telescopeAngles[1] * np.pi/180.)
+
+        sinX = -cosEl * sinAz
+        cosX = sinEl*cosLat - cosEl*cosAz*sinLat
+
+        sinY = sinEl*sinLat+cosEl*cosAz*sinLat
+        sinZ = cosLat*sinAz
+        cosZ = sinLat*cosEl-sinEl*sinLat*cosAz
+
+        X = np.arctan(sinX/cosX)
+        Y = np.arcsin(sinY)
+        Z = -np.arctan(sinZ/cosZ)
+
+        coordinateAngles = [X, Y, Z]
+
+        return coordinateAngles
 
 
     def get_telescope_matrix(self, telescopeGeometry):
