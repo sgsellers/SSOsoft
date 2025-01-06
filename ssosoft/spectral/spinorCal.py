@@ -968,10 +968,23 @@ class SpinorCal:
                 )
             else:
                 for j in range(combined_beams.shape[1]):
+                    # I->QUV crosstalk correction
                     for k in range(1, 4):
                         combined_beams[k, j, : ] = self.i2quv_crosstalk(
                             combined_beams[0, j, :],
                             combined_beams[k, j, :]
+                        )
+                    # V->QU crosstalk correction
+                    if self.v2qu:
+                        for k in range(1, 3):
+                            combined_beams[k, j, :] = self.v2qu_crosstalk(
+                                combined_beams[3, j, :],
+                                combined_beams[k, j, :]
+                            )
+                    if self.u2v:
+                        combined_beams[3, j, :] = self.v2qu_crosstalk(
+                            combined_beams[2, j, :],
+                            combined_beams[3, j, :]
                         )
 
             # Reverse the wavelength axis if required.
@@ -1172,6 +1185,25 @@ class SpinorCal:
         return reducedData
 
 
+    def package_scan(self, datacube, hdul):
+        """
+        Packages reduced scan into FITS HDUList. HDUList has 7 extensions:
+            1.) Empty data attr with top-level header info
+            2--5.) Stokes-I, Q, U, V
+            6.) Wavelength Array
+            7.) Metadata array (Contains:)
+                Pointing Lat/Lon, Timestamp, scintillation, light level, slit position
+        Parameters
+        ----------
+        datacube : numpy.ndarray
+            4D reduced stokes data in shape nx, 4, ny, nlambda
+        hdul : astropy.fits.HDUList
+
+        """
+
+        
+
+
     def i2quv_crosstalk(self, stokesI, stokesQUV):
         """
         Corrects for Stokes-I => QUV crosstalk. In the old pipeline, this was done by
@@ -1221,6 +1253,51 @@ class SpinorCal:
         correctedQUV = stokesQUV - (np.arange(len(stokesI))*ilinearParams[0] + ilinearParams[1])*stokesI
 
         return correctedQUV
+
+
+    def v2qu_crosstalk(self, stokesV, stokesQU):
+        """
+        Contrary to I->QUV crosstalk, we want the Q/U profiles to be dissimilar to V.
+        Q in particular is HEAVILY affected by crosstalk from V.
+        Take the assumption that QU = QU - aV, where a is chosen such that the error between
+        QU & V is maximized
+        Parameters
+        ----------
+        stokesV : numpy.ndarray
+            Stokes-V profile
+        stokesQU : numpy.ndarray
+            Stokes Q or U profile
+
+        Returns
+        -------
+        correctedQU : numpy.ndarray
+            Crosstalk-corrected Q or U profile
+        """
+        def model_function(param, v, qu):
+            """Fit model"""
+            return qu - param * v
+
+        def error_function(param, v, qu):
+            """Error function
+            We'll use cosine similarity for this, as a cosine similarity of 0
+            should indicate completely orthogonal, i.e., dissimilar vectors
+            """
+            qu_corr = model_function(param, v, qu)
+
+            return np.dot(v, qu_corr)/(np.linalg.norm(v) * np.linalg.norm(qu_corr))
+
+        fit_result = scopt.least_squares(
+            error_function,
+            x0=0,
+            args=[stokesV[50:-50], stokesQU[50:-50]],
+            bounds=[-1, 1]
+        )
+
+        v2qu_crosstalk = fit_result.x
+
+        correctedQU = stokesQU - v2qu_crosstalk * stokesV
+
+        return correctedQU
 
 
     def spinor_wavelength_calibration(self, referenceProfile):
