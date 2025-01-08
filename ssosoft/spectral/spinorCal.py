@@ -154,6 +154,11 @@ class SpinorCal:
         # It's about a quarter-wave plate.
         self.calRetardance = 90
 
+        # Basic SPINOR Feed Optics
+        self.slitCameraLens = 780 # mm, f.l. of usual HSG feed lens
+        self.dstPlateScale = 3.76 # asec/mm
+        self.dstCollimator = 1559 # mm, f.l., of DST Port 4 Collimator mirror
+
         return
 
 
@@ -1181,11 +1186,18 @@ class SpinorCal:
                 #     ax = fig.add_subplot(1, 4, k+1)
                 #     ax.imshow(combined_beams[k], origin='lower')
                 # plt.show()
+        mean_profile = np.nanmean(reducedData[:, 0, :, :], axis=(0, 1))
+        approxWavelengthArray = self.spinor_wavelength_calibration(mean_profile)
+        
+        if self.write:
+            self.package_scan(reducedData, approxWavelengthArray, science_hdu)
+            science_hdu.close()
+            return
+        else:
+            return reducedData, approxWavelengthArray
 
-        return reducedData
 
-
-    def package_scan(self, datacube, hdul):
+    def package_scan(self, datacube, wavelength_array, hdul):
         """
         Packages reduced scan into FITS HDUList. HDUList has 7 extensions:
             1.) Empty data attr with top-level header info
@@ -1197,11 +1209,259 @@ class SpinorCal:
         ----------
         datacube : numpy.ndarray
             4D reduced stokes data in shape nx, 4, ny, nlambda
+        wavelength_array : numpy.ndarray
+            1D array containing the wavelengths corrsponding to nlambda in datacube
         hdul : astropy.fits.HDUList
 
         """
-
         
+        prsteps = [
+            'DARK-SUBTRACTION',
+            'FLATFIELDING',
+            'WAVELENGTH-CALIBRATION',
+            'TELESCOPE-MULLER',
+            'SPECTROGRAPH-MULLER',
+            'I->QUV CROSSTALK'
+        ]
+        prstep_comments = [
+            'spinorCal/SSOSoft',
+            'spinorCal/SSOSoft',
+            'FTS Atlas',
+            '2010 Measurements',
+            'spinorCal/SSOSoft',
+            'spinorCal/SSOSoft'
+        ]
+
+        if self.v2qu:
+            prsteps.append(
+                'V->QU CROSSTALK'
+            )
+            prstep_comments.append(
+                'spinorCal/SSOSoft'
+            )
+        if self.u2v:
+            prsteps.append(
+                'U->V CROSSTALK'
+            )
+            prstep_comments.append(
+                'spinorCal/SSOSoft'
+            )
+
+        slit_plate_scale = self.dstPlateScale * self.dstCollimator/self.slitCameraLens
+        camera_dy = slit_plate_scale * (self.camera/self.collimator) * (self.pixel_size / 1000)
+
+        exptime = hdul[1].header['EXPTIME']
+        xposure = hdul[1].header['SUMS'] * exptime
+        nsumexp = hdul[1].header['SUMS']
+        slitwidth = hdul[1].header['HSG_SLW']
+        stepsize = hdul[1].header['HSG_STEP']
+        reqmapsize = hdul[1].header['HSG_MAP']
+        actmapsize = stepsize * (datacube.shape[0] - 1)
+        gratingangle = hdul[1].header['HSG_GRAT']
+        rsun = hdul[1].header['DST_SDIM'] / 2
+        cameraName = hdul[0].header['CAMERA']
+
+        step_startobs = []
+        solarX = []
+        solarY = []
+        rotan = []
+        llvl = []
+        scin = []
+        slitpos = []
+
+        for hdu in hdul:
+            step_startobs.append(hdu.header['DATE-OBS'])
+            rotan.append(hdu.header['DST_GDRN'] - 13.3)
+            llvl.append(hdu.header['DST_LLVL'])
+            scin.append(hdu.header['DST_SEE'])
+            slitpos.append(hdu.header['HSG_SLP'])
+            centerCoord = SkyCoord(
+                hdu.header['DST_SLNG']*u.deg, hdu.header['DST_SLAT']*u.deg,
+                obstime=hdu.header['DATE-OBS'], observer='earth', frame=frames.HeliographicStonyhurst
+            ).transform_to(frames.Helioprojective)
+            solarX.append(centerCoord.Tx.value)
+            solarY.append(centerCoord.Ty.value)
+
+        rotan = np.nanmean(rotan)
+
+        date, time = step_startobs.split("T")
+        date = date.replace("-", "")
+        time = time.replace(":", "")
+
+        outname = self.reducedFilePattern.format(
+            date,
+            time,
+            datacube.shape[0]
+        )
+        outfile = os.path.join(self.finalDir, outname)
+
+        # Need center, have to account for maps w/ even number of steps
+        if len(slitpos)%2==0:
+            slitPosCenter = (slitpos[int(len(slitpos) / 2) - 1] + slitpos[int(len(slitpos) / 2)]) / 2
+            centerX = (solarX[int(len(solarX) / 2) - 1] + solarX[int(len(solarX) / 2)]) / 2
+            centerY = (solarY[int(len(solarY) / 2) - 1] + solarY[int(len(solarY) / 2)]) / 2
+        else:
+            slitPosCenter = slitpos[int(len(slitpos)/2)]
+            centerX = solarX[int(len(slitpos)/2)]
+            centerY = solarY[int(len(slitpos)/2)]
+        # SPINOR has issues with crashing partway through maps.
+        # This poses an issue for determining the center point of a given map,
+        # As a crash will cause a map to be off-center relative to the telescope center
+        # If the requested and actual map sizes don't match, we'll have to
+        # do some math to get the actual center of the map.
+        # dX = cos(90 - rotan) * slitPos at halfway point
+        # dY = sin(90 - rotan) * slitPos at halfway point
+        if round(reqmapsize, 4) != round(actmapsize, 4):
+            dx = slitPosCenter * np.cos((90 - rotan)*np.pi/180)
+            centerX += dx
+            dy = slitPosCenter * np.sin((90 - rotan)*np.pi/180)
+            centerY -= dy # Note sign
+
+        # Start Assembling HDUList
+        # Empty 0th HDU first
+        ext0 = fits.PrimaryHDU()
+        ext0.header['DATE'] = (np.datetime64('now').astype(str), "File Creation Date and Time (UTC)")
+        ext0.header['ORIGIN'] = 'NMSU/SSOC'
+        ext0.header['TELESCOP'] = ('DST', "Dunn Solar Telescope, Sacramento Peak NM")
+        ext0.header['INSTRUME'] = ("SPINOR", "SPectropolarimetry of INfrared and Optical Regions")
+        ext0.header['AUTHOR'] = "sellers"
+        ext0.header['CAMERA'] = cameraName
+        ext0.header['DATA_LEV'] = 1.5
+        ext0.header[''] = '======== DATA SUMMARY ========'
+        if self.centralWavelength == 6302:
+            ext0.header['WAVEBAND'] = "Fe I 6301.5 AA, Fe I 6302.5 AA"
+        elif self.centralWavelength == 8542:
+            ext0.header['WAVEBAND'] = "Ca II 8542 AA"
+        ext0.header['STARTOBS'] = step_startobs[0]
+        ext0.header['ENDOBS'] = (np.datetime64(step_startobs[-1]) + np.timedelta64(xposure, 'ms')).astype(str)
+        ext0.header['BTYPE'] = 'Intensity'
+        ext0.header['BUNIT'] = 'Corrected DN'
+        ext0.header['EXPTIME'] = (exptime, 'ms for single exposure')
+        ext0.header['XPOSUR'] = (xposure, 'ms for total coadded exposure')
+        ext0.header['NSUMEXP'] = (nsumexp, "Summed images per modulation state")
+        ext0.header['SLIT_WID'] = (slitwidth, "[um] HSG Slit Width")
+        ext0.header['SLIT_ARC'] = (
+            round(slit_plate_scale * slitwidth/1000, 2),
+            "[arcsec, approx] HSG Slit Width"
+        )
+        ext0.header['MAP_EXP'] = (round(reqmapsize, 3), "[arcsec] Requested Map Size")
+        ext0.header['MAP_ACT'] = (round(actmapsize, 3), "[arcsec] Actual Map Size")
+        ext0.header[''] = '======== SPECTROGRAPH CONFIGURATION ========'
+        ext0.header['WAVEUNIT'] = (-10, "10^(WAVEUNIT), Angstrom")
+        ext0.header['WAVEREF'] = ("FTS", "Kurucz 1984 Atlas Used in Wavelength Determination")
+        ext0.header['WAVEMIN'] = (round(wavelength_array[0], 3), "[AA] Angstrom")
+        ext0.header['WAVEMAX'] = (round(wavelength_array[-1], 3), "[AA], Angstrom")
+        ext0.header['GRPERMM'] = (self.grating_rules, "[mm^-1] Lines per mm of Grating")
+        ext0.header['GRBLAZE'] = (self.blaze_angle, "[degrees] Blaze Angle of Grating")
+        ext0.header['GRANGLE'] = (gratingangle, "[degreed] Operating Angle of Grating")
+        ext0.header['SPORDER'] = (self.spectral_order, "Spectral Order")
+        grating_params = spex.grating_calculations(
+            self.grating_rules, self.blaze_angle, gratingangle,
+            self.pixel_size, self.centralWavelength, self.spectral_order,
+            collimator=self.collimator, camera=self.camera, slit_width=self.slit_width,
+        )
+        ext0.header['SPEFF'] = (grating_params['Grating_Efficiency'], 'Approx. Total Efficiency of Grating')
+        ext0.header['LITTROW'] = (grating_params['Littrow_Angle'], '[degrees] Littrow Angle')
+        ext0.header['RESOLVPW'] = (
+            round(np.nanmean(wavelength_array) / (0.001 * grating_params['Spectrograph_Resolution']), 0),
+            "Maximum Resolving Power of Spectrograph"
+        )
+        ext0.header[''] = '======== POINTING INFORMATION ========'
+        ext0.header['RSUN_ARC'] = rsun
+        ext0.header['XCEN'] = (round(centerX, 2), "[arcsec], Solar-X of Map Center")
+        ext0.header['YCEN'] = (round(centerY, 2), "[arcsec], Solar-Y of Map Center")
+        ext0.header['FOVX'] = (round(actmapsize, 3), "[arcsec], Field-of-view of raster-x")
+        ext0.header['FOVY'] = (round(datacube.shape[2] * camera_dy, 3), "[arcsec], Field-of-view of raster-y")
+        ext0.header['ROT'] = (round(rotan, 3), "[degrees] Rotation from Solar-North")
+        ext0.header[''] = '======== CALIBRATION PROCEDURE OUTLINE ========'
+        for i in range(len(prsteps)):
+            ext0.header['PRSTEP' + str(int(i+1))] = (prsteps[i], prstep_comments[i])
+        ext0.header['COMMENT'] = "Full WCS Information Contained in Individual Data HDUs"
+
+        fitsHDUs = [ext0]
+
+        # Stokes-IQUV HDU Construction
+        stokes = ['I', 'Q', 'U', 'V']
+        for i in range(4):
+            ext = fits.ImageHDU(datacube[:, 0, :, :])
+            ext.header['EXTNAME'] = 'STOKES-'+stokes[i]
+            ext.header['RSUN_ARC'] = rsun
+            ext.header['CDELT1'] = (stepsize, "arcsec")
+            ext.header['CDELT2'] = (camera_dy, "arcsec")
+            ext.header['CDELT3'] = (wavelength_array[1] - wavelength_array[0], "Angstrom")
+            ext.header['CTYPE1'] = 'HPLN-TAN'
+            ext.header['CTYPE2'] = 'HPLT-TAN'
+            ext.header['CTYPE3'] = 'WAVE'
+            ext.header['CUNIT1'] = 'arcsec'
+            ext.header['CUNIT2'] = 'arcsec'
+            ext.header['CUNIT3'] = 'Angstrom'
+            ext.header['CRVAL1'] = (centerX, "Solar-X, arcsec")
+            ext.header['CRVAL2'] = (centerY, "Solar-Y, arcsec")
+            ext.header['CRVAL3'] = (wavelength_array[0], "Angstrom")
+            ext.header['CRPIX1'] = np.mean(np.arange(datacube.shape[0])) + 1
+            ext.header['CRPIX2'] = np.mean(np.arange(datacube.shape[2])) + 1
+            ext.header['CRPIX3'] = 1
+            ext.header['CROTA2'] = (rotan, "degrees")
+            fitsHDUs.append(ext)
+
+        extWvl = fits.ImageHDU(wavelength_array)
+        extWvl.header['EXTNAME'] = 'lambda-coordinate'
+        extWvl.header['BTYPE'] = 'lambda axis'
+        extWvl.header['BUNIT'] = '[AA]'
+
+        fitsHDUs.append(extWvl)
+
+        # Finally write the metadata extension.
+        # This is a FITS table with
+        #   1.) Elapsed Time
+        #   2.) Telescope Solar-X
+        #   3.) Telescope Solar-Y
+        #   4.) Telescope Light Level
+        #   5.) Telescope Scintillation
+        timestamps = np.array([np.datetime64(t) for t in step_startobs])
+        timedeltas = timestamps - timestamps[0].astype('datetime64[D]')
+        timedeltas = timedeltas.astype('timedelta64[ms]').astype(float) / 1000
+        columns = [
+            fits.Column(
+                name='T_ELAPSED',
+                format='D',
+                unit='SECONDS',
+                array=timedeltas,
+                time_ref_pos=timestamps[0].astype('datetime64[D]').astype(str)
+            ),
+            fits.Column(
+                name='TEL_SOLX',
+                format='D',
+                unit='ARCSEC',
+                array=np.array(solarX)
+            ),
+            fits.Column(
+                name='TEL_SOLY',
+                format='D',
+                unit='ARCSEC',
+                array=np.array(solarY)
+            ),
+            fits.Column(
+                name='LIGHTLVL',
+                format='D',
+                unit='UNITLESS',
+                array=np.array(llvl)
+            ),
+            fits.Column(
+                name='TELESCIN',
+                format='D',
+                unit='ARCSEC',
+                array=np.array(scin)
+            )
+        ]
+        extMet = fits.BinTableHDU.from_columns(columns)
+        extMet.header['EXTNAME'] = 'METADATA'
+        fitsHDUs.append(extMet)
+
+        fitsHDUList = fits.HDUList(fitsHDUs)
+        fitsHDUList.writeto(outfile, overwrite=True)
+
+        return
 
 
     def i2quv_crosstalk(self, stokesI, stokesQUV):
