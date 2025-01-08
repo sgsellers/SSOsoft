@@ -1269,7 +1269,7 @@ class SpinorCal:
         scin = []
         slitpos = []
 
-        for hdu in hdul:
+        for hdu in hdul[1:]:
             step_startobs.append(hdu.header['DATE-OBS'])
             rotan.append(hdu.header['DST_GDRN'] - 13.3)
             llvl.append(hdu.header['DST_LLVL'])
