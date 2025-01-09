@@ -1180,12 +1180,6 @@ class SpinorCal:
                     lineFigure[j].canvas.draw()
                     lineFigure[j].canvas.flush_events()
 
-                # print("plot")
-                # fig = plt.figure(figsize=(20, 4))
-                # for k in range(4):
-                #     ax = fig.add_subplot(1, 4, k+1)
-                #     ax.imshow(combined_beams[k], origin='lower')
-                # plt.show()
         mean_profile = np.nanmean(reducedData[:, 0, :, :], axis=(0, 1))
         approxWavelengthArray = self.spinor_wavelength_calibration(mean_profile)
         
@@ -1360,10 +1354,10 @@ class SpinorCal:
             self.pixel_size, self.centralWavelength, self.spectral_order,
             collimator=self.collimator, camera=self.camera, slit_width=self.slit_width,
         )
-        ext0.header['SPEFF'] = (grating_params['Grating_Efficiency'], 'Approx. Total Efficiency of Grating')
-        ext0.header['LITTROW'] = (grating_params['Littrow_Angle'], '[degrees] Littrow Angle')
+        ext0.header['SPEFF'] = (grating_params['Grating_Efficiency'][0], 'Approx. Total Efficiency of Grating')
+        ext0.header['LITTROW'] = (grating_params['Littrow_Angle'][0], '[degrees] Littrow Angle')
         ext0.header['RESOLVPW'] = (
-            round(np.nanmean(wavelength_array) / (0.001 * grating_params['Spectrograph_Resolution']), 0),
+            round(np.nanmean(wavelength_array) / (0.001 * grating_params['Spectrograph_Resolution'][0]), 0),
             "Maximum Resolving Power of Spectrograph"
         )
         ext0.header[''] = '======== POINTING INFORMATION ========'
