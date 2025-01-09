@@ -1251,7 +1251,7 @@ class SpinorCal:
         camera_dy = slit_plate_scale * (self.camera/self.collimator) * (self.pixel_size / 1000)
 
         exptime = hdul[1].header['EXPTIME']
-        xposure = hdul[1].header['SUMS'] * exptime
+        xposure = int(hdul[1].header['SUMS'] * exptime)
         nsumexp = hdul[1].header['SUMS']
         slitwidth = hdul[1].header['HSG_SLW']
         stepsize = hdul[1].header['HSG_STEP']
