@@ -1354,10 +1354,10 @@ class SpinorCal:
             self.pixel_size, self.centralWavelength, self.spectral_order,
             collimator=self.collimator, camera=self.camera, slit_width=self.slit_width,
         )
-        ext0.header['SPEFF'] = (grating_params['Grating_Efficiency'][0], 'Approx. Total Efficiency of Grating')
-        ext0.header['LITTROW'] = (grating_params['Littrow_Angle'][0], '[degrees] Littrow Angle')
+        ext0.header['SPEFF'] = (float(grating_params['Grating_Efficiency']), 'Approx. Total Efficiency of Grating')
+        ext0.header['LITTROW'] = (float(grating_params['Littrow_Angle']), '[degrees] Littrow Angle')
         ext0.header['RESOLVPW'] = (
-            round(np.nanmean(wavelength_array) / (0.001 * grating_params['Spectrograph_Resolution'][0]), 0),
+            round(np.nanmean(wavelength_array) / (0.001 * float(grating_params['Spectrograph_Resolution'])), 0),
             "Maximum Resolving Power of Spectrograph"
         )
         ext0.header[''] = '======== POINTING INFORMATION ========'
@@ -1455,6 +1455,27 @@ class SpinorCal:
         fitsHDUList = fits.HDUList(fitsHDUs)
         fitsHDUList.writeto(outfile, overwrite=True)
 
+        return
+
+
+    def spinor_analysis(self, datacube, wavelengths, indices, rwvls):
+        """
+        Performs moment analysis, determines mean circular/linear polarization, and net circular polarization
+        maps for each of the given spectral windows. See Martinez Pillet et.al., 2011 discussion of mean polarization
+        For net circular polarization, see Solanki & Montavon 1993
+
+        Parameters
+        ----------
+        datacube
+        wavelengths
+        indices
+        rwvls
+
+        Returns
+        -------
+
+        """
+        f=1
         return
 
 
