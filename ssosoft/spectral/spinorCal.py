@@ -1321,7 +1321,7 @@ class SpinorCal:
         ext0.header['AUTHOR'] = "sellers"
         ext0.header['CAMERA'] = cameraName
         ext0.header['DATA_LEV'] = 1.5
-        ext0.header[''] = '======== DATA SUMMARY ========'
+
         if self.centralWavelength == 6302:
             ext0.header['WAVEBAND'] = "Fe I 6301.5 AA, Fe I 6302.5 AA"
         elif self.centralWavelength == 8542:
@@ -1340,7 +1340,7 @@ class SpinorCal:
         )
         ext0.header['MAP_EXP'] = (round(reqmapsize, 3), "[arcsec] Requested Map Size")
         ext0.header['MAP_ACT'] = (round(actmapsize, 3), "[arcsec] Actual Map Size")
-        ext0.header[''] = '======== SPECTROGRAPH CONFIGURATION ========'
+
         ext0.header['WAVEUNIT'] = (-10, "10^(WAVEUNIT), Angstrom")
         ext0.header['WAVEREF'] = ("FTS", "Kurucz 1984 Atlas Used in Wavelength Determination")
         ext0.header['WAVEMIN'] = (round(wavelength_array[0], 3), "[AA] Angstrom")
@@ -1360,7 +1360,7 @@ class SpinorCal:
             round(np.nanmean(wavelength_array) / (0.001 * float(grating_params['Spectrograph_Resolution'])), 0),
             "Maximum Resolving Power of Spectrograph"
         )
-        ext0.header[''] = '======== POINTING INFORMATION ========'
+
         ext0.header['RSUN_ARC'] = rsun
         ext0.header['XCEN'] = (round(centerX, 2), "[arcsec], Solar-X of Map Center")
         ext0.header['YCEN'] = (round(centerY, 2), "[arcsec], Solar-Y of Map Center")
@@ -1372,12 +1372,26 @@ class SpinorCal:
             ext0.header['PRSTEP' + str(int(i+1))] = (prsteps[i], prstep_comments[i])
         ext0.header['COMMENT'] = "Full WCS Information Contained in Individual Data HDUs"
 
+        ext0.header.insert(
+            "DATA_LEV",
+            ('', '======== DATA SUMMARY ========'),
+            after=True
+        )
+        ext0.header.insert(
+            "WAVEUNIT",
+            ('', '======== SPECTROGRAPH CONFIGURATION ========')
+        )
+        ext0.header.insert(
+            "RSUN_ARC",
+            ('', '======== POINTING INFORMATION ========')
+        )
+
         fitsHDUs = [ext0]
 
         # Stokes-IQUV HDU Construction
         stokes = ['I', 'Q', 'U', 'V']
         for i in range(4):
-            ext = fits.ImageHDU(datacube[:, 0, :, :])
+            ext = fits.ImageHDU(datacube[:, i, :, :])
             ext.header['EXTNAME'] = 'STOKES-'+stokes[i]
             ext.header['RSUN_ARC'] = rsun
             ext.header['CDELT1'] = (stepsize, "arcsec")
