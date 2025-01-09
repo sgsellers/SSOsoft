@@ -301,7 +301,7 @@ class SpinorCal:
                 self.beamEdges[larger_beam, 0] = int(
                     self.hairlines[0] -
                     (self.beamEdges[smaller_beam, 1] - self.hairlines[3])
-                ) - 1
+                ) + 1
                 self.beamEdges[larger_beam, 1] = int(
                     self.hairlines[1] +
                     (self.hairlines[2] - self.beamEdges[smaller_beam, 0])
