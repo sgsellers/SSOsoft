@@ -1284,7 +1284,7 @@ class SpinorCal:
 
         rotan = np.nanmean(rotan)
 
-        date, time = step_startobs.split("T")
+        date, time = step_startobs[0].split("T")
         date = date.replace("-", "")
         time = time.replace(":", "")
 
