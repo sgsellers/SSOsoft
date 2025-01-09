@@ -305,7 +305,7 @@ class SpinorCal:
                 self.beamEdges[larger_beam, 1] = int(
                     self.hairlines[1] +
                     (self.hairlines[2] - self.beamEdges[smaller_beam, 0])
-                )
+                ) - 1
         elif (len(self.hairlines) != 4) and (smaller_beam != larger_beam):
             print("4")
             self.beamEdges[larger_beam, 0] = int(
@@ -1367,7 +1367,7 @@ class SpinorCal:
         ext0.header['FOVX'] = (round(actmapsize, 3), "[arcsec], Field-of-view of raster-x")
         ext0.header['FOVY'] = (round(datacube.shape[2] * camera_dy, 3), "[arcsec], Field-of-view of raster-y")
         ext0.header['ROT'] = (round(rotan, 3), "[degrees] Rotation from Solar-North")
-        ext0.header[''] = '======== CALIBRATION PROCEDURE OUTLINE ========'
+
         for i in range(len(prsteps)):
             ext0.header['PRSTEP' + str(int(i+1))] = (prsteps[i], prstep_comments[i])
         ext0.header['COMMENT'] = "Full WCS Information Contained in Individual Data HDUs"
@@ -1384,6 +1384,10 @@ class SpinorCal:
         ext0.header.insert(
             "RSUN_ARC",
             ('', '======== POINTING INFORMATION ========')
+        )
+        ext0.header.insert(
+            "PRSTEP1",
+            ('', '======== CALIBRATION PROCEDURE OUTLINE ========')
         )
 
         fitsHDUs = [ext0]
