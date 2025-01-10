@@ -334,11 +334,16 @@ class SpinorCal:
             (np.nanmean(beam1, axis=0) - np.nanmean(beam1)),
             mode='full'
         ).argmax() - beam0.shape[1]
+
+        beam0meanprof = np.nanmean(beam0[int(beam0.shape[0] / 2 - 50):int(beam0.shape[0] / 2 + 50), 50:-50], axis=0)
+        beam1meanprof = np.nanmean(beam1[int(beam1.shape[0] / 2 - 50):int(beam1.shape[0] / 2 + 50), 50:-50], axis=0)
+        beam0meanprof -= beam0meanprof.mean()
+        beam1meanprof -= beam1meanprof.mean()
         self.beam1Xshift = np.correlate(
-            (np.nanmean(beam0, axis=1) - np.nanmean(beam0)),
-            (np.nanmean(beam1, axis=1) - np.nanmean(beam1)),
+            beam0meanprof,
+            beam1meanprof,
             mode='full'
-        ).argmax() - beam0.shape[0]
+        ).argmax() - beam0meanprof.shape[0]
 
         # Rather than doing a scipy.ndimage.shift, the better way to do it would
         # be to shift the self.beamEdges for beam 1.
@@ -439,7 +444,7 @@ class SpinorCal:
 
         beam1GainTable, beam1CoarseGainTable, beam1Skews = spex.create_gaintables(
             beam1LampGainCorrected,
-            [spinorLineCores[0] - 10 + self.beam1Xshift, spinorLineCores[0] + 10 + self.beam1Xshift],
+            [spinorLineCores[0] - 10 - self.beam1Xshift, spinorLineCores[0] + 10 - self.beam1Xshift],
             hairline_positions=self.hairlines[1] - self.beamEdges[1, 0],
             neighborhood=12,
             hairline_width=2
