@@ -846,7 +846,7 @@ class SpinorCal:
                         :,
                         self.beamEdges[1, 0]:self.beamEdges[1, 1],
                         self.slitEdges[0]:self.slitEdges[1]
-                    ], (0, shift, -self.beam1Xshift)
+                    ], (0, shift, self.beam1Xshift)
                 ), axis=1
             )
 
@@ -871,7 +871,7 @@ class SpinorCal:
                     science_hdu[i].data[0][
                         self.beamEdges[1, 0]:self.beamEdges[1, 1],
                         self.slitEdges[0]:self.slitEdges[1]
-                    ], (shift, -self.beam1Xshift)
+                    ], (shift, self.beam1Xshift)
                 ), axis=0
             )
 
@@ -906,8 +906,8 @@ class SpinorCal:
                 )
             print("Spec skew")
             # Reuse spectral lines from gain table creation to deskew...
-            x1 = 20
-            x2 = 21
+            x1 = 10
+            x2 = 11
             for k in range(5):
                 order = 1 if k < 2 else 2
                 spectral_skews = np.zeros((2, 2, science_beams.shape[-2]))
@@ -935,8 +935,8 @@ class SpinorCal:
                     science_beams[i-1, 1, :, j, :] = scind.shift(
                         science_beams[i-1, 1, :, j, :], (0, spectral_skews[1, j])
                     )
-                x1 -= 2
-                x2 -= 2
+                x1 -= 1
+                x2 -= 1
 
             print("Comb beam")
             combined_beams = np.zeros(science_beams.shape[2:])
