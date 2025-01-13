@@ -977,7 +977,7 @@ class SpinorCal:
             for j in range(self.nhair):
                 hairline_skews[j, :] = spex.spectral_skew(
                     np.rot90(
-                        tmp_beams[int(j / 2), int(hairlines[j] - 5):int(hairlines[j] + 7), :]
+                        tmp_beams[int(j / 2), int(hairlines[j] - 10):int(hairlines[j] + 14), :]
                     ), order=1
                 )
             avg_hairlines_skews = np.zeros((2, self.slitEdges[1] - self.slitEdges[0]))
