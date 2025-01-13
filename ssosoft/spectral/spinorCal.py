@@ -396,7 +396,7 @@ class SpinorCal:
                     self.hairlines[1] +
                     (self.hairlines[2] - self.beamEdges[smaller_beam, 0]),
                     0
-                ))
+                )) + 1
         elif (len(self.hairlines) != 4) and (smaller_beam != larger_beam):
             print("4")
             self.beamEdges[larger_beam, 0] = int(
