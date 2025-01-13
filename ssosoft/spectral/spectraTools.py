@@ -857,6 +857,7 @@ def create_gaintables(flat, lines_indices,
     shifted_lines = np.zeros(corrected_flat.shape)
     if hairline_positions is not None:
         for line in hairline_positions:
+            # Need a contingency for if a hairline is at the edge of the flat
             deskew_corrected_flat[
                 int(line - hairline_width - 1):int(line + hairline_width), :
             ] = deskew_corrected_flat[(int(line + hairline_width + 2))]

@@ -173,11 +173,11 @@ class SpinorCal:
 
         return
 
+    def spinor_assert_file_list(flist):
+        assert (len(flist) != 0), "List contains no matches."
+
     def spinor_configure_run(self):
         """Reads configuration file and sets up parameters for calibration sequence"""
-
-        def spinor_assert_file_list(flist):
-            assert (len(flist) != 0), "List contains no matches."
 
         """
         Block of file list find statements goes here.
@@ -190,6 +190,86 @@ class SpinorCal:
         pattern, i.e., *lamp_flat* or point to a specific file to override this
         behaviour.
         """
+        self.spinor_parse_configfile()
+        self.spinor_organize_directory()
+
+        return
+
+    def spinor_parse_configfile(self):
+        """
+        Parses configureation file and sets up the class structure for reductions
+        """
+
+        return
+
+    def spinor_organize_directory(self):
+        """
+        Organizes files in the Level-0 SPINOR directory.
+        Pairs science maps with their nearest solar and lamp flat files chronologically.
+            (Provided the flat has at least 21 data extensions)
+        Finds the Target image map and Line Grid image map.
+        """
+
+        filelist = sorted(
+            glob.glob(
+                os.path.join(
+                    self.indir,
+                    "*.fits"
+                )
+            )
+        )
+        scienceFiles = []
+        solarFlats = []
+        lampFlats = []
+        polcalFiles = []
+        lineGrids = []
+        targetFiles = []
+
+        for file in filelist:
+            with fits.open(file) as hdul:
+                if ("USER1" in hdul[1].header['PT4_FS']) & ("map" in file):
+                    scienceFiles.append(file)
+                elif ("USER2" in hdul[1].header['PT4_FS']) & ("map" in file):
+                    lineGrids.append(file)
+                elif ("TARGET" in hdul[1].header['PT4_FS']) & ("map" in file):
+                    targetFiles.append(file)
+                elif ("sun.flat" in file) & (len(hdul) >= 16):
+                    solarFlats.append(file)
+                elif ("lamp.flat" in file) & (len(hdul) >= 16):
+                    lampFlats.append(file)
+                elif ("cal" in file) & (len(hdul) >= 16):
+                    polcalFiles.append(file)
+        # Select polcal, linegrid, and target files by total filesize
+        if self.polcalFile is not None:
+            polcalFilesizes = np.array([os.path.getsize(pf) for pf in polcalFiles])
+            self.polcalFile = polcalFiles[polcalFilesizes.argmax()] if len(polcalFilesizes) != 0 else None
+        lineGridFilesizes = np.array([os.path.getsize(lg) for lg in lineGrids])
+        self.lineGridFile = lineGrids[lineGridFilesizes.argmax()] if len(lineGridFilesizes) != 0 else None
+        targetFilesizes = np.array([os.path.getsize(tg) for tg in targetFiles])
+        self.targetFile = targetFiles[targetFilesizes.argmax()] if len(targetFilesizes) != 0 else None
+
+        # Allow user to override and choose flat files to use
+        if self.solarFlatFile is not None:
+            self.solarFlatFilelist = [self.solarFlatFile for x in scienceFiles]
+        else:
+            solarFlatStartTimes = np.array(
+                [
+                    fits.open(x)[1].header['DATE-OBS'] for x in solarFlats
+                ],
+                dtype='datetime64[ms]'
+            )
+            scienceStartTimes = np.array(
+                [
+                    fits.open(x)[1].header['DATE-OBS'] for x in scienceFiles
+                ],
+                dtype='datetime64[ms]'
+            )
+            self.solarFlarFileList = [
+                solarFlats[spex.find_nearest(solarFlatStartTimes, x)] for x in scienceStartTimes
+            ]
+        if self.lampFlatFile is not None:
+            lampFlatFilesizes = np.array([os.path.getsize(lf) for lf in lampFlats])
+            self.lampFlatFile = lampFlats[lampFlatFilesizes.argmax()] if len(lampFlatFilesizes) != 0 else None
 
         return
 
@@ -250,17 +330,24 @@ class SpinorCal:
         averageFlat /= flatctr
         return averageFlat
 
+
     def spinor_get_cal_images(self):
         """
         Creates average dark, flat, lampflat images. Calculates gain tables.
         """
-        lampDark = self.spinor_average_dark_from_hdul(self.lampFlatFile)
-        lampFlat = self.spinor_average_flat_from_hdul(self.lampFlatFile)
-
-        self.lampGain = (lampFlat - lampDark) / np.nanmedian(lampFlat - lampDark)
 
         self.solarDark = self.spinor_average_dark_from_hdul(self.solarFlatFile)
         self.solarFlat = self.spinor_average_flat_from_hdul(self.solarFlatFile)
+
+        if self.lampFlatFile is not None:
+            lampDark = self.spinor_average_dark_from_hdul(self.lampFlatFile)
+            lampFlat = self.spinor_average_flat_from_hdul(self.lampFlatFile)
+
+            self.lampGain = (lampFlat - lampDark) / np.nanmedian(lampFlat - lampDark)
+        else:
+            # If there's no lamp flat file for a given day,
+            # Create a dummy array of ones so we can divide by the lampgain without fear
+            self.lampGain = np.ones(self.solarDark.shape)
 
         processed_flat = (self.solarFlat - self.solarDark)/self.lampGain
 
@@ -437,7 +524,7 @@ class SpinorCal:
         beam0GainTable, beam0CoarseGainTable, beam0Skews = spex.create_gaintables(
             beam0LampGainCorrected,
             [spinorLineCores[0] - 10, spinorLineCores[0] + 5],
-            hairline_positions=self.hairlines[0],
+            hairline_positions=self.hairlines[0] - self.beamEdges[0, 0],
             neighborhood=12,
             hairline_width=2
         )
@@ -878,7 +965,7 @@ class SpinorCal:
             hairlines = self.hairlines.copy()
             hairlines[1] = self.beamEdges[1, 1] - hairlines[1] + shift
 
-            hairlines = hairlines.flatten()
+            hairlines = hairlines.flatten() - self.beamEdges[0, 0]
 
             hairline_skews = np.zeros((self.nhair, self.slitEdges[1] - self.slitEdges[0]))
             print("Hair deskew")
