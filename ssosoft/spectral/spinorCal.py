@@ -970,6 +970,8 @@ class SpinorCal:
             hairlines[0] = hairlines[0] - self.beamEdges[0, 0]
             hairlines[1] = self.beamEdges[1, 1] - hairlines[1] + shift
 
+            hairlines = hairlines.flatten()
+
             hairline_skews = np.zeros((self.nhair, self.slitEdges[1] - self.slitEdges[0]))
             print("Hair deskew")
             for j in range(self.nhair):
