@@ -981,7 +981,7 @@ class SpinorCal:
             for j in range(self.nhair):
                 hairline_skews[j, :] = spex.spectral_skew(
                     np.rot90(
-                        tmp_beams[int(j / 2), int(hairlines[j] - 10):int(hairlines[j] + 14), :]
+                        tmp_beams[int(j / 2), int(hairlines[j] - 5):int(hairlines[j] + 7), :]
                     ), order=1
                 )
             avg_hairlines_skews = np.zeros((2, self.slitEdges[1] - self.slitEdges[0]))
@@ -993,7 +993,7 @@ class SpinorCal:
             )
             for j in range(avg_hairlines_skews.shape[1]):
                 science_beams[i-1, 0, :, :, j] = scind.shift(
-                    science_beams[i-1, 0, :, :, j], (0, -avg_hairlines_skews[0, j]),
+                    science_beams[i-1, 0, :, :, j], (0, avg_hairlines_skews[0, j]),
                     mode='nearest'
                 )
                 science_beams[i-1, 1, :, :, j] = scind.shift(
