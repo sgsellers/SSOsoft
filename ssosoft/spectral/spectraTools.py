@@ -616,7 +616,7 @@ def spectral_skew(image, order=2, slit_reference=0.25):
     else:
         # Special case -- turn off the normalization to put the line squarely in
         # The center of the given window
-        shifts = core_polynomial - image.shape[0]/2
+        shifts = core_polynomial - image.shape[1]/2
 
     if np.abs(np.nanmean(shifts)) >= 7.5:
         warnings.warn(
