@@ -978,7 +978,7 @@ class SpinorCal:
                 hairline_skews[j, :] = spex.spectral_skew(
                     np.rot90(
                         tmp_beams[int(j / 2), int(hairlines[j] - 5):int(hairlines[j] + 7), :]
-                    ), order=2
+                    ), order=1
                 )
             avg_hairlines_skews = np.zeros((2, self.slitEdges[1] - self.slitEdges[0]))
             avg_hairlines_skews[0] = np.nanmean(
@@ -998,8 +998,8 @@ class SpinorCal:
                 )
             print("Spec skew")
             # Reuse spectral lines from gain table creation to deskew...
-            x1 = 10
-            x2 = 11
+            x1 = 20
+            x2 = 21
             for k in range(5):
                 order = 1 if k < 2 else 2
                 spectral_skews = np.zeros((2, 2, science_beams.shape[-2]))
@@ -1027,8 +1027,8 @@ class SpinorCal:
                     science_beams[i-1, 1, :, j, :] = scind.shift(
                         science_beams[i-1, 1, :, j, :], (0, spectral_skews[1, j])
                     )
-                x1 -= 1
-                x2 -= 1
+                x1 -= 3
+                x2 -= 3
 
             print("Comb beam")
             combined_beams = np.zeros(science_beams.shape[2:])
