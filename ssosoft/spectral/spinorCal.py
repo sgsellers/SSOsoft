@@ -1022,10 +1022,10 @@ class SpinorCal:
                 spectral_skews = np.nanmean(spectral_skews, axis=1)
                 for j in range(spectral_skews.shape[1]):
                     science_beams[i-1, 0, :, j, :] = scind.shift(
-                        science_beams[i-1, 0, :, j, :], (0, spectral_skews[0, j])
+                        science_beams[i-1, 0, :, j, :], (0, -spectral_skews[0, j])
                     )
                     science_beams[i-1, 1, :, j, :] = scind.shift(
-                        science_beams[i-1, 1, :, j, :], (0, spectral_skews[1, j])
+                        science_beams[i-1, 1, :, j, :], (0, -spectral_skews[1, j])
                     )
                 x1 -= 3
                 x2 -= 3
