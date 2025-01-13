@@ -1007,8 +1007,8 @@ class SpinorCal:
                            i-1, 0, 0, :,
                            int(self.spinorLineCores[0] - x1):int(self.spinorLineCores[0]+x2)
                 ]
-                deskBeam[hairlines[0]-4:hairlines[0]+4] = np.nan
-                deskBeam[hairlines[1] - 4:hairlines[1] + 4] = np.nan
+                deskBeam[int(hairlines[0] - 4):int(hairlines[0] + 4)] = np.nan
+                deskBeam[int(hairlines[1] - 4):int(hairlines[1] + 4)] = np.nan
                 spectral_skews[0, 0] = spex.spectral_skew(
                     deskBeam,
                     slit_reference=0.5, order=order
@@ -1017,33 +1017,34 @@ class SpinorCal:
                            i-1, 1, 0, :,
                            int(self.spinorLineCores[0] - x1):int(self.spinorLineCores[0] + x2)
                 ]
-                deskBeam[hairlines[0] - 4:hairlines[0] + 4] = np.nan
-                deskBeam[hairlines[1] - 4:hairlines[1] + 4] = np.nan
+                deskBeam[int(hairlines[0] - 4):int(hairlines[0] + 4)] = np.nan
+                deskBeam[int(hairlines[1] - 4):int(hairlines[1] + 4)] = np.nan
                 spectral_skews[1, 0] = spex.spectral_skew(
                     deskBeam,
                     slit_reference=0.5, order=order
                 )
-                deskBeam = science_beams[
-                           i - 1, 0, 0, :,
-                           int(self.spinorLineCores[1] - x1):int(self.spinorLineCores[1] + x2)
-                ]
-                deskBeam[hairlines[0] - 4:hairlines[0] + 4] = np.nan
-                deskBeam[hairlines[1] - 4:hairlines[1] + 4] = np.nan
-                spectral_skews[0, 1] = spex.spectral_skew(
-                    deskBeam,
-                    slit_reference=0.5, order=order
-                )
-                deskBeam = science_beams[
-                           i - 1, 1, 0, :,
-                           int(self.spinorLineCores[1] - x1):int(self.spinorLineCores[1] + x2)
-                ]
-                deskBeam[hairlines[0] - 4:hairlines[0] + 4] = np.nan
-                deskBeam[hairlines[1] - 4:hairlines[1] + 4] = np.nan
-                spectral_skews[1, 1] = spex.spectral_skew(
-                    deskBeam,
-                    slit_reference=0.5, order=order
-                )
-                spectral_skews = np.nanmean(spectral_skews, axis=1)
+                # deskBeam = science_beams[
+                #            i - 1, 0, 0, :,
+                #            int(self.spinorLineCores[1] - x1):int(self.spinorLineCores[1] + x2)
+                # ]
+                # deskBeam[hairlines[0] - 4:hairlines[0] + 4] = np.nan
+                # deskBeam[hairlines[1] - 4:hairlines[1] + 4] = np.nan
+                # spectral_skews[0, 1] = spex.spectral_skew(
+                #     deskBeam,
+                #     slit_reference=0.5, order=order
+                # )
+                # deskBeam = science_beams[
+                #            i - 1, 1, 0, :,
+                #            int(self.spinorLineCores[1] - x1):int(self.spinorLineCores[1] + x2)
+                # ]
+                # deskBeam[hairlines[0] - 4:hairlines[0] + 4] = np.nan
+                # deskBeam[hairlines[1] - 4:hairlines[1] + 4] = np.nan
+                # spectral_skews[1, 1] = spex.spectral_skew(
+                #     deskBeam,
+                #     slit_reference=0.5, order=order
+                # )
+                # spectral_skews = np.nanmean(spectral_skews, axis=1)
+                spectral_skews = spectral_skews[:, 0, :]
                 for j in range(spectral_skews.shape[1]):
                     science_beams[i-1, 0, :, j, :] = scind.shift(
                         science_beams[i-1, 0, :, j, :], (0, spectral_skews[0, j])
