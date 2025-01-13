@@ -375,24 +375,28 @@ class SpinorCal:
             # It does matter which beam is smaller. Must pair inner & outer hairlines.
             if smaller_beam == 0:
                 print("2")
-                self.beamEdges[larger_beam, 0] = int(
+                self.beamEdges[larger_beam, 0] = int(round(
                     self.hairlines[2] -
-                    (self.beamEdges[smaller_beam, 1] - self.hairlines[1])
-                )
-                self.beamEdges[larger_beam, 1] = int(
+                    (self.beamEdges[smaller_beam, 1] - self.hairlines[1]),
+                    0
+                ))
+                self.beamEdges[larger_beam, 1] = int(round(
                     self.hairlines[3] +
-                    (self.hairlines[0] - self.beamEdges[smaller_beam, 0])
-                )
+                    (self.hairlines[0] - self.beamEdges[smaller_beam, 0]),
+                    0
+                ))
             else:
                 print("3")
-                self.beamEdges[larger_beam, 0] = int(
+                self.beamEdges[larger_beam, 0] = int(round(
                     self.hairlines[0] -
-                    (self.beamEdges[smaller_beam, 1] - self.hairlines[3])
-                )
-                self.beamEdges[larger_beam, 1] = int(
+                    (self.beamEdges[smaller_beam, 1] - self.hairlines[3]),
+                    0
+                ))
+                self.beamEdges[larger_beam, 1] = int(round(
                     self.hairlines[1] +
-                    (self.hairlines[2] - self.beamEdges[smaller_beam, 0])
-                ) + 1
+                    (self.hairlines[2] - self.beamEdges[smaller_beam, 0]),
+                    0
+                ))
         elif (len(self.hairlines) != 4) and (smaller_beam != larger_beam):
             print("4")
             self.beamEdges[larger_beam, 0] = int(
