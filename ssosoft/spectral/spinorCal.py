@@ -982,8 +982,9 @@ class SpinorCal:
                 hairline_skews[j, :] = spex.spectral_skew(
                     np.rot90(
                         tmp_beams[int(j / 2), int(hairlines[j] - 7):int(hairlines[j] + 9), :]
-                    ), order=1, slit_reference=None
+                    ), order=1
                 )
+
             avg_hairlines_skews = np.zeros((2, self.slitEdges[1] - self.slitEdges[0]))
             avg_hairlines_skews[0] = np.nanmean(
                 hairline_skews[0:int(self.nhair/2), :], axis=0
@@ -1000,6 +1001,25 @@ class SpinorCal:
                     science_beams[i-1, 1, :, :, j], (0, avg_hairlines_skews[1, j]),
                     mode='nearest'
                 )
+            # With hairlines straightened, determine bulk offset between beams again (subpixel)
+            beam0hairlineCenter = spex.find_line_core(
+                np.mean(
+                    science_beams[i-1, 0, 0, int(hairlines.min() - 5):int(hairlines.min() + 7), :],
+                    axis=1
+                )
+            ) + int(hairlines.min() - 5)
+            beam1hairlineCenter = spex.find_line_core(
+                np.mean(
+                    science_beams[i-1, 1, 0, int(hairlines.min() - 5):int(hairlines.min() + 7), :],
+                    axis=1
+                )
+            ) + int(hairlines.min() - 5)
+            hairlineOffset = beam1hairlineCenter - beam0hairlineCenter
+            science_beams[i-1, 1, :, :, :] = scind.shift(
+                science_beams[i-1, 1, :, :, :], (0, 0, -hairlineOffset),
+                mode='nearest'
+            )
+
             print("Spec skew")
             # Reuse spectral lines from gain table creation to deskew...
             x1 = 20

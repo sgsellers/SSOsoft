@@ -611,12 +611,7 @@ def spectral_skew(image, order=2, slit_reference=0.25):
     for i in range(len(polycoeff)):
         core_polynomial += polycoeff[i] * yrange ** i
     core_linear = lincoeff[0] + yrange * lincoeff[1]
-    if slit_reference is not None:
-        shifts = (core_polynomial - core_linear[int(slit_reference * image.shape[0])])
-    else:
-        # Special case -- turn off the normalization to put the line squarely in
-        # The center of the given window
-        shifts = core_polynomial - image.shape[1]/2
+    shifts = (core_polynomial - core_linear[int(slit_reference * image.shape[0])])
 
     if np.abs(np.nanmean(shifts)) >= 7.5:
         warnings.warn(
