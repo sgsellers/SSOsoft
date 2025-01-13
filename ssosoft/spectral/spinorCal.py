@@ -411,7 +411,7 @@ class SpinorCal:
             )
 
         # Might still be off by up to 2 in size due to errors in casting float to int
-        diff = int(np.diff(np.diff(self.beamEdges, axis=1).flattend(), axis=0)[0])
+        diff = int(np.diff(np.diff(self.beamEdges, axis=1).flatten(), axis=0)[0])
         self.beamEdges[0, 1] += diff
 
         self.hairlines = self.hairlines.reshape(2, int(self.nhair/2))
