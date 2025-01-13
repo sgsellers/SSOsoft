@@ -993,7 +993,7 @@ class SpinorCal:
             )
             for j in range(avg_hairlines_skews.shape[1]):
                 science_beams[i-1, 0, :, :, j] = scind.shift(
-                    science_beams[i-1, 0, :, :, j], (0, -avg_hairlines_skews[0, j]),
+                    science_beams[i-1, 0, :, :, j], (0, avg_hairlines_skews[0, j]),
                     mode='nearest'
                 )
                 science_beams[i-1, 1, :, :, j] = scind.shift(
