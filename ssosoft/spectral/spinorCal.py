@@ -530,7 +530,7 @@ class SpinorCal:
             [spinorLineCores[0] - 5, spinorLineCores[0] + 7],
             hairline_positions=self.hairlines[0] - self.beamEdges[0, 0],
             neighborhood=12,
-            hairline_width=self.hairlineWidth
+            hairline_width=self.hairlineWidth/2
         )
 
         beam1GainTable, beam1CoarseGainTable, beam1Skews = spex.create_gaintables(
@@ -538,7 +538,7 @@ class SpinorCal:
             [spinorLineCores[0] - 5 - self.beam1Xshift, spinorLineCores[0] + 7 - self.beam1Xshift],
             hairline_positions=self.hairlines[1] - self.beamEdges[1, 0],
             neighborhood=12,
-            hairline_width=self.hairlineWidth
+            hairline_width=self.hairlineWidth/2
         )
 
         print("Beam0:", beam0LampGainCorrected.shape)
