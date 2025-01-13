@@ -396,7 +396,7 @@ class SpinorCal:
                     self.hairlines[1] +
                     (self.hairlines[2] - self.beamEdges[smaller_beam, 0]),
                     0
-                )) + 1
+                ))
         elif (len(self.hairlines) != 4) and (smaller_beam != larger_beam):
             print("4")
             self.beamEdges[larger_beam, 0] = int(
@@ -409,6 +409,10 @@ class SpinorCal:
                     self.beamEdges[larger_beam, :]
                 ) + np.diff(self.beamEdges[smaller_beam, :]) / 2
             )
+
+        # Might still be off by up to 2 in size due to errors in casting float to int
+        diff = int(np.diff(np.diff(self.beamEdges, axis=1).flattend(), axis=0)[0])
+        self.beamEdges[0, 1] += diff
 
         self.hairlines = self.hairlines.reshape(2, int(self.nhair/2))
 
