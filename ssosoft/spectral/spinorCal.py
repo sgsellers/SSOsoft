@@ -956,14 +956,14 @@ class SpinorCal:
                 science_beams.shape[-1]
             ))
             tmp_beams[0] = (
-                    science_hdu[i].data[0] - self.solarDark
+                    np.nanmean(science_hdu[i].data, axis=0) - self.solarDark
             )[
                 self.beamEdges[0, 0]:self.beamEdges[0, 1],
                 self.slitEdges[0]:self.slitEdges[1]
             ]
             tmp_beams[1] = np.flip(
                 scind.shift(
-                    science_hdu[i].data[0][
+                    np.nanmean(science_hdu[i].data, axis=0)[
                         self.beamEdges[1, 0]:self.beamEdges[1, 1],
                         self.slitEdges[0]:self.slitEdges[1]
                     ], (shift, self.beam1Xshift)
@@ -974,52 +974,62 @@ class SpinorCal:
             hairlines[0] = hairlines[0] - self.beamEdges[0, 0]
             hairlines[1] = self.beamEdges[1, 1] - hairlines[1] + shift
 
-            hairlines = hairlines.flatten()
-
-            hairline_skews = np.zeros((self.nhair, self.slitEdges[1] - self.slitEdges[0]))
+            # Having some issues with the hairline deskew.
+            # Going to try something new:
+            # Median filter the hairline image
+            # Find the mean argmin
+            # Re-create the filtered hairline image
+            # Do spectral skew
+            # Register hairlines to common index
+            medfilth0 = scind.median_filter(
+                tmp_beams[:, int(hairlines[0, 0] - 7):int(hairlines[0,0] + 7), :],
+                size=(0, 2, 25)
+            )
+            offsets = [round(
+                np.nanmean(
+                    [medfilth0[x, :, y].argmin() for y in range(
+                        int(medfilth0.shape[2]/2 - 50),
+                        int(medfilth0.shape[2]/2 + 50)
+                    )]
+                ),
+                0
+            ) - 7 for x in range(2)]
+            medfilth0 = np.zeros(medfilth0.shape)
+            medfilth0[0] = scind.median_filter(
+                tmp_beams[0, int(hairlines[0, 0] + offsets[0] - 7):int(hairlines[0,0] + offsets[0] + 7), :],
+                size=(0, 2, 25)
+            )
+            medfilth0[1] = scind.median_filter(
+                tmp_beams[1, int(hairlines[0, 0] + offsets[1] - 7):int(hairlines[0, 0] + offsets[1] + 7), :],
+                size=(0, 2, 25)
+            )
+            hairline_skews = np.zeros((2, self.slitEdges[1] - self.slitEdges[0]))
+            deskewedHairs = medfilth0.copy()
             print("Hair deskew")
-            for j in range(self.nhair):
+            for j in range(2):
                 hairline_skews[j, :] = spex.spectral_skew(
                     np.rot90(
-                        tmp_beams[int(j / 2), int(hairlines[j] - 7):int(hairlines[j] + 9), :]
+                        medfilth0[j, :, :]
                     ), order=1
                 )
+                for k in range(hairline_skews.shape[1]):
+                    deskewedHairs[j, :, k] = scind.shift(
+                        medfilth0[j, :, k], hairline_skews[j, k],
+                        mode='nearest'
+                    )
+            meanHairlineProfiles = np.nanmean(deskewedHairs, axis=2)
+            bulkHairOffset = spex.find_line_core(meanHairlineProfiles[0]) - spex.find_line_core(meanHairlineProfiles[1])
+            hairline_skews[1] += bulkHairOffset
 
-            avg_hairlines_skews = np.zeros((2, self.slitEdges[1] - self.slitEdges[0]))
-            avg_hairlines_skews[0] = np.nanmean(
-                hairline_skews[0:int(self.nhair/2), :], axis=0
-            )
-            avg_hairlines_skews[1] = np.nanmean(
-                hairline_skews[int(self.nhair/2):, :], axis=0
-            )
-            for j in range(avg_hairlines_skews.shape[1]):
+            for j in range(hairlines_skews.shape[1]):
                 science_beams[i-1, 0, :, :, j] = scind.shift(
-                    science_beams[i-1, 0, :, :, j], (0, avg_hairlines_skews[0, j]),
+                    science_beams[i-1, 0, :, :, j], (0, hairlines_skews[0, j]),
                     mode='nearest'
                 )
                 science_beams[i-1, 1, :, :, j] = scind.shift(
-                    science_beams[i-1, 1, :, :, j], (0, avg_hairlines_skews[1, j]),
+                    science_beams[i-1, 1, :, :, j], (0, hairlines_skews[1, j]),
                     mode='nearest'
                 )
-            # With hairlines straightened, determine bulk offset between beams again (subpixel)
-            beam0hairlineCenter = spex.find_line_core(
-                np.mean(
-                    science_beams[i-1, 0, 0, int(hairlines.min() - 5):int(hairlines.min() + 7), :],
-                    axis=1
-                )
-            ) + int(hairlines.min() - 5)
-            beam1hairlineCenter = spex.find_line_core(
-                np.mean(
-                    science_beams[i-1, 1, 0, int(hairlines.min() - 5):int(hairlines.min() + 7), :],
-                    axis=1
-                )
-            ) + int(hairlines.min() - 5)
-            hairlineOffset = beam1hairlineCenter - beam0hairlineCenter
-            science_beams[i-1, 1, :, :, :] = scind.shift(
-                science_beams[i-1, 1, :, :, :], (0, 0, -hairlineOffset),
-                mode='nearest'
-            )
-
             print("Spec skew")
             # Reuse spectral lines from gain table creation to deskew...
             x1 = 20
