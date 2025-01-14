@@ -997,11 +997,11 @@ class SpinorCal:
             medfilth0 = np.zeros(medfilth0.shape)
             medfilth0[0] = scind.median_filter(
                 tmp_beams[0, int(hairlines[0, 0] + offsets[0] - 7):int(hairlines[0,0] + offsets[0] + 7), :],
-                size=(0, 2, 25)
+                size=(2, 25)
             )
             medfilth0[1] = scind.median_filter(
                 tmp_beams[1, int(hairlines[0, 0] + offsets[1] - 7):int(hairlines[0, 0] + offsets[1] + 7), :],
-                size=(0, 2, 25)
+                size=(2, 25)
             )
             hairline_skews = np.zeros((2, self.slitEdges[1] - self.slitEdges[0]))
             deskewedHairs = medfilth0.copy()
@@ -1021,13 +1021,13 @@ class SpinorCal:
             bulkHairOffset = spex.find_line_core(meanHairlineProfiles[0]) - spex.find_line_core(meanHairlineProfiles[1])
             hairline_skews[1] += bulkHairOffset
 
-            for j in range(hairlines_skews.shape[1]):
+            for j in range(hairline_skews.shape[1]):
                 science_beams[i-1, 0, :, :, j] = scind.shift(
-                    science_beams[i-1, 0, :, :, j], (0, hairlines_skews[0, j]),
+                    science_beams[i-1, 0, :, :, j], (0, hairline_skews[0, j]),
                     mode='nearest'
                 )
                 science_beams[i-1, 1, :, :, j] = scind.shift(
-                    science_beams[i-1, 1, :, :, j], (0, hairlines_skews[1, j]),
+                    science_beams[i-1, 1, :, :, j], (0, hairline_skews[1, j]),
                     mode='nearest'
                 )
             print("Spec skew")
