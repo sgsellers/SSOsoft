@@ -1051,8 +1051,8 @@ class SpinorCal:
                            i-1, 1, 0, :,
                            int(self.spinorLineCores[0] - x1):int(self.spinorLineCores[0] + x2)
                 ].copy()
-                deskBeam[int(hairlines[0] - 4):int(hairlines[0] + 4)] = np.nan
-                deskBeam[int(hairlines[1] - 4):int(hairlines[1] + 4)] = np.nan
+                deskBeam[int(hairlines[0, 0] - 4):int(hairlines[0, 0] + 4)] = np.nan
+                deskBeam[int(hairlines[0, 1] - 4):int(hairlines[0, 1] + 4)] = np.nan
                 spectral_skews[1, 0] = spex.spectral_skew(
                     deskBeam,
                     slit_reference=0.5, order=order
