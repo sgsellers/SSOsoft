@@ -1026,7 +1026,7 @@ class SpinorCal:
                     mode='nearest'
                 )
                 science_beams[i-1, 1, :, :, j] = scind.shift(
-                    science_beams[i-1, 1, :, :, j], (0, -hairline_skews[1, j] + bulkHairOffset),
+                    science_beams[i-1, 1, :, :, j], (0, -hairline_skews[1, j] - bulkHairOffset),
                     mode='nearest'
                 )
             print("Spec skew")
