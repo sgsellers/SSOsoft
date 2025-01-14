@@ -983,7 +983,7 @@ class SpinorCal:
             # Register hairlines to common index
             medfilth0 = scind.median_filter(
                 tmp_beams[:, int(hairlines[0, 0] - 7):int(hairlines[0,0] + 7), :],
-                size=(0, 2, 25)
+                size=(1, 2, 25)
             )
             offsets = [round(
                 np.nanmean(
