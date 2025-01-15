@@ -149,6 +149,7 @@ class SpinorCal:
         self.v2qu = True
         self.u2v = True
         self.plot = False
+        self.crosstalkContinuum = None
 
         # Can be pulled from header:
         self.grating_angle = None
