@@ -1049,14 +1049,14 @@ class SpinorCal:
                     )
             meanHairlineProfiles = np.nanmean(deskewedHairs, axis=2)
             bulkHairOffset = spex.find_line_core(meanHairlineProfiles[0]) - spex.find_line_core(meanHairlineProfiles[1])
-
+            bulkHairOffset=0
             for j in range(hairline_skews.shape[1]):
                 science_beams[i-1, 0, :, :, j] = scind.shift(
                     science_beams[i-1, 0, :, :, j], (0, -hairline_skews[0, j]),
                     mode='nearest'
                 )
                 science_beams[i-1, 1, :, :, j] = scind.shift(
-                    science_beams[i-1, 1, :, :, j], (0, -hairline_skews[1, j] + bulkHairOffset),
+                    science_beams[i-1, 1, :, :, j], (0, -hairline_skews[1, j] - bulkHairOffset),
                     mode='nearest'
                 )
             print("Spec skew")
