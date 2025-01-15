@@ -14,8 +14,6 @@ import tqdm
 from astropy.constants import c
 import warnings
 
-from .spectraTools import linearAnalyzerPolarizer
-
 c_kms = c.value / 1e3
 from astropy.coordinates import SkyCoord
 from sunpy.coordinates import frames
@@ -124,16 +122,43 @@ class SpinorCal:
         self.avgDark = None
         self.solarFlat = None
         self.lampGain = None
-        self.numDark = 0
-        self.numSflat = 0
-        self.numLflat = 0
         self.solarGain = None
         self.coarseGain = None
-        self.deskewedFlat = None
         self.polcalVecs = None
         self.tMatrix = None
         self.flipWave = False
-        self.crosstalkContinuum = None
+
+        # Locations
+        self.indir = ""
+        self.finalDir=""
+        self.polcalFile = None
+        self.solarFlatFile = None
+        self.lampFlatFile = None
+        self.scienceFile = None
+        self.tMatrixFile = None
+
+        # Some default vaules
+        self.nhair = 4
+        self.beamThreshold = 0.5
+        self.hairlineWidth = 3
+        self.grating_rules = 308.57 # lpmm
+        self.blaze_angle = 52
+        self.ilimit = 0.5 # For beam edge determination
+        self.nSubSlits = 10
+        self.verbose = False
+        self.v2qu = True
+        self.u2v = True
+        self.plot = False
+
+        # Can be pulled from header:
+        self.grating_angle = None
+        self.slit_width = None
+
+        # Must be set in config file, or surmised from config file
+        self.pixel_size = None # 16 um for Sarnoffs, 25 um for Flirs
+        self.centralWavelength = None # Should identify a spectral line, i.e., 6302, 8542
+        self.spectral_order = None # To-do, solve the most likely spectral order from the grating info. Function exists.
+
 
         # Default polarization modulation from new modulator (2024-09)
         # I: ++++++++
@@ -169,7 +194,7 @@ class SpinorCal:
         self.spinor_get_cal_images()
         self.spinor_save_cal_images()
         self.spinor_wavelength_calibration()
-        self.spinor_perform_scan_calibration(selectLine=self.selectLines)
+        self.spinor_perform_scan_calibration()
 
         return
 
@@ -199,6 +224,10 @@ class SpinorCal:
         """
         Parses configureation file and sets up the class structure for reductions
         """
+        config = configparser.ConfigParser()
+        config.read(self.configFile)
+
+
 
         return
 
@@ -473,7 +502,7 @@ class SpinorCal:
         grating_params = spex.grating_calculations(
             self.grating_rules, self.blaze_angle, self.grating_angle,
             self.pixel_size, self.centralWavelength, self.spectral_order,
-            collimator=self.collimator, camera=self.camera, slit_width=self.slit_width,
+            collimator=self.dstCollimator, camera=self.camera, slit_width=self.slit_width,
         )
 
         beam0LampGainCorrected = (
@@ -1507,7 +1536,7 @@ class SpinorCal:
         grating_params = spex.grating_calculations(
             self.grating_rules, self.blaze_angle, gratingangle,
             self.pixel_size, self.centralWavelength, self.spectral_order,
-            collimator=self.collimator, camera=self.camera, slit_width=self.slit_width,
+            collimator=self.dstCollimator, camera=self.camera, slit_width=self.slit_width,
         )
         ext0.header['SPEFF'] = (float(grating_params['Grating_Efficiency']), 'Approx. Total Efficiency of Grating')
         ext0.header['LITTROW'] = (float(grating_params['Littrow_Angle']), '[degrees] Littrow Angle')
@@ -1767,7 +1796,7 @@ class SpinorCal:
         grating_params = spex.grating_calculations(
             self.grating_rules, self.blaze_angle, self.grating_angle,
             self.pixel_size, self.centralWavelength, self.spectral_order,
-            collimator=self.collimator, camera=self.camera, slit_width=self.slit_width,
+            collimator=self.dstCollimator, camera=self.camera, slit_width=self.slit_width,
         )
 
         # Getting Min/Max Wavelength for FTS comparison; padding by 30 pixels on either side
