@@ -119,11 +119,11 @@ class SpinorCal:
         self.configFile = configFile
         self.camera = camera.upper()
 
-        self.avgDark = None
+        self.solarDark = None
         self.solarFlat = None
         self.lampGain = None
-        self.solarGain = None
-        self.coarseGain = None
+        self.combinedGainTable = None
+        self.combinedCoarseGainTable = None
         self.polcalVecs = None
         self.tMatrix = None
         self.flipWave = False
@@ -131,11 +131,35 @@ class SpinorCal:
         # Locations
         self.indir = ""
         self.finalDir=""
+        self.reducedFilePattern = None
         self.polcalFile = None
+        self.solarFlatFileList = []
         self.solarFlatFile = None
         self.lampFlatFile = None
         self.scienceFile = None
         self.tMatrixFile = None
+
+        self.lineGridFile = None
+        self.targetFile = None
+
+        # Setting up variables to be filled:
+        self.beamEdges = None
+        self.slitEdges = None
+        self.hairlines = None
+        self.beam1Xshift = None
+        self.beam1Yshift = None
+        self.spinorLineCores = None
+        self.ftsLineCores = None
+        self.flipWaveIdx = 1
+
+        # Polcal-specific variables
+        self.calcurves = None
+        self.txmat = None
+        self.inputStokes = None
+        self.txchi = None
+        self.txmat00 = None
+        self.txmatinv = None
+
 
         # Some default vaules
         self.nhair = 4
@@ -143,12 +167,12 @@ class SpinorCal:
         self.hairlineWidth = 3
         self.grating_rules = 308.57 # lpmm
         self.blaze_angle = 52
-        self.ilimit = 0.5 # For beam edge determination
         self.nSubSlits = 10
         self.verbose = False
         self.v2qu = True
         self.u2v = True
         self.plot = False
+        self.saveFigs = False
         self.crosstalkContinuum = None
 
         # Can be pulled from header:
@@ -184,6 +208,8 @@ class SpinorCal:
         self.slitCameraLens = 780 # mm, f.l. of usual HSG feed lens
         self.dstPlateScale = 3.76 # asec/mm
         self.dstCollimator = 1559 # mm, f.l., of DST Port 4 Collimator mirror
+        self.spectrographCollimator = 3040 # mm, f.l., of the SPINOR/HSG post-slit collimator
+        self.cameraLens = 1700 # mm, f.l., of the SPINOR final camera lenses
 
         return
 
@@ -199,7 +225,7 @@ class SpinorCal:
 
         return
 
-    def spinor_assert_file_list(flist):
+    def spinor_assert_file_list(self, flist):
         assert (len(flist) != 0), "List contains no matches."
 
     def spinor_configure_run(self):
@@ -228,7 +254,106 @@ class SpinorCal:
         config = configparser.ConfigParser()
         config.read(self.configFile)
 
+        # Locations [Required]
+        self.indir = config[self.camera]["rawFileDirectory"]
+        self.finalDir = config[self.camera]["reducedFileDirectory"]
+        self.reducedFilePattern = config[self.camera]["reducedFilePattern"]
 
+        # Optional calibration file definitions. If these are left undefined, the directory parser below
+        # sets these, however, it may be desirable to specify a flat file under certain circumstances.
+
+        # [Optional] entry
+        self.polcalFile = config[self.camera]["polcalFile"] if "polcalfile" in config[self.camera].keys() else None
+        # Reset to None for case where the key is present with an empty string
+        self.polcalFile = None if self.polcalFile == "" else self.polcalFile
+        self.solarFlatFile = config[self.camera]["solarFlatFile"] if "solarflatfile" in config[self.camera].keys() else None
+        self.solarFlatFile = None if self.solarFlatFile == "" else self.solarFlatFile
+        self.lampFlatFile = config[self.camera]["lampFlatFile"] if "lampflatfile" in config[self.camera].keys() else None
+        self.lampFlatFile = None if self.lampFlatFile == "" else self.lampFlatFile
+        self.scienceFile = config[self.camera]["scienceFile"] if "sciencefile" in config[self.camera].keys() else None
+        self.scienceFile = None if self.scienceFile == "" else self.scienceFile
+
+        # Required channel-specific params
+        self.pixel_size = 16 if "sarnoff" in self.camera.lower() else 25
+        self.centralWavelength = float(config[self.camera]["centralWavelength"])
+        self.spectral_order = int(config[self.camera]["spectralOrder"])
+
+        # Overrides for some channel-specific default vaules
+        self.nSubSlits = int(config[self.camera]["slitDivisions"]) if (
+            "slitdivisions" in config[self.camera].keys()
+        ) else self.nSubSlits
+        self.verbose = bool(config[self.camera]["verbose"]) if "verbose" in config[self.camera].keys() else False
+        self.v2qu = bool(config[self.camera]["v2qu"]) if "v2qu" in config[self.camera].keys() else True
+        self.u2v = bool(config[self.camera]["u2v"]) if "u2v" in config[self.camera].keys() else True
+        self.plot = bool(config[self.camera]["plot"]) if "plot" in config[self.camera].keys() else False
+        self.saveFigs = bool(config[self.camera]["savePlot"]) if "saveplot" in config[self.camera].keys() else False
+        self.nhair = int(config[self.camera]["totalHairlines"]) if (
+            "totalhairlines" in config[self.camera].keys()
+        ) else self.nhair
+        self.beamThreshold = float(config[self.camera]["intensityThreshold"]) if (
+            "intensitythreshold" in config[self.camera].keys()
+        ) else self.beamThreshold
+        self.hairlineWidth = float(config[self.camera]["hairlineWidth"]) if (
+            "hairlinewidth" in config[self.camera].keys()
+        ) else self.hairlineWidth
+        self.calRetardance = float(config[self.camera]["calRetardance"]) if (
+            "calretardance" in config[self.camera].keys()
+        ) else self.calRetardance
+        self.cameraLens = float(config[self.camera]["cameraLens"]) if (
+            "cameralens" in config[self.camera].keys()
+        ) else self.cameraLens
+        if "polcalclipthreshold" in config[self.camera].keys():
+            if config[self.camera]['polcalClipThreshold'] != "":
+                self.ilimt = [float(frac) for frac in config[self.camera]["polcalClipThresold"].split(",")]
+
+        # Case where someone wants the old crosstalk determination, and has defined it themselves
+        if "crosstalkcontinuum" in config[self.camera].keys():
+            if config[self.camera]['crosstalkContinuum'] != "":
+                self.crosstalkContinuum = [int(idx) for idx in config[self.camera]['crosstalkContinuum'].split(",")]
+
+        # Required global values
+        self.tMatrixFile = config["SHARED"]["tMatrixFile"]
+
+        # Overrides for Global defaults
+        self.grating_rules = float(config["SHARED"]["gratingRules"]) if (
+            "gratingrules" in config["SHARED"].keys()
+        ) else self.grating_rules
+        self.blaze_angle = float(config["SHARED"]["blazeAngle"]) if (
+            "blazeangle" in config["SHARED"].keys()
+        ) else self.blaze_angle
+
+        self.DSTLatitude = float(config["SHARED"]["telescopeLatitude"]) if (
+            "telescopelatitude" in config["SHARED"].keys()
+        ) else self.DSTLatitude
+        self.slitCameraLens = float(config["SHARED"]["slitCameraLens"]) if (
+            "slitcameralens" in config["SHARED"].keys()
+        ) else self.slitCameraLens
+        self.dstPlateScale = float(config["SHARED"]["basePlateScale"]) if (
+            "baseplatescale" in config["SHARED"].keys()
+        ) else self.dstPlateScale
+        self.dstCollimator = float(config["SHARED"]["telescopeCollimator"]) if (
+            "telescopecollimator" in config["SHARED"].keys()
+        ) else self.dstCollimator
+        self.spectrographCollimator = float(config["SHARED"]["spectrographCollimator"]) if (
+            "spectrographcollimator" in config["SHARED"].keys()
+        ) else self.spectrographCollimator
+
+        # Allow the user to define alternate QUV modulation pattern IFF
+        # All of QUV modulation patterns are given.
+        if (
+                ("qmodulationpattern" in config["SHARED"].keys) &
+                ("umodulationpattern" in config["SHARED"].keys()) &
+                ("vmodulationpattern" in config["SHARED"].keys())
+        ):
+            qmod = [int(mod) for mod in config["SHARED"]["qModulationPattern"].split(",")]
+            umod = [int(mod) for mod in config["SHARED"]["uModulationPattern"].split(",")]
+            vmod = [int(mod) for mod in config["SHARED"]["vModulationPattern"].split(",")]
+            self.polDemod = np.array([
+                [1, 1, 1, 1, 1, 1, 1, 1],
+                qmod,
+                umod,
+                vmod
+            ], dtype=int)
 
         return
 
@@ -280,7 +405,7 @@ class SpinorCal:
 
         # Allow user to override and choose flat files to use
         if self.solarFlatFile is not None:
-            self.solarFlatFilelist = [self.solarFlatFile for x in scienceFiles]
+            self.solarFlatFileList = [self.solarFlatFile for x in scienceFiles]
         else:
             solarFlatStartTimes = np.array(
                 [
@@ -294,7 +419,7 @@ class SpinorCal:
                 ],
                 dtype='datetime64[ms]'
             )
-            self.solarFlarFileList = [
+            self.solarFlatFileList = [
                 solarFlats[spex.find_nearest(solarFlatStartTimes, x)] for x in scienceStartTimes
             ]
         if self.lampFlatFile is not None:
@@ -503,7 +628,7 @@ class SpinorCal:
         grating_params = spex.grating_calculations(
             self.grating_rules, self.blaze_angle, self.grating_angle,
             self.pixel_size, self.centralWavelength, self.spectral_order,
-            collimator=self.dstCollimator, camera=self.camera, slit_width=self.slit_width,
+            collimator=self.spectrographCollimator, camera=self.cameraLens, slit_width=self.slit_width,
         )
 
         beam0LampGainCorrected = (
@@ -578,8 +703,6 @@ class SpinorCal:
         print("Beam0:", beam0LampGainCorrected.shape)
         print("Beam1:", beam1LampGainCorrected.shape)
 
-        self.beam0Skews = beam0Skews
-        self.beam1Skews = beam1Skews
 
         self.combinedGainTable = np.ones(self.solarFlat.shape)
         self.combinedCoarseGainTable = np.ones(self.solarFlat.shape)
@@ -610,7 +733,7 @@ class SpinorCal:
         """
 
         polfile = fits.open(self.polcalFile)
-        self.polcalDarkCurrent = self.spinor_average_dark_from_hdul(polfile)
+        polcalDarkCurrent = self.spinor_average_dark_from_hdul(polfile)
         fieldStops = [i.header['PT4_FS'] for i in polfile if "PT4_FS" in i.header.keys()]
         openFieldStops = [i for i in fieldStops if "DARK" not in i]
 
@@ -640,7 +763,7 @@ class SpinorCal:
             i.header['DST_TBL'] for i in polfile[1:] if "DARK" not in i.header['PT4_FS']
         ])
 
-        self.polcalStokesBeams = np.zeros(
+        polcalStokesBeams = np.zeros(
             (len(openFieldStops),
              2,
              4,
@@ -653,13 +776,13 @@ class SpinorCal:
         for hdu in polfile[1:]:
             if "DARK" not in hdu.header['PT4_FS']:
                 data = self.demodulate_spinor(
-                    (hdu.data - self.polcalDarkCurrent)/self.lampGain/self.combinedGainTable
+                    (hdu.data - polcalDarkCurrent)/self.lampGain/self.combinedGainTable
                 )
                 # Cut out beams, flip n shift the upper beam
-                self.polcalStokesBeams[ctr, 0, :, :, :] = data[
+                polcalStokesBeams[ctr, 0, :, :, :] = data[
                     :, self.beamEdges[0, 0]:self.beamEdges[0, 1], self.slitEdges[0]:self.slitEdges[1]
                 ]
-                self.polcalStokesBeams[ctr, 1, :, :, :] = np.flip(
+                polcalStokesBeams[ctr, 1, :, :, :] = np.flip(
                     scind.shift(
                         data[
                             :, self.beamEdges[1, 0]:self.beamEdges[1, 1], self.slitEdges[0]:self.slitEdges[1]
@@ -673,13 +796,13 @@ class SpinorCal:
         polfile.close()
 
         merged_beams = np.zeros((
-            self.polcalStokesBeams.shape[0],
-            self.polcalStokesBeams.shape[2],
-            self.polcalStokesBeams.shape[3],
-            self.polcalStokesBeams.shape[4]
+            polcalStokesBeams.shape[0],
+            polcalStokesBeams.shape[2],
+            polcalStokesBeams.shape[3],
+            polcalStokesBeams.shape[4]
         ))
-        merged_beams[:, 0, :, :] = np.nanmean(self.polcalStokesBeams[:, :, 0, :, :], axis=1)
-        merged_beams[:, 1:, :, :] = (self.polcalStokesBeams[:, 0, 1:, :, :] - self.polcalStokesBeams[:, 1, 1:, :, :])/2.
+        merged_beams[:, 0, :, :] = np.nanmean(polcalStokesBeams[:, :, 0, :, :], axis=1)
+        merged_beams[:, 1:, :, :] = (polcalStokesBeams[:, 0, 1:, :, :] - polcalStokesBeams[:, 1, 1:, :, :])/2.
         # Additional step: mask values outside ilimit*mean(I).
         # Original spinor_cal.pro used [0.5, 1.5]
         # That's probably fine to first order.
@@ -693,8 +816,8 @@ class SpinorCal:
         )
         self.calcurves = np.zeros(
             (
-                self.polcalStokesBeams.shape[0],
-                self.polcalStokesBeams.shape[2],
+                polcalStokesBeams.shape[0],
+                polcalStokesBeams.shape[2],
                 self.nSubSlits
             )
         )
@@ -1134,7 +1257,7 @@ class SpinorCal:
                 [science_hdu[i].header['DST_AZ'], science_hdu[i].header['DST_EL']]
             )
             # Sub off P0 angle
-            rotation = np.pi +angular_geometry[2] - science_hdu[i].header['DST_PEE'] * np.pi/180
+            rotation = np.pi + angular_geometry[2] - science_hdu[i].header['DST_PEE'] * np.pi/180
             crot = np.cos(-2*rotation)
             srot = np.sin(-2*rotation)
 
@@ -1427,7 +1550,7 @@ class SpinorCal:
             )
 
         slit_plate_scale = self.dstPlateScale * self.dstCollimator/self.slitCameraLens
-        camera_dy = slit_plate_scale * (self.camera/self.collimator) * (self.pixel_size / 1000)
+        camera_dy = slit_plate_scale * (self.cameraLens/self.spectrographCollimator) * (self.pixel_size / 1000)
 
         exptime = hdul[1].header['EXPTIME']
         xposure = int(hdul[1].header['SUMS'] * exptime)
@@ -1537,7 +1660,7 @@ class SpinorCal:
         grating_params = spex.grating_calculations(
             self.grating_rules, self.blaze_angle, gratingangle,
             self.pixel_size, self.centralWavelength, self.spectral_order,
-            collimator=self.dstCollimator, camera=self.camera, slit_width=self.slit_width,
+            collimator=self.spectrographCollimator, camera=self.cameraLens, slit_width=self.slit_width,
         )
         ext0.header['SPEFF'] = (float(grating_params['Grating_Efficiency']), 'Approx. Total Efficiency of Grating')
         ext0.header['LITTROW'] = (float(grating_params['Littrow_Angle']), '[degrees] Littrow Angle')
@@ -1797,7 +1920,7 @@ class SpinorCal:
         grating_params = spex.grating_calculations(
             self.grating_rules, self.blaze_angle, self.grating_angle,
             self.pixel_size, self.centralWavelength, self.spectral_order,
-            collimator=self.dstCollimator, camera=self.camera, slit_width=self.slit_width,
+            collimator=self.spectrographCollimator, camera=self.cameraLens, slit_width=self.slit_width,
         )
 
         # Getting Min/Max Wavelength for FTS comparison; padding by 30 pixels on either side
