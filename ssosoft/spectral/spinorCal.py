@@ -1401,22 +1401,22 @@ class SpinorCal:
             if i == 0:
                 ax_ccurve.set_title("POLCAL CURVES")
                 ax_incurve.set_title("INPUT VECTORS")
-                ax_outcurve.set_title("FITS VECTORS")
+                ax_outcurve.set_title("FIT VECTORS")
             # Plot statements. Default is fine.
             for j in range(self.nSubSlits):
                 ax_ccurve.plot(self.calcurves[:, i, j])
                 ax_outcurve.plot(outStokes[:, j, i])
-            ax_incurve.plot(self.inputStokes[i, :])
+            ax_incurve.plot(self.inputStokes[:, i])
             # Clip to x range of [0, end]
             ax_ccurve.set_xlim(0, self.calcurves.shape[0])
             ax_incurve.set_xlim(0, self.calcurves.shape[0])
             ax_outcurve.set_xlim(0, self.calcurves.shape[0])
             # Clip to common y range defined by max/min of all 3 columns
             ymax = np.array(
-                [self.calcurves[:, i, :].max(), outStokes[:, :, i].max(), self.inputStokes[i, :].max()]
+                [self.calcurves[:, i, :].max(), outStokes[:, :, i].max(), self.inputStokes[:, i].max()]
             ).max()
             ymin = np.array(
-                [self.calcurves[:, i, :].min(), outStokes[:, :, i].min(), self.inputStokes[i, :].min()]
+                [self.calcurves[:, i, :].min(), outStokes[:, :, i].min(), self.inputStokes[:, i].min()]
             ).min()
             ax_ccurve.set_ylim(ymin, ymax)
             ax_incurve.set_ylim(ymin, ymax)
@@ -1734,7 +1734,7 @@ class SpinorCal:
                     map_dx = science_hdu[1].header['HSG_STEP']
 
                     plot_params = self.set_up_live_plot(fieldImages, combined_beams, camera_dy, map_dx)
-                self.update_live_plot(*plot_params, fieldImages, combined_beams, camera_dy, map_dx, i)
+                self.update_live_plot(*plot_params, fieldImages, combined_beams, i)
 
         # Save final plots if applicable
         if self.plot & self.saveFigs:
@@ -1991,6 +1991,7 @@ class SpinorCal:
             )
             fieldFigList[j].canvas.draw()
             fieldFigList[j].canvas.flush_events()
+            plt.pause(0.001)
 
 
 
