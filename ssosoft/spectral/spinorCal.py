@@ -869,7 +869,7 @@ class SpinorCal:
             B.) Check on the quality of the corrections as they go
         """
         aspect_ratio = self.solarFlat.shape[1] / self.solarFlat.shape[0]
-        gainFig = plt.figure("SPINOR Gain Tables", figsize=(4*5, 5/aspect_ratio))
+        gainFig = plt.figure("SPINOR Gain Tables", figsize=(4*2.5, 2.5/aspect_ratio))
         ax_lamp = gainFig.add_subplot(141)
         ax_flat = gainFig.add_subplot(142)
         ax_coarse = gainFig.add_subplot(143)
