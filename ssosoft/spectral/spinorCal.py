@@ -1714,12 +1714,13 @@ class SpinorCal:
                 # Need maps for the slit images (IQUV) that are replaced at each step,
                 # As well as IQUV maps of the full field for each line selected.
                 # These latter will be filled as the map is processed.
-                fieldImages = np.zeros((
-                    len(lineCores),  # Number of lines
-                    4,  # Stokes-IQUV values
-                    combined_beams.shape[1],
-                    len(science_hdu[1:])
-                ))
+                if i == 1:
+                    fieldImages = np.zeros((
+                        len(lineCores),  # Number of lines
+                        4,  # Stokes-IQUV values
+                        combined_beams.shape[1],
+                        len(science_hdu[1:])
+                    ))
                 for j in range(len(lineCores)):
                     fieldImages[j, 0, :, i - 1] = combined_beams[0, :, int(round(lineCores[j], 0))]
                     fieldImages[j, 1:, :, i - 1] = np.sum(
