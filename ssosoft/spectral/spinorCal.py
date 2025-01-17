@@ -423,7 +423,6 @@ class SpinorCal:
                 )
             )
         )
-        print(filelist)
         scienceFiles = []
         solarFlats = []
         lampFlats = []
@@ -604,8 +603,9 @@ class SpinorCal:
                 self.lampGain = hdu[0].data
         # Create new lamp gain and save to file
         elif self.lampFlatFile is not None:
-            lampDark = self.spinor_average_dark_from_hdul(self.lampFlatFile)
-            lampFlat = self.spinor_average_flat_from_hdul(self.lampFlatFile)
+            with fits.open(self.lampFlatFile) as lhdul:
+                lampDark = self.spinor_average_dark_from_hdul(lhdul)
+                lampFlat = self.spinor_average_flat_from_hdul(lhdul)
             self.lampGain = (lampFlat - lampDark) / np.nanmedian(lampFlat - lampDark)
             hdu = fits.PrimaryHDU(self.lampGain)
             hdu.header["DATE"] = np.datetime64("now").astype(str)
