@@ -1832,7 +1832,7 @@ class SpinorCal:
         fieldVAx = []
         for j in range(fieldImages.shape[0]):
             fieldFigList.append(
-                plt.figure("Line " + str(j), figsize=(5, 5*fieldAspectRatio))
+                plt.figure("Line " + str(j), figsize=(5, 5/fieldAspectRatio))
             )
             fieldGS.append(
                 fieldFigList[j].add_gridspec(2, 2, hspace=0.1, wspace=0.1)
@@ -1893,7 +1893,7 @@ class SpinorCal:
             fieldVAx[j].set_title("Integrated Stokes-V")
 
             fieldFigList[j].tight_layout()
-            plt.draw()
+            plt.show(block=False)
             plt.pause(0.05)
 
         return fieldFigList, fieldI, fieldQ, fieldU, fieldV, slitFig, slitI, slitQ, slitU, slitV
