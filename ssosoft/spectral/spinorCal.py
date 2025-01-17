@@ -248,6 +248,7 @@ class SpinorCal:
                         print("Plots will be saved at:\n{0}".format(self.finalDir))
                     else:
                         print("Plots will NOT be saved.")
+                print("===========================\n\n")
             self.spinor_get_cal_images(index)
             self.scienceFile = self.scienceFileList[index]
             self.reduce_spinor_maps()
@@ -705,6 +706,7 @@ class SpinorCal:
             print("Upper Beam Edges in Y: ", self.beamEdges[1])
             print("Shared X-range: ", self.slitEdges)
             print("There are {0} hairlines at ".format(self.nhair), self.hairlines)
+            print("===========================\n\n")
 
         # Determine which beam is smaller, clip larger to same size
         smaller_beam = np.argmin(np.diff(self.beamEdges, axis=1))
@@ -1174,7 +1176,7 @@ class SpinorCal:
         )
         subarrays = np.array_split(merged_beams, self.nSubSlits, axis=2)
         submasks = np.array_split(merged_beam_mask, self.nSubSlits, axis=2)
-        print(subarrays[0].shape, submasks[0].shape)
+
         for i in range(self.nSubSlits):
             # Replace values outside ilimit with nans
             # That way, nanmean gets rid of them while preserving the array shape
@@ -1346,6 +1348,7 @@ class SpinorCal:
                     "V: "+str(round(efficiencies[3], 4))
                 )
                 print("Average Deviation of cal vectors: ", np.sqrt(self.txchi[i])/4)
+                print("===========================\n\n")
 
             # Check physicality & Efficiencies:
             if np.nanmax(efficiencies[1:]) > 0.866:
@@ -1399,7 +1402,7 @@ class SpinorCal:
             # Plot statements. Default is fine.
             for j in range(self.nSubSlits):
                 ax_ccurve.plot(self.calcurves[:, i, j])
-                ax_outcurve.plot(outStokes[:, i, j])
+                ax_outcurve.plot(outStokes[:, j, i])
             ax_incurve.plot(self.inputStokes[i, :])
             # Clip to x range of [0, end]
             ax_ccurve.set_xlim(0, self.calcurves.shape[0])
@@ -1407,10 +1410,10 @@ class SpinorCal:
             ax_outcurve.set_xlim(0, self.calcurves.shape[0])
             # Clip to common y range defined by max/min of all 3 columns
             ymax = np.array(
-                [self.calcurves[:, i, :].max(), outStokes[:, i, :].max(), self.inputStokes[i, :].max()]
+                [self.calcurves[:, i, :].max(), outStokes[:, :, i].max(), self.inputStokes[i, :].max()]
             ).max()
             ymin = np.array(
-                [self.calcurves[:, i, :].min(), outStokes[:, i, :].min(), self.inputStokes[i, :].min()]
+                [self.calcurves[:, i, :].min(), outStokes[:, :, i].min(), self.inputStokes[i, :].min()]
             ).min()
             ax_ccurve.set_ylim(ymin, ymax)
             ax_incurve.set_ylim(ymin, ymax)
@@ -1691,7 +1694,6 @@ class SpinorCal:
                         mean_profile[coarseIndices[x][0]:coarseIndices[x][1]].min()
                     ) + coarseIndices[x][0] for x in range(coarseIndices.shape[0])
                 ]
-                print(minIndices)
                 # Location of exact line core
                 lineCores = [
                     spex.find_line_core(mean_profile[x-5:x+7]) + x - 5 for x in minIndices
@@ -1702,7 +1704,6 @@ class SpinorCal:
                     averageDelta = np.mean(np.abs(coarseIndices[j, :] - lineCores[j]))
                     mapIndices[j, 0] = int(round(lineCores[j] - averageDelta, 0))
                     mapIndices[j, 1] = int(round(lineCores[j] + averageDelta, 0) + 1)
-                    print(mapIndices)
 
             if self.plot:
                 plt.ion()
