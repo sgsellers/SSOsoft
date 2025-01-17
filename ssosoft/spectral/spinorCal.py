@@ -1801,7 +1801,7 @@ class SpinorCal:
         slitAspectRatio = slitImages.shape[2] / slitImages.shape[1]
 
         # Set up the spectral data first, since it's only one window
-        slitFig = plt.figure("Reduced Slit Images", figsize=(10, 10*slitAspectRatio))
+        slitFig = plt.figure("Reduced Slit Images", figsize=(5, 5*slitAspectRatio))
         slitGS = slitFig.add_gridspec(2, 2, hspace=0.1, wspace=0.1)
         slitAxI = slitFig.add_subplot(slitGS[0, 0])
         slitI = slitAxI.imshow(slitImages[0], cmap='gray', origin='lower')
@@ -1832,7 +1832,7 @@ class SpinorCal:
         fieldVAx = []
         for j in range(fieldImages.shape[0]):
             fieldFigList.append(
-                plt.figure("Line " + str(j), figsize=(10, 10*fieldAspectRatio))
+                plt.figure("Line " + str(j), figsize=(5, 5/fieldAspectRatio))
             )
             fieldGS.append(
                 fieldFigList[j].add_gridspec(2, 2, hspace=0.1, wspace=0.1)
