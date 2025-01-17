@@ -883,7 +883,7 @@ class SpinorCal:
         )
         ax_lamp.set_title("LAMP GAIN")
         ax_coarse.set_title("COARSE GAIN")
-        ax_fine.imshow("FINE GAIN")
+        ax_fine.set_title("FINE GAIN")
         for beam in self.beamEdges.flatten():
             ax_lamp.axhline(beam, c="C1", linewidth=2)
             ax_coarse.axhline(beam, c="C1", linewidth=2)
