@@ -948,7 +948,7 @@ class SpinorCal:
         shifts.header["EXTNAME"] = "BEAM1-SHIFTS"
 
         hdul = fits.HDUList([phdu, flat, dark, cgain, fgain, bedge, hairs, slits, shifts])
-        hdul.writeto(self.solarGainReduced, overwrite=True)
+        hdul.writeto(self.solarGainReduced[index], overwrite=True)
 
         return
 
