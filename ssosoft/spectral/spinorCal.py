@@ -1720,7 +1720,7 @@ class SpinorCal:
                     combined_beams.shape[1],
                     len(science_hdu[1:])
                 ))
-                for j in range(len(lineCores))
+                for j in range(len(lineCores)):
                     fieldImages[j, 0, :, i - 1] = combined_beams[0, :, int(round(lineCores[j], 0))]
                     fieldImages[j, 1:, :, i - 1] = np.sum(
                         np.abs(
