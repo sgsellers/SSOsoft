@@ -391,7 +391,7 @@ class SpinorCal:
         # Allow the user to define alternate QUV modulation pattern IFF
         # All of QUV modulation patterns are given.
         if (
-                ("qmodulationpattern" in config["SHARED"].keys) &
+                ("qmodulationpattern" in config["SHARED"].keys()) &
                 ("umodulationpattern" in config["SHARED"].keys()) &
                 ("vmodulationpattern" in config["SHARED"].keys())
         ):
