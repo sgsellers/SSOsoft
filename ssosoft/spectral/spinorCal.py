@@ -899,7 +899,7 @@ class SpinorCal:
             gainFig.savefig(filename, bbox_inches="tight")
 
         plt.show(block=False)
-        plt.pause(0.001)
+        plt.pause(0.1)
 
         return
 
@@ -1435,7 +1435,7 @@ class SpinorCal:
             filename = os.path.join(self.finalDir, "polcal_curves.png")
             polcalFig.savefig(filename, bbox_inches="tight")
         plt.show(block=False)
-        plt.pause(0.001)
+        plt.pause(0.1)
 
         return
 
