@@ -1720,13 +1720,13 @@ class SpinorCal:
                     combined_beams.shape[1],
                     len(science_hdu[1:])
                 ))
-
-                fieldImages[j, 0, :, i - 1] = combined_beams[0, :, int(round(lineCores[j], 0))]
-                fieldImages[j, 1:, :, i - 1] = np.sum(
-                    np.abs(
-                        combined_beams[1:, :, int(mapIndices[j, 0]):int(mapIndices[j, 1])]
-                    ), axis=2
-                )
+                for j in range(len(lineCores))
+                    fieldImages[j, 0, :, i - 1] = combined_beams[0, :, int(round(lineCores[j], 0))]
+                    fieldImages[j, 1:, :, i - 1] = np.sum(
+                        np.abs(
+                            combined_beams[1:, :, int(mapIndices[j, 0]):int(mapIndices[j, 1])]
+                        ), axis=2
+                    )
                 if i == 1:
                     slit_plate_scale = self.dstPlateScale * self.dstCollimator / self.slitCameraLens
                     camera_dy = slit_plate_scale * (self.cameraLens / self.spectrographCollimator) * (
@@ -1832,7 +1832,7 @@ class SpinorCal:
         fieldVAx = []
         for j in range(fieldImages.shape[0]):
             fieldFigList.append(
-                plt.figure("Line " + str(j), figsize=(5, 5/fieldAspectRatio))
+                plt.figure("Line " + str(j), figsize=(5, 5*fieldAspectRatio))
             )
             fieldGS.append(
                 fieldFigList[j].add_gridspec(2, 2, hspace=0.1, wspace=0.1)
@@ -1893,6 +1893,8 @@ class SpinorCal:
             fieldVAx[j].set_title("Integrated Stokes-V")
 
             fieldFigList[j].tight_layout()
+            plt.draw()
+            plt.pause(0.05)
 
         return fieldFigList, fieldI, fieldQ, fieldU, fieldV, slitFig, slitI, slitQ, slitU, slitV
 
