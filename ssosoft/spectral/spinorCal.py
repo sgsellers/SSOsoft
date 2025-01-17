@@ -221,18 +221,38 @@ class SpinorCal:
         return
 
 
+    def spinor_assert_file_list(self, flist):
+        assert (len(flist) != 0), "List contains no matches."
+
+
     def spinor_run_calibration(self):
         """Main SPINOR calibration module"""
 
         self.spinor_configure_run()
-        self.spinor_get_cal_images()
-        self.spinor_wavelength_calibration()
-        self.spinor_perform_scan_calibration()
-
+        if self.verbose:
+            print("Found {0} science map files in base directory:\n{1}\nReduced files will be saved to:\n{2}".format(
+                len(self.scienceFileList), self.indir, self.finalDir
+            ))
+        for index in range(len(self.scienceFileList)):
+            if self.verbose:
+                print("Proceeding with calibration of: {0}".format(os.path.split(self.scienceFileList[index])[1]))
+                print("Using Solar Flat File: {0}".format(os.path.split(self.solarFlatFileList[index])[1]))
+                if self.lampFlatFile is not None:
+                    print("Using Lamp Flat File: {0}".format(os.path.split(self.lampFlatFile)[1]))
+                else:
+                    print("No Lamp Flat File")
+                print("Using Polcal File: {0}".format(os.path.split(self.polcalFile)[1]))
+                if self.plot:
+                    print("Plotting is currently ON.")
+                    if not self.saveFigs:
+                        print("Plots will be saved at:\n{0}".format(self.finalDir))
+                    else:
+                        print("Plots will NOT be saved.")
+            self.spinor_get_cal_images(index)
+            self.scienceFile = self.scienceFileList[index]
+            self.reduce_spinor_maps()
         return
 
-    def spinor_assert_file_list(self, flist):
-        assert (len(flist) != 0), "List contains no matches."
 
     def spinor_configure_run(self):
         """Reads configuration file and sets up parameters for calibration sequence"""
@@ -252,6 +272,19 @@ class SpinorCal:
         self.spinor_organize_directory()
 
         return
+
+
+    def spinor_get_cal_images(self, index):
+        """
+        Loads or creates flat, dark, lamp & solar gain, polcal arrays
+        """
+        self.spinor_get_solar_flat(index)
+        self.spinor_get_lamp_gain()
+        self.spinor_get_solar_gain(index)
+        self.spinor_get_polcal()
+
+        return
+
 
     def spinor_parse_configfile(self):
         """
@@ -534,6 +567,27 @@ class SpinorCal:
         return averageFlat
 
 
+    def demodulate_spinor(self, poldata):
+        """
+        Applies demodulation, and returns 4-array of IQUV
+        Parameters
+        ----------
+        poldata : numpy.ndarray
+            3D array of polarization data. Should have the shape (8, ny, nx).
+
+        Returns
+        -------
+        stokes : numpy.ndarray
+            3D array of stokes data, of shape (4, ny, nx)
+        """
+
+        stokes = np.zeros((4, *poldata.shape[1:]))
+        for i in range(stokes.shape[0]):
+            for j in range(poldata.shape[0]):
+                stokes[i] += self.polDemod[i, j] * poldata[j, :, :]
+        return stokes
+
+
     def spinor_get_lamp_gain(self):
         """
         Creates or loads the SPINOR lamp gain.
@@ -591,7 +645,7 @@ class SpinorCal:
                 self.ftsLineCores = [hdu[0].header['FTSLC1'], hdu[0].header["FTSLC2"]]
                 self.flipWaveIdx = hdu[0].header["SPFLIP"]
         else:
-            self.spinor_create_solar_gain(index)
+            self.spinor_create_solar_gain()
             self.spinor_save_gaintables(index)
 
         if self.plot:
@@ -614,23 +668,20 @@ class SpinorCal:
             with fits.open(self.solarGainReduced[index]) as hdu:
                 self.solarFlat = hdu["SOLAR-FLAT"].data
                 self.solarDark = hdu["SOLAR-DARK"].data
+                self.slit_width = hdu[0].header["HSG_SLW"]
         else:
             self.solarFlatFile = self.solarFlatFileList[index]
             with fits.open(self.solarFlatFile) as fhdul:
                 self.solarDark = self.spinor_average_dark_from_hdul(fhdul)
                 self.solarFlat = self.spinor_average_flat_from_hdul(fhdul)
+                self.slit_width = fhdul[1].header["HSG_SLW"]
         return
 
-    def spinor_create_solar_gain(self, index):
+    def spinor_create_solar_gain(self):
         """
         Creates solar gain tables from the indexed file in a list of viable flat files.
         This also determines the beam/slit edges, hairline, positions,
         and rough offsets between the upper and lower beams
-
-        Parameters
-        ----------
-        index : int
-            Index of the file in self.solarFlatFileList to create gain tables for
 
         Returns
         -------
@@ -806,7 +857,7 @@ class SpinorCal:
         return
 
 
-    def spinor_plot_gaintables(self):
+    def spinor_plot_gaintables(self, index):
         """
         Helper method to plot gaintables in case the user wants to
             A.) Deal with just... so many popups
@@ -837,6 +888,10 @@ class SpinorCal:
             ax_lamp.axvline(edge, c="C1", linewidth=2)
             ax_coarse.axvline(edge, c="C1", linewidth=2)
             ax_fine.axvline(edge, c="C1", linewidth=2)
+        gainFig.tight_layout()
+        if self.saveFigs:
+            filename = os.path.join(self.finalDir, "gain_tables_{0}.png".format(index))
+            gainFig.savefig(filename, bbox_inches="tight")
 
         plt.show(block=False)
 
@@ -869,6 +924,7 @@ class SpinorCal:
         phdu.header["FTSLC1"] = self.ftsLineCores[0]
         phdu.header["FTSLC2"] = self.ftsLineCores[1]
         phdu.header["SPFLIP"] = self.flipWaveIdx
+        phdu.header["HSG_SLW"] = self.slit_width
 
         flat = fits.ImageHDU(self.solarFlat)
         flat.header["EXTNAME"] = "SOLAR-FLAT"
@@ -931,248 +987,6 @@ class SpinorCal:
         flipWave = self.determine_spectrum_flip(fts_spec, averageProfile, spinorPixPerFTSPix)
 
         return spinorLineCores, ftsLineCores, flipWave
-
-
-    def spinor_get_cal_images(self, index):
-        """
-        Creates average dark, flat, lampflat images. Calculates gain tables.
-        """
-        self.spinor_get_solar_flat(index)
-        self.spinor_get_lamp_gain()
-        self.spinor_get_solar_gain(index)
-        self.spinor_get_polcal()
-
-        # self.solarDark = self.spinor_average_dark_from_hdul(self.solarFlatFile)
-        # self.solarFlat = self.spinor_average_flat_from_hdul(self.solarFlatFile)
-        #
-        # if self.lampFlatFile is not None:
-        #     lampDark = self.spinor_average_dark_from_hdul(self.lampFlatFile)
-        #     lampFlat = self.spinor_average_flat_from_hdul(self.lampFlatFile)
-        #
-        #     self.lampGain = (lampFlat - lampDark) / np.nanmedian(lampFlat - lampDark)
-        # else:
-        #     # If there's no lamp flat file for a given day,
-        #     # Create a dummy array of ones so we can divide by the lampgain without fear
-        #     self.lampGain = np.ones(self.solarDark.shape)
-        #
-        # processed_flat = (self.solarFlat - self.solarDark)/self.lampGain
-        #
-        # self.beamEdges, self.slitEdges, self.hairlines = spex.detect_beams_hairlines(
-        #     self.solarFlat - self.solarDark,
-        #     threshold=self.beamThreshold,
-        #     hairline_width=self.hairlineWidth,
-        #     expected_hairlines=self.nhair, # Possible that FLIR cams only have one hairline
-        #     expected_beams=2, # If there's only one beam, use hsgCal
-        #     expected_slits=1 # ...we're not getting a multislit unit for SPINOR.
-        # )
-        # print(self.beamEdges)
-        # print(self.hairlines)
-        # self.slitEdges = self.slitEdges[0]
-        #
-        # # Determine which beam is smaller, clip larger to same size
-        # smaller_beam = np.argmin(np.diff(self.beamEdges, axis=1))
-        # larger_beam = np.argmax(np.diff(self.beamEdges, axis=1))
-        # # If 4 hairlines are detected, clip the beams by the hairline positions.
-        # # This avoids overclipping the beam, and makes the beam alignment easier.
-        # # And if the beams are the same size, we can skip this next step.
-        # if (len(self.hairlines) == 4) and (smaller_beam != larger_beam):
-        #     print("1")
-        #     # Since the upper beam is flipped vertically relative to the lower,
-        #     # It does matter which beam is smaller. Must pair inner & outer hairlines.
-        #     if smaller_beam == 0:
-        #         print("2")
-        #         self.beamEdges[larger_beam, 0] = int(round(
-        #             self.hairlines[2] -
-        #             (self.beamEdges[smaller_beam, 1] - self.hairlines[1]),
-        #             0
-        #         ))
-        #         self.beamEdges[larger_beam, 1] = int(round(
-        #             self.hairlines[3] +
-        #             (self.hairlines[0] - self.beamEdges[smaller_beam, 0]),
-        #             0
-        #         ))
-        #     else:
-        #         print("3")
-        #         self.beamEdges[larger_beam, 0] = int(round(
-        #             self.hairlines[0] -
-        #             (self.beamEdges[smaller_beam, 1] - self.hairlines[3]),
-        #             0
-        #         ))
-        #         self.beamEdges[larger_beam, 1] = int(round(
-        #             self.hairlines[1] +
-        #             (self.hairlines[2] - self.beamEdges[smaller_beam, 0]),
-        #             0
-        #         ))
-        # elif (len(self.hairlines) != 4) and (smaller_beam != larger_beam):
-        #     print("4")
-        #     self.beamEdges[larger_beam, 0] = int(
-        #         np.nanmean(
-        #             self.beamEdges[larger_beam, :]
-        #         ) - np.diff(self.beamEdges[smaller_beam, :]) / 2
-        #     )
-        #     self.beamEdges[larger_beam, 1] = int(
-        #         np.nanmean(
-        #             self.beamEdges[larger_beam, :]
-        #         ) + np.diff(self.beamEdges[smaller_beam, :]) / 2
-        #     )
-        #
-        # # Might still be off by up to 2 in size due to errors in casting float to int
-        # diff = int(np.diff(np.diff(self.beamEdges, axis=1).flatten(), axis=0)[0])
-        # self.beamEdges[0, 1] += diff
-        #
-        # self.hairlines = self.hairlines.reshape(2, int(self.nhair/2))
-        #
-        # beam0 = self.solarFlat[self.beamEdges[0, 0]:self.beamEdges[0, 1], self.slitEdges[0]:self.slitEdges[1]]
-        # beam1 = np.flipud(
-        #     self.solarFlat[self.beamEdges[1, 0]: self.beamEdges[1, 1], self.slitEdges[0]:self.slitEdges[1]]
-        # )
-        # # Aligning the beams is tough with the type of mostly-1D structure in these spectral images
-        # # Rather than doing a 2D cross-correlation, we should average in both directions and do two 1D
-        # # cross correlations to determine the offset using numpy.correlate. Make sure mode='full'.
-        # # We'll also do the x-shift. It should be taken care of during deskew, but sometimes the shift is large
-        # yshift = np.correlate(
-        #     (np.nanmean(beam0, axis=0) - np.nanmean(beam0)),
-        #     (np.nanmean(beam1, axis=0) - np.nanmean(beam1)),
-        #     mode='full'
-        # ).argmax() - beam0.shape[1]
-        #
-        # beam0meanprof = np.nanmean(beam0[int(beam0.shape[0] / 2 - 50):int(beam0.shape[0] / 2 + 50), 50:-50], axis=0)
-        # beam1meanprof = np.nanmean(beam1[int(beam1.shape[0] / 2 - 50):int(beam1.shape[0] / 2 + 50), 50:-50], axis=0)
-        # beam0meanprof -= beam0meanprof.mean()
-        # beam1meanprof -= beam1meanprof.mean()
-        # self.beam1Xshift = np.correlate(
-        #     beam0meanprof,
-        #     beam1meanprof,
-        #     mode='full'
-        # ).argmax() - beam0meanprof.shape[0]
-        #
-        # # Rather than doing a scipy.ndimage.shift, the better way to do it would
-        # # be to shift the self.beamEdges for beam 1.
-        # # This will require some extra work, as there's a possibility that
-        # # the beamEdges are at the end of the frame.
-        # # We compensate by changing the beam edges up to the edge of the
-        # # frame, and storing the remaining shift for later
-        # excess_shift = self.beamEdges[1, 1] - yshift - self.solarFlat.shape[0]
-        # if excess_shift > 0:
-        #     # Y-Shift takes beam out of bounds. Update beamEdges to be at the edge of frame,
-        #     # Store the excess shift for scipy.ndimage.shift at a later date.
-        #     self.beam1Yshift = -excess_shift
-        #     self.beamEdges[1] += -yshift - excess_shift
-        # else:
-        #     # Y-shift does not take beam out of bound. Update beamEdges, and move on.
-        #     self.beam1Yshift = None
-        #     self.beamEdges[1] += -yshift
-        #
-        # # Redefine beam1 with new edges. Do not flip, otherwise, everything has to flip
-        # # Rather, we'll do the corrections on the upside-down beam, and only flip it the beam
-        # # after doing the corrections. Same thing with the y-shift, if applicable.
-        # beam1 = self.solarFlat[self.beamEdges[1, 0]: self.beamEdges[1, 1], self.slitEdges[0]:self.slitEdges[1]]
-        #
-        # # Now we need to grab the spectral line we'll be using for the gain table
-        # # Since this will require popping up a widget, we might as well fine-tune
-        # # our wavelength scale for the final product, so we don't have to do too
-        # # many widgets overall. Of course, to grab the right section of the FTS
-        # # atlas, we need a central wavelength and a wavelength scale... Rather than
-        # # Having the user figure this out, we can grab all the grating parameters all
-        # # at once.
-        #
-        # grating_params = spex.grating_calculations(
-        #     self.grating_rules, self.blaze_angle, self.grating_angle,
-        #     self.pixel_size, self.centralWavelength, self.spectral_order,
-        #     collimator=self.spectrographCollimator, camera=self.cameraLens, slit_width=self.slit_width,
-        # )
-        #
-        # beam0LampGainCorrected = (
-        #     beam0 - self.solarDark[self.beamEdges[0, 0]:self.beamEdges[0, 1], self.slitEdges[0]:self.slitEdges[1]]
-        # ) / self.lampGain[self.beamEdges[0, 0]:self.beamEdges[0, 1], self.slitEdges[0]:self.slitEdges[1]]
-        #
-        # beam1LampGainCorrected = (
-        #     beam1 - self.solarDark[self.beamEdges[1, 0]:self.beamEdges[1, 1], self.slitEdges[0]:self.slitEdges[1]]
-        # ) / self.lampGain[self.beamEdges[1, 0]:self.beamEdges[1, 1], self.slitEdges[0]:self.slitEdges[1]]
-        #
-        # # Getting Min/Max Wavelength for FTS comparison; padding by 30 pixels on either side
-        # apxWavemin = self.centralWavelength - np.nanmean(self.slitEdges) * grating_params['Spectral_Pixel']/1000
-        # apxWavemax = self.centralWavelength + np.nanmean(self.slitEdges) * grating_params['Spectral_Pixel']/1000
-        # apxWavemin -= 30*grating_params['Spectral_Pixel']/1000
-        # apxWavemax += 30*grating_params['Spectral_Pixel']/1000
-        # fts_wave, fts_spec = spex.fts_window(apxWavemin, apxWavemax)
-        # avg_profile = np.nanmedian(
-        #     beam0LampGainCorrected[
-        #         int(beam0LampGainCorrected.shape[0]/2 - 30):int(beam0LampGainCorrected.shape[0]/2 + 30), :
-        #     ],
-        #     axis=0
-        # )
-        #
-        # print("Top: SPINOR Spectrum (uncorrected). Bottom: FTS Reference Spectrum")
-        # print("Select the same two spectral lines on each plot.")
-        # spinorLines, ftsLines = spex.select_lines_doublepanel(
-        #     avg_profile,
-        #     fts_spec,
-        #     4
-        # )
-        # spinorLineCores = [
-        #     int(spex.find_line_core(avg_profile[x-5:x+5]) + x - 5) for x in spinorLines
-        # ]
-        # ftsLineCores = [
-        #     spex.find_line_core(fts_spec[x-20:x+9]) + x - 20 for x in ftsLines
-        # ]
-        #
-        # self.spinorLineCores = spinorLineCores
-        # self.ftsLineCores = ftsLineCores
-        #
-        # # Determine whether the spectrum is flipped by comparing the correlation
-        # # Value between the resampled FTS spectrum and the average spectrum, both
-        # # flipped and default.
-        #
-        # spinorPixPerFTSPix = np.abs(np.diff(spinorLineCores)) / np.abs(np.diff(ftsLineCores))
-        #
-        # self.determine_spectrum_flip(fts_spec, avg_profile, spinorPixPerFTSPix)
-        # # Rather than building in logic every time we need to flip/not flip a spectrum,
-        # # We'll define a flip index, and slice by it every time. So if we flip, we'll be
-        # # indexing [::-1]. Otherwise, we'll index [::1], i.e., doing nothing to the array
-        # if self.flipWave:
-        #     self.flipWaveIdx = -1
-        # else:
-        #     self.flipWaveIdx = 1
-        #
-        # beam0GainTable, beam0CoarseGainTable, beam0Skews = spex.create_gaintables(
-        #     beam0LampGainCorrected,
-        #     [spinorLineCores[0] - 5, spinorLineCores[0] + 7],
-        #     hairline_positions=self.hairlines[0] - self.beamEdges[0, 0],
-        #     neighborhood=12,
-        #     hairline_width=self.hairlineWidth/2
-        # )
-        #
-        # beam1GainTable, beam1CoarseGainTable, beam1Skews = spex.create_gaintables(
-        #     beam1LampGainCorrected,
-        #     [spinorLineCores[0] - 5 - self.beam1Xshift, spinorLineCores[0] + 7 - self.beam1Xshift],
-        #     hairline_positions=self.hairlines[1] - self.beamEdges[1, 0],
-        #     neighborhood=12,
-        #     hairline_width=self.hairlineWidth/2
-        # )
-        #
-        # print("Beam0:", beam0LampGainCorrected.shape)
-        # print("Beam1:", beam1LampGainCorrected.shape)
-        #
-        #
-        # self.combinedGainTable = np.ones(self.solarFlat.shape)
-        # self.combinedCoarseGainTable = np.ones(self.solarFlat.shape)
-        #
-        # self.combinedGainTable[
-        #     self.beamEdges[0, 0]:self.beamEdges[0, 1], self.slitEdges[0]:self.slitEdges[1]
-        # ] = beam0GainTable
-        # self.combinedGainTable[
-        #     self.beamEdges[1, 0]:self.beamEdges[1, 1], self.slitEdges[0]:self.slitEdges[1]
-        # ] = beam1GainTable
-        #
-        # self.combinedCoarseGainTable[
-        #     self.beamEdges[0, 0]:self.beamEdges[0, 1], self.slitEdges[0]:self.slitEdges[1]
-        # ] = beam0CoarseGainTable
-        # self.combinedCoarseGainTable[
-        #     self.beamEdges[1, 0]:self.beamEdges[1, 1], self.slitEdges[0]:self.slitEdges[1]
-        # ] = beam1CoarseGainTable
-
-        return
 
 
     def spinor_get_polcal(self):
@@ -1538,10 +1352,12 @@ class SpinorCal:
                 )
             muellerCheck = spex.check_mueller_physicality(xmat)
             if not muellerCheck[0]:
-                warnings.warn(
-                    "TX Matrix is an unphysical Mueller matrix with output minimum I: " +
-                    str(muellerCheck[1]) + ", and output minimum I^2 - (Q^2 + U^2 + V^2): " +
-                    str(muellerCheck[2])
+                print(
+                    ("WARNING: TX Matrix for section {0} of {1}\nIs an unphysical " +
+                    "Mueller matrix with output minimum I:\n{2},\n" +
+                    "and output minimum I^2 - (Q^2 + U^2 + V^2):\n{3}").format(
+                        i, self.nSubSlits, muellerCheck[1], muellerCheck[2]
+                    )
                 )
 
         return
@@ -1557,34 +1373,60 @@ class SpinorCal:
         """
 
         # Do plotting
-        polcalFig = plt.figure("Polcal Results")
+        polcalFig = plt.figure("Polcal Results", figsize=(8, 4))
         # Create 3 columns, 4 rows.
         # Column 1: Calcurves IQUV
         # Column 2: Input Stokes Vectors IQUV
         # Column 3: Output Stokes Vectors IQUV
         gs = polcalFig.add_gridspec(ncols=3, nrows=4)
 
-        # stokesfit = np.array([xmat @ inputStokes[j, :] for j in range(inputStokes.shape[0])])
-        # ax_i = fig.add_subplot(411)
-        # ax_q = fig.add_subplot(412)
-        # ax_u = fig.add_subplot(413)
-        # ax_v = fig.add_subplot(414)
-        # axes = [ax_i, ax_q, ax_u, ax_v]
-        # names = ['I', 'Q', 'U', 'V']
-        # for j in range(4):
-        #     axes[j].plot(self.calcurves[:, j, i], label='OBSERVED')
-        #     axes[j].plot(inputStokes[:, j], label='INPUT', linestyle=':')
-        #     axes[j].plot(stokesfit[:, j], label='FIT')
-        #     axes[j].set_title("STOKES-"+names[j])
-        #     if j == 3:
-        #         axes[j].legend()
-        # fig.tight_layout()
-        # if self.saveFigs:
-        #     fig.savefig(
-        #         os.path.join(self.calDirectory, "subslit"+str(i)+"_calcurves.png"),
-        #         bbox_inches='tight'
-        #     )
-        # plt.show(block=False)
+        outStokes = np.array([self.txmat @ self.inputStokes[j, :] for j in range(self.inputStokes.shape[0])])
+        names = ['I', 'Q', 'U', 'V']
+        for i in range(4):
+            ax_ccurve = polcalFig.add_subplot(gs[i, 0])
+            ax_incurve = polcalFig.add_subplot(gs[i, 1])
+            ax_outcurve = polcalFig.add_subplot(gs[i, 2])
+            # Column Titles
+            if i == 0:
+                ax_ccurve.set_title("POLCAL CURVES")
+                ax_incurve.set_title("INPUT VECTORS")
+                ax_outcurve.set_title("FITS VECTORS")
+            # Plot statements. Default is fine.
+            for j in range(self.nSubSlits):
+                ax_ccurve.plot(self.calcurves[:, i, j])
+                ax_outcurve.plot(outStokes[:, i, j])
+            ax_incurve.plot(self.inputStokes[i, :])
+            # Clip to x range of [0, end]
+            ax_ccurve.set_xlim(0, self.calcurves.shape[0])
+            ax_incurve.set_xlim(0, self.calcurves.shape[0])
+            ax_outcurve.set_xlim(0, self.calcurves.shape[0])
+            # Clip to common y range defined by max/min of all 3 columns
+            ymax = np.array(
+                [self.calcurves[:, i, :].max(), outStokes[:, i, :].max(), self.inputStokes[i, :].max()]
+            ).max()
+            ymin = np.array(
+                [self.calcurves[:, i, :].min(), outStokes[:, i, :].min(), self.inputStokes[i, :].min()]
+            ).min()
+            ax_ccurve.set_ylim(ymin, ymax)
+            ax_incurve.set_ylim(ymin, ymax)
+            ax_outcurve.set_ylim(ymin, ymax)
+            # Set up row label
+            ax_ccurve.set_ylabel(names[i])
+            # Reduce number of ticks to 3 for each y axis, 4 for x axis
+            ax_ccurve.locator_params(axis="x", tight=True, nbins=4)
+            ax_ccurve.locator_params(axis="y", tight=True, nbins=4)
+            # Turn off tick labels for all except the first column in y, and the last row in x
+            ax_incurve.set_yticklabels([])
+            ax_outcurve.set_yticklabels([])
+            if i != 3:
+                ax_ccurve.set_xticklabels([])
+                ax_incurve.set_xticklabels([])
+                ax_outcurve.set_xticklabels([])
+        polcalFig.tight_layout()
+        if self.saveFigs:
+            filename = os.path.join(self.finalDir, "polcal_curves.png")
+            polcalFig.savefig(filename, bbox_inches="tight")
+        plt.show(block=False)
 
         return
 
@@ -1626,9 +1468,7 @@ class SpinorCal:
             axis=0,
         )(np.arange(0, self.beamEdges[0, 1]-self.beamEdges[0, 0]))
 
-        for i in range(1, len(science_hdu)):
-            print(i)
-            print("Demod")
+        for i in tqdm.tqdm(range(1, len(science_hdu)), desc="Reducing Science Map"):
             iquv = self.demodulate_spinor(
                 (science_hdu[i].data - self.solarDark)/self.lampGain/self.combinedGainTable
             )
@@ -1707,7 +1547,7 @@ class SpinorCal:
             )
             hairline_skews = np.zeros((2, self.slitEdges[1] - self.slitEdges[0]))
             deskewedHairs = medfilth0.copy()
-            print("Hair deskew")
+
             for j in range(2):
                 hairline_skews[j, :] = spex.spectral_skew(
                     np.rot90(
@@ -1721,7 +1561,6 @@ class SpinorCal:
                     )
             meanHairlineProfiles = np.nanmean(deskewedHairs, axis=2)
             bulkHairOffset = spex.find_line_core(meanHairlineProfiles[0]) - spex.find_line_core(meanHairlineProfiles[1])
-            print("BULK: ", bulkHairOffset)
             for j in range(hairline_skews.shape[1]):
                 science_beams[i-1, 0, :, :, j] = scind.shift(
                     science_beams[i-1, 0, :, :, j], (0, -hairline_skews[0, j]),
@@ -1731,7 +1570,6 @@ class SpinorCal:
                     science_beams[i-1, 1, :, :, j], (0, -hairline_skews[1, j] + bulkHairOffset),
                     mode='nearest'
                 )
-            print("Spec skew")
             # Reuse spectral lines from gain table creation to deskew...
             x1 = 20
             x2 = 21
@@ -1758,27 +1596,6 @@ class SpinorCal:
                     deskBeam,
                     slit_reference=0.5, order=order
                 )
-                # deskBeam = science_beams[
-                #            i - 1, 0, 0, :,
-                #            int(self.spinorLineCores[1] - x1):int(self.spinorLineCores[1] + x2)
-                # ]
-                # deskBeam[hairlines[0] - 4:hairlines[0] + 4] = np.nan
-                # deskBeam[hairlines[1] - 4:hairlines[1] + 4] = np.nan
-                # spectral_skews[0, 1] = spex.spectral_skew(
-                #     deskBeam,
-                #     slit_reference=0.5, order=order
-                # )
-                # deskBeam = science_beams[
-                #            i - 1, 1, 0, :,
-                #            int(self.spinorLineCores[1] - x1):int(self.spinorLineCores[1] + x2)
-                # ]
-                # deskBeam[hairlines[0] - 4:hairlines[0] + 4] = np.nan
-                # deskBeam[hairlines[1] - 4:hairlines[1] + 4] = np.nan
-                # spectral_skews[1, 1] = spex.spectral_skew(
-                #     deskBeam,
-                #     slit_reference=0.5, order=order
-                # )
-                # spectral_skews = np.nanmean(spectral_skews, axis=1)
                 spectral_skews = spectral_skews[:, 0, :]
                 for j in range(spectral_skews.shape[1]):
                     science_beams[i-1, 0, :, j, :] = scind.shift(
@@ -1790,7 +1607,6 @@ class SpinorCal:
                 x1 -= 3
                 x2 -= 3
 
-            print("Comb beam")
             combined_beams = np.zeros(science_beams.shape[2:])
             combined_beams[0] = np.nanmean(science_beams[i-1, :, 0, :, :], axis=0)
             combined_beams[1:] = (science_beams[i-1, 0, 1:, :, :] - science_beams[i-1, 1, 1:, :, :])/2
@@ -1836,18 +1652,18 @@ class SpinorCal:
                             combined_beams[0, j, :],
                             combined_beams[k, j, :]
                         )
-                    # V->QU crosstalk correction
-                    if self.v2qu:
-                        for k in range(1, 3):
-                            combined_beams[k, j, :] = self.v2qu_crosstalk(
-                                combined_beams[3, j, :],
-                                combined_beams[k, j, :]
-                            )
-                    if self.u2v:
-                        combined_beams[3, j, :] = self.v2qu_crosstalk(
-                            combined_beams[2, j, :],
-                            combined_beams[3, j, :]
-                        )
+            # V->QU crosstalk correction
+            if self.v2qu:
+                for k in range(1, 3):
+                    combined_beams[k, j, :] = self.v2qu_crosstalk(
+                        combined_beams[3, j, :],
+                        combined_beams[k, j, :]
+                    )
+            if self.u2v:
+                combined_beams[3, j, :] = self.v2qu_crosstalk(
+                    combined_beams[2, j, :],
+                    combined_beams[3, j, :]
+                )
 
             # Reverse the wavelength axis if required.
             combined_beams = combined_beams[:, :, ::self.flipWaveIdx]
@@ -1888,164 +1704,288 @@ class SpinorCal:
                 # Need maps for the slit images (IQUV) that are replaced at each step,
                 # As well as IQUV maps of the full field for each line selected.
                 # These latter will be filled as the map is processed.
+                fieldImages = np.zeros((
+                    len(lineCores),  # Number of lines
+                    4,  # Stokes-IQUV values
+                    combined_beams.shape[1],
+                    len(science_hdu[1:])
+                ))
+
+                fieldImages[j, 0, :, i - 1] = combined_beams[0, :, int(round(lineCores[j], 0))]
+                fieldImages[j, 1:, :, i - 1] = np.sum(
+                    np.abs(
+                        combined_beams[1:, :, int(mapIndices[j, 0]):int(mapIndices[j, 1])]
+                    ), axis=2
+                )
                 if i == 1:
-                    fieldImages = np.zeros((
-                        len(lineCores), # Number of lines
-                        4, # Stokes-IQUV values
-                        combined_beams.shape[1],
-                        len(science_hdu[1:])
-                    ))
-                    figNum = 0
-                    slitFigure = plt.figure("Reduced Slit Images")
-                    slitGS = slitFigure.add_gridspec(2, 2, hspace=0.1, wspace=0.1)
-                    slitAxI = slitFigure.add_subplot(slitGS[0, 0])
-                    slitI = slitAxI.imshow(combined_beams[0], cmap='gray', origin='lower')
-                    slitAxI.text(10, 10, "I", color='C1')
-                    slitAxQ = slitFigure.add_subplot(slitGS[0, 1])
-                    slitQ = slitAxQ.imshow(combined_beams[1], cmap='gray', origin='lower')
-                    slitAxQ.text(10, 10, "Q", color='C1')
-                    slitAxU = slitFigure.add_subplot(slitGS[1, 0])
-                    slitU = slitAxU.imshow(combined_beams[2], cmap='gray', origin='lower')
-                    slitAxU.text(10, 10, "U", color='C1')
-                    slitAxV = slitFigure.add_subplot(slitGS[1, 1])
-                    slitV = slitAxV.imshow(combined_beams[3], cmap='gray', origin='lower')
-                    slitAxV.text(10, 10, "V", color='C1')
-                    slitFigure.tight_layout()
+                    slit_plate_scale = self.dstPlateScale * self.dstCollimator / self.slitCameraLens
+                    camera_dy = slit_plate_scale * (self.cameraLens / self.spectrographCollimator) * (
+                                self.pixel_size / 1000)
+                    map_dx = science_hdu[1].header['HSG_STEP']
 
-                    figNum += 1
+                    plot_params = self.set_up_live_plot(fieldImages, combined_beams, camera_dy, map_dx)
+                self.update_live_plot(*plot_params, fieldImages, combined_beams, camera_dy, map_dx, i)
 
-                    lineFigure = []
-                    lineGS = []
-                    lineI = []
-                    lineQ = []
-                    lineU = []
-                    lineV = []
-                    lineIax = []
-                    lineQax = []
-                    lineUax = []
-                    lineVax = []
-                    for j in range(len(lineCores)):
-                        lineFigure.append(
-                            plt.figure("Line "+str(j))
-                        )
-                        lineGS.append(
-                            lineFigure[j].add_gridspec(2, 2, hspace=0.1, wspace=0.1)
-                        )
-                        lineIax.append(
-                            lineFigure[j].add_subplot(lineGS[j][0, 0])
-                        )
-                        lineI.append(
-                            lineIax[j].imshow(
-                                fieldImages[j, 0], origin='lower', cmap='gray'
-                            )
-                        )
-                        lineQax.append(
-                            lineFigure[j].add_subplot(lineGS[j][0, 1])
-                        )
-                        lineQ.append(
-                            lineQax[j].imshow(
-                                fieldImages[j, 1], origin='lower', cmap='gray'
-                            )
-                        )
-                        lineUax.append(
-                            lineFigure[j].add_subplot(lineGS[j][1, 0])
-                        )
-                        lineU.append(
-                            lineUax[j].imshow(
-                                fieldImages[j, 2], origin='lower', cmap='gray'
-                            )
-                        )
-                        lineVax.append(
-                            lineFigure[j].add_subplot(lineGS[j][1, 1])
-                        )
-                        lineV.append(
-                            lineVax[j].imshow(
-                                fieldImages[j, 2], origin='lower', cmap='gray'
-                            )
-                        )
-                        lineFigure[j].tight_layout()
-
-                        figNum += 1
-
-                slitI.set_array(combined_beams[0])
-                slitI.set_norm(
-                    matplotlib.colors.Normalize(
-                        vmin=np.mean(combined_beams[0])-3*np.std(combined_beams[0]),
-                        vmax=np.mean(combined_beams[0])+3*np.std(combined_beams[0])
-                    )
-                )
-                slitQ.set_array(combined_beams[1])
-                slitQ.set_norm(
-                    matplotlib.colors.Normalize(
-                        vmin=np.mean(combined_beams[1]) - 3 * np.std(combined_beams[1]),
-                        vmax=np.mean(combined_beams[1]) + 3 * np.std(combined_beams[1])
-                    )
-                )
-                slitU.set_array(combined_beams[2])
-                slitU.set_norm(
-                    matplotlib.colors.Normalize(
-                        vmin=np.mean(combined_beams[2]) - 3 * np.std(combined_beams[2]),
-                        vmax=np.mean(combined_beams[2]) + 3 * np.std(combined_beams[2])
-                    )
-                )
-                slitV.set_array(combined_beams[3])
-                slitV.set_norm(
-                    matplotlib.colors.Normalize(
-                        vmin=np.mean(combined_beams[3]) - 3 * np.std(combined_beams[3]),
-                        vmax=np.mean(combined_beams[3]) + 3 * np.std(combined_beams[3])
-                    )
-                )
-
-                slitFigure.canvas.draw()
-                slitFigure.canvas.flush_events()
-
-                for j in range(len(lineCores)):
-                    fieldImages[j, 0, :, i-1] = combined_beams[0, :, int(round(lineCores[j], 0))]
-                    fieldImages[j, 1:, :, i-1] = np.sum(
-                        np.abs(
-                            combined_beams[1:, :, int(mapIndices[j, 0]):int(mapIndices[j ,1])]
-                        ), axis=2
-                    )
-                    lineI[j].set_array(fieldImages[j, 0])
-                    lineI[j].set_norm(
-                        matplotlib.colors.Normalize(
-                            vmin=np.mean(fieldImages[j, 0, :, :i]) - 3 * np.std(fieldImages[j, 0, :, :i]),
-                            vmax=np.mean(fieldImages[j, 0, :, :i]) + 3 * np.std(fieldImages[j, 0, :, :i])
-                        )
-                    )
-                    lineQ[j].set_array(fieldImages[j, 1])
-                    lineQ[j].set_norm(
-                        matplotlib.colors.Normalize(
-                            vmin=np.mean(fieldImages[j, 1, :, :i]) - 3 * np.std(fieldImages[j, 1, :, :i]),
-                            vmax=np.mean(fieldImages[j, 1, :, :i]) + 3 * np.std(fieldImages[j, 1, :, :i])
-                        )
-                    )
-                    lineU[j].set_array(fieldImages[j, 1])
-                    lineU[j].set_norm(
-                        matplotlib.colors.Normalize(
-                            vmin=np.mean(fieldImages[j, 2, :, :i]) - 3 * np.std(fieldImages[j, 2, :, :i]),
-                            vmax=np.mean(fieldImages[j, 2, :, :i]) + 3 * np.std(fieldImages[j, 2, :, :i])
-                        )
-                    )
-                    lineV[j].set_array(fieldImages[j, 1])
-                    lineV[j].set_norm(
-                        matplotlib.colors.Normalize(
-                            vmin=np.mean(fieldImages[j, 3, :, :i]) - 3 * np.std(fieldImages[j, 3, :, :i]),
-                            vmax=np.mean(fieldImages[j, 3, :, :i]) + 3 * np.std(fieldImages[j, 3, :, :i])
-                        )
-                    )
-                    lineFigure[j].canvas.draw()
-                    lineFigure[j].canvas.flush_events()
+        # Save final plots if applicable
+        if self.plot & self.saveFigs:
+            for fig in range(len(plot_params[0])):
+                filename = os.path.join(self.finalDir, "field_image_{0}.png".format(fig))
+                plot_params[0][fig].savefig(filename, bbox_inches="tight")
 
         mean_profile = np.nanmean(reducedData[:, 0, :, :], axis=(0, 1))
         approxWavelengthArray = self.spinor_wavelength_calibration(mean_profile)
-        
-        if self.write:
-            self.package_scan(reducedData, approxWavelengthArray, science_hdu)
-            science_hdu.close()
-            return
-        else:
-            return reducedData, approxWavelengthArray
+
+        self.package_scan(reducedData, approxWavelengthArray, science_hdu)
+        science_hdu.close()
+
+        return
+
+
+    def set_up_live_plot(self, fieldImages, slitImages, dy, dx):
+        """
+        Initializes live plotting statements for monitoring progress of reductions
+
+        Parameters
+        ----------
+        fieldImages : numpy.ndarray
+            Array of dummy field images for line cores. Shape nlines, 4, ny, nx where:
+                1.) nlines is the number of spectral lines selected by the user to keep an eye on
+                2.) 4 is from the IQUV stokes parameters
+                3.) ny is the length of the slit
+                4.) nx is the number of slit positions in the scan
+        slitImages : numpy.ndarray
+            Array of IQUV slit images. Shape 4, ny, nlambda where:
+                5.) nlambda is the wavelength axis
+        dy : float
+            Approximate resolution scale in y for sizing the map extent
+        dx : float
+            Approximate resolution scale in x for sizing the map extent
+
+        Returns
+        -------
+        fieldFigList : list
+            List of matplotlib figures, with an entry for each line of interest
+        fieldI : list
+            List of matplotlib.image.AxesImage with an entry for each line of interest Stokes-I subplot
+        fieldQ : list
+            List of matplotlib.image.AxesImage with an entry for each line of interest Stokes-Q subplot
+        fieldU : list
+            List of matplotlib.image.AxesImage with an entry for each line of interest Stokes-U subplot
+        fieldV : list
+            List of matplotlib.image.AxesImage with an entry for each line of interest Stokes-V subplot
+        slitFig : matplotlib.pyplot.figure
+            Matplotlib figure containing the slit IQUV image. The entire image will be blitted each time
+        slitI : matplotlib.image.AxesImage
+            Matplotlib axes class containing the slit Stokes-I image
+        slitQ : matplotlib.image.AxesImage
+            Matplotlib axes class containing the slit Stokes-Q image
+        slitU : matplotlib.image.AxesImage
+            Matplotlib axes class containing the slit Stokes-U image
+        slitV : matplotlib.image.AxesImage
+            Matplotlib axes class containing the slit Stokes-V image
+        """
+
+        # Required for live plotting
+        plt.ion()
+
+        slitAspectRatio = slitImages.shape[2] / slitImages.shape[1]
+
+        # Set up the spectral data first, since it's only one window
+        slitFig = plt.figure("Reduced Slit Images", figsize=(10, 10*slitAspectRatio))
+        slitGS = slitFig.add_gridspec(2, 2, hspace=0.1, wspace=0.1)
+        slitAxI = slitFig.add_subplot(slitGS[0, 0])
+        slitI = slitAxI.imshow(slitImages[0], cmap='gray', origin='lower')
+        slitAxI.text(10, 10, "I", color='C1')
+        slitAxQ = slitFig.add_subplot(slitGS[0, 1])
+        slitQ = slitAxQ.imshow(slitImages[1], cmap='gray', origin='lower')
+        slitAxQ.text(10, 10, "Q", color='C1')
+        slitAxU = slitFig.add_subplot(slitGS[1, 0])
+        slitU = slitAxU.imshow(slitImages[2], cmap='gray', origin='lower')
+        slitAxU.text(10, 10, "U", color='C1')
+        slitAxV = slitFig.add_subplot(slitGS[1, 1])
+        slitV = slitAxV.imshow(slitImages[3], cmap='gray', origin='lower')
+        slitAxV.text(10, 10, "V", color='C1')
+        slitFig.tight_layout()
+
+        # Now the multiple windows for the multiple lines of interest
+        fieldAspectRatio = (dx * fieldImages.shape[3]) / (dy * fieldImages.shape[2])
+
+        fieldFigList = []
+        fieldGS = []
+        fieldI = []
+        fieldQ = []
+        fieldU = []
+        fieldV = []
+        fieldIAx = []
+        fieldQax = []
+        fieldUAx = []
+        fieldVAx = []
+        for j in range(fieldImages.shape[0]):
+            fieldFigList.append(
+                plt.figure("Line " + str(j), figsize=(10, 10*fieldAspectRatio))
+            )
+            fieldGS.append(
+                fieldFigList[j].add_gridspec(2, 2, hspace=0.1, wspace=0.1)
+            )
+            fieldIAx.append(
+                fieldFigList[j].add_subplot(fieldGS[j][0, 0])
+            )
+            fieldI.append(
+                fieldIAx[j].imshow(
+                    fieldImages[j, 0], origin='lower', cmap='gray',
+                    extent=[0, dx*fieldImages.shape[3], 0, dy*fieldImages.shape[2]]
+                )
+            )
+            fieldQax.append(
+                fieldFigList[j].add_subplot(fieldGS[j][0, 1])
+            )
+            fieldQ.append(
+                fieldQax[j].imshow(
+                    fieldImages[j, 1], origin='lower', cmap='gray',
+                    extent=[0, dx*fieldImages.shape[3], 0, dy*fieldImages.shape[2]]
+                )
+            )
+            fieldUAx.append(
+                fieldFigList[j].add_subplot(fieldGS[j][1, 0])
+            )
+            fieldU.append(
+                fieldUAx[j].imshow(
+                    fieldImages[j, 2], origin='lower', cmap='gray',
+                    extent=[0, dx*fieldImages.shape[3], 0, dy*fieldImages.shape[2]]
+                )
+            )
+            fieldVAx.append(
+                fieldFigList[j].add_subplot(fieldGS[j][1, 1])
+            )
+            fieldV.append(
+                fieldVAx[j].imshow(
+                    fieldImages[j, 2], origin='lower', cmap='gray',
+                    extent=[0, dx*fieldImages.shape[3], 0, dy*fieldImages.shape[2]]
+                )
+            )
+
+            # Beautification; Turn off some x/y tick labels, set titles, axes labels, etc...
+            # Turn off tick labels for all except the first column in y, and the last row in x
+            fieldIAx[j].set_xticklabels([])
+            fieldIAx[j].set_ylabel("Extent [arcsec]")
+            fieldIAx[j].set_title("Line Core  Stokes-I")
+
+            fieldQax[j].set_yticklabels([])
+            fieldQax[j].set_xticklabels([])
+            fieldQax[j].set_title("Integrated Stokes-Q")
+
+            fieldUAx[j].set_ylabel("Extent [arcsec]")
+            fieldUAx[j].set_xlabel("Extent [arcsec]")
+            fieldUAx[j].set_title("Integrated Stokes-U")
+
+            fieldVAx[j].set_yticklabels([])
+            fieldVAx[j].set_xlabel("Extent [arcsec]")
+            fieldVAx[j].set_title("Integrated Stokes-V")
+
+            fieldFigList[j].tight_layout()
+
+        return fieldFigList, fieldI, fieldQ, fieldU, fieldV, slitFig, slitI, slitQ, slitU, slitV
+
+
+    def update_live_plot(
+            self,
+            fieldFigList, fieldI, fieldQ, fieldU, fieldV,
+            slitFig, slitI, slitQ, slitU, slitV,
+            fieldImages, slitImages, step
+    ):
+        """
+        Updates the plots created in self.set_up_live_plot.
+
+        Parameters
+        ----------
+        fieldFigList : list
+        fieldI : list
+        fieldQ : list
+        fieldU : list
+        fieldV : list
+        slitFig : matplotlib.pyplot.figure
+        slitI : matplotlib.image.AxesImage
+        slitQ : matplotlib.image.AxesImage
+        slitU : matplotlib.image.AxesImage
+        slitV : matplotlib.image.AxesImage
+        fieldImages : numpy.ndarray
+        slitImages : numpy.ndarray
+        step : int
+            Step of the reduction process we're on for normalization purposes.
+
+        Returns
+        -------
+
+        """
+
+        slitI.set_array(slitImages[0])
+        slitI.set_norm(
+            matplotlib.colors.Normalize(
+                vmin=np.mean(slitImages[0]) - 3 * np.std(slitImages[0]),
+                vmax=np.mean(slitImages[0]) + 3 * np.std(slitImages[0])
+            )
+        )
+        slitQ.set_array(slitImages[1])
+        slitQ.set_norm(
+            matplotlib.colors.Normalize(
+                vmin=np.mean(slitImages[1]) - 3 * np.std(slitImages[1]),
+                vmax=np.mean(slitImages[1]) + 3 * np.std(slitImages[1])
+            )
+        )
+        slitU.set_array(slitImages[2])
+        slitU.set_norm(
+            matplotlib.colors.Normalize(
+                vmin=np.mean(slitImages[2]) - 3 * np.std(slitImages[2]),
+                vmax=np.mean(slitImages[2]) + 3 * np.std(slitImages[2])
+            )
+        )
+        slitV.set_array(slitImages[3])
+        slitV.set_norm(
+            matplotlib.colors.Normalize(
+                vmin=np.mean(slitImages[3]) - 3 * np.std(slitImages[3]),
+                vmax=np.mean(slitImages[3]) + 3 * np.std(slitImages[3])
+            )
+        )
+
+        slitFig.canvas.draw()
+        slitFig.canvas.flush_events()
+
+        for j in range(fieldImages.shape[0]):
+            fieldI[j].set_array(fieldImages[j, 0])
+            fieldI[j].set_norm(
+                matplotlib.colors.Normalize(
+                    vmin=np.mean(fieldImages[j, 0, :, :step]) - 3 * np.std(fieldImages[j, 0, :, :step]),
+                    vmax=np.mean(fieldImages[j, 0, :, :step]) + 3 * np.std(fieldImages[j, 0, :, :step])
+                )
+            )
+            fieldQ[j].set_array(fieldImages[j, 1])
+            fieldQ[j].set_norm(
+                matplotlib.colors.Normalize(
+                    vmin=np.mean(fieldImages[j, 1, :, :step]) - 3 * np.std(fieldImages[j, 1, :, :step]),
+                    vmax=np.mean(fieldImages[j, 1, :, :step]) + 3 * np.std(fieldImages[j, 1, :, :step])
+                )
+            )
+            fieldU[j].set_array(fieldImages[j, 1])
+            fieldU[j].set_norm(
+                matplotlib.colors.Normalize(
+                    vmin=np.mean(fieldImages[j, 2, :, :step]) - 3 * np.std(fieldImages[j, 2, :, :step]),
+                    vmax=np.mean(fieldImages[j, 2, :, :step]) + 3 * np.std(fieldImages[j, 2, :, :step])
+                )
+            )
+            fieldV[j].set_array(fieldImages[j, 1])
+            fieldV[j].set_norm(
+                matplotlib.colors.Normalize(
+                    vmin=np.mean(fieldImages[j, 3, :, :step]) - 3 * np.std(fieldImages[j, 3, :, :step]),
+                    vmax=np.mean(fieldImages[j, 3, :, :step]) + 3 * np.std(fieldImages[j, 3, :, :step])
+                )
+            )
+            fieldFigList[j].canvas.draw()
+            fieldFigList[j].canvas.flush_events()
+
+
+
+
+
 
 
     def package_scan(self, datacube, wavelength_array, hdul):
@@ -2065,7 +2005,7 @@ class SpinorCal:
         hdul : astropy.fits.HDUList
 
         """
-        
+
         prsteps = [
             'DARK-SUBTRACTION',
             'FLATFIELDING',
@@ -2209,7 +2149,7 @@ class SpinorCal:
         grating_params = spex.grating_calculations(
             self.grating_rules, self.blaze_angle, gratingangle,
             self.pixel_size, self.centralWavelength, self.spectral_order,
-            collimator=self.spectrographCollimator, camera=self.cameraLens, slit_width=self.slit_width,
+            collimator=self.spectrographCollimator, camera=self.cameraLens, slit_width=slitwidth,
         )
         ext0.header['SPEFF'] = (float(grating_params['Grating_Efficiency']), 'Approx. Total Efficiency of Grating')
         ext0.header['LITTROW'] = (float(grating_params['Littrow_Angle']), '[degrees] Littrow Angle')
@@ -2723,24 +2663,3 @@ class SpinorCal:
             return True
         else:
             return False
-
-
-    def demodulate_spinor(self, poldata):
-        """
-        Applies demodulation, and returns 4-array of IQUV
-        Parameters
-        ----------
-        poldata : numpy.ndarray
-            3D array of polarization data. Should have the shape (8, ny, nx).
-
-        Returns
-        -------
-        stokes : numpy.ndarray
-            3D array of stokes data, of shape (4, ny, nx)
-        """
-
-        stokes = np.zeros((4, *poldata.shape[1:]))
-        for i in range(stokes.shape[0]):
-            for j in range(poldata.shape[0]):
-                stokes[i] += self.polDemod[i, j] * poldata[j, :, :]
-        return stokes
