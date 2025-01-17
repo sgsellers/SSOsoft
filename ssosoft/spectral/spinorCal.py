@@ -868,7 +868,8 @@ class SpinorCal:
             A.) Deal with just... so many popups
             B.) Check on the quality of the corrections as they go
         """
-        gainFig = plt.figure("SPINOR Gain Tables")
+        aspect_ratio = self.solarFlat.shape[1] / self.solarFlat.shape[0]
+        gainFig = plt.figure("SPINOR Gain Tables", figsize=(4*5, 5/aspect_ratio))
         ax_lamp = gainFig.add_subplot(141)
         ax_flat = gainFig.add_subplot(142)
         ax_coarse = gainFig.add_subplot(143)
@@ -1811,7 +1812,7 @@ class SpinorCal:
         slitAspectRatio = slitImages.shape[2] / slitImages.shape[1]
 
         # Set up the spectral data first, since it's only one window
-        slitFig = plt.figure("Reduced Slit Images", figsize=(5, 5/slitAspectRatio))
+        slitFig = plt.figure("Reduced Slit Images", figsize=(5, 5/slitAspectRatio+2))
         slitGS = slitFig.add_gridspec(2, 2, hspace=0.1, wspace=0.1)
         slitAxI = slitFig.add_subplot(slitGS[0, 0])
         slitI = slitAxI.imshow(slitImages[0], cmap='gray', origin='lower')
@@ -1842,7 +1843,7 @@ class SpinorCal:
         fieldVAx = []
         for j in range(fieldImages.shape[0]):
             fieldFigList.append(
-                plt.figure("Line " + str(j), figsize=(10, 10/fieldAspectRatio))
+                plt.figure("Line " + str(j), figsize=(10, 10/fieldAspectRatio+2))
             )
             fieldGS.append(
                 fieldFigList[j].add_gridspec(2, 2, hspace=0.1, wspace=0.1)
