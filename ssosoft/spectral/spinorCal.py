@@ -670,12 +670,14 @@ class SpinorCal:
                 self.solarFlat = hdu["SOLAR-FLAT"].data
                 self.solarDark = hdu["SOLAR-DARK"].data
                 self.slit_width = hdu[0].header["HSG_SLW"]
+                self.grating_angle = hdu[0].header["HSG_GRAT"]
         else:
             self.solarFlatFile = self.solarFlatFileList[index]
             with fits.open(self.solarFlatFile) as fhdul:
                 self.solarDark = self.spinor_average_dark_from_hdul(fhdul)
                 self.solarFlat = self.spinor_average_flat_from_hdul(fhdul)
                 self.slit_width = fhdul[1].header["HSG_SLW"]
+                self.grating_angle = fhdul[1].header["HSG_GRAT"]
         return
 
     def spinor_create_solar_gain(self):
@@ -926,6 +928,7 @@ class SpinorCal:
         phdu.header["FTSLC2"] = self.ftsLineCores[1]
         phdu.header["SPFLIP"] = self.flipWaveIdx
         phdu.header["HSG_SLW"] = self.slit_width
+        phdu.header["HSG_GRAT"] = self.grating_angle
 
         flat = fits.ImageHDU(self.solarFlat)
         flat.header["EXTNAME"] = "SOLAR-FLAT"
