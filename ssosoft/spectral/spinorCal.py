@@ -423,6 +423,7 @@ class SpinorCal:
                 )
             )
         )
+        print(filelist)
         scienceFiles = []
         solarFlats = []
         lampFlats = []
