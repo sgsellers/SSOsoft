@@ -869,11 +869,15 @@ class SpinorCal:
             B.) Check on the quality of the corrections as they go
         """
         gainFig = plt.figure("SPINOR Gain Tables")
-        ax_lamp = gainFig.add_subplot(131)
-        ax_coarse = gainFig.add_subplot(132)
-        ax_fine = gainFig.add_subplot(133)
+        ax_lamp = gainFig.add_subplot(141)
+        ax_flat = gainFig.add_subplot(142)
+        ax_coarse = gainFig.add_subplot(143)
+        ax_fine = gainFig.add_subplot(144)
         ax_lamp.imshow(
             self.lampGain, origin='lower', cmap='gray', vmin=0.5, vmax=2.5
+        )
+        ax_flat.imshow(
+            (self.solarFlat - self.solarDark)/self.lampGain, origin='lower', cmap='gray'
         )
         ax_coarse.imshow(
             self.combinedCoarseGainTable, origin='lower', cmap='gray', vmin=0.5, vmax=2.5
@@ -882,20 +886,24 @@ class SpinorCal:
             self.combinedGainTable, origin='lower', cmap='gray', vmin=0.5, vmax=2.5
         )
         ax_lamp.set_title("LAMP GAIN")
+        ax_flat.set_title("SOLAR FLAT")
         ax_coarse.set_title("COARSE GAIN")
         ax_fine.set_title("FINE GAIN")
         for beam in self.beamEdges.flatten():
-            ax_lamp.axhline(beam, c="C1", linewidth=2)
-            ax_coarse.axhline(beam, c="C1", linewidth=2)
-            ax_fine.axhline(beam, c="C1", linewidth=2)
+            ax_lamp.axhline(beam, c="C1", linewidth=1)
+            ax_flat.axhline(beam, c="C1", linewidth=1)
+            ax_coarse.axhline(beam, c="C1", linewidth=1)
+            ax_fine.axhline(beam, c="C1", linewidth=1)
         for hair in self.hairlines.flatten():
-            ax_lamp.axhline(hair, c="C2", linewidth=2)
-            ax_coarse.axhline(hair, c="C2", linewidth=2)
-            ax_fine.axhline(hair, c="C2", linewidth=2)
+            ax_lamp.axhline(hair, c="C2", linewidth=1)
+            ax_flat.axhline(hair, c="C2", linewidth=1)
+            ax_coarse.axhline(hair, c="C2", linewidth=1)
+            ax_fine.axhline(hair, c="C2", linewidth=1)
         for edge in self.slitEdges:
-            ax_lamp.axvline(edge, c="C1", linewidth=2)
-            ax_coarse.axvline(edge, c="C1", linewidth=2)
-            ax_fine.axvline(edge, c="C1", linewidth=2)
+            ax_lamp.axvline(edge, c="C1", linewidth=1)
+            ax_flat.axvline(edge, c="C1", linewidth=1)
+            ax_coarse.axvline(edge, c="C1", linewidth=1)
+            ax_fine.axvline(edge, c="C1", linewidth=1)
         gainFig.tight_layout()
         if self.saveFigs:
             filename = os.path.join(self.finalDir, "gain_tables_{0}.png".format(index))
