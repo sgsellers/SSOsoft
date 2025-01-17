@@ -244,7 +244,7 @@ class SpinorCal:
                 print("Using Polcal File: {0}".format(os.path.split(self.polcalFile)[1]))
                 if self.plot:
                     print("Plotting is currently ON.")
-                    if not self.saveFigs:
+                    if self.saveFigs:
                         print("Plots will be saved at:\n{0}".format(self.finalDir))
                     else:
                         print("Plots will NOT be saved.")
