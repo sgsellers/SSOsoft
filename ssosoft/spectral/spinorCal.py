@@ -2404,7 +2404,7 @@ class SpinorCal:
             error_function,
             x0=0,
             args=[stokesV[50:-50], stokesQU[50:-50]],
-            bounds=[-0.1, 0.1]
+            bounds=[-0.5, 0.5]
         )
 
         v2qu_crosstalk = fit_result.x
