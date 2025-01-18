@@ -1675,16 +1675,18 @@ class SpinorCal:
                         )
             # V->QU crosstalk correction
             if self.v2qu:
-                for k in range(1, 3):
-                    combined_beams[k, j, :] = self.v2qu_crosstalk(
-                        combined_beams[3, j, :],
-                        combined_beams[k, j, :]
-                    )
+                for j in range(combined_beams.shape[1]):
+                    for k in range(1, 3):
+                        combined_beams[k, j, :] = self.v2qu_crosstalk(
+                            combined_beams[3, j, :],
+                            combined_beams[k, j, :]
+                        )
             if self.u2v:
-                combined_beams[3, j, :] = self.v2qu_crosstalk(
-                    combined_beams[2, j, :],
-                    combined_beams[3, j, :]
-                )
+                for j in range(combined_beams.shape[1]):
+                    combined_beams[3, j, :] = self.v2qu_crosstalk(
+                        combined_beams[2, j, :],
+                        combined_beams[3, j, :]
+                    )
 
             # Reverse the wavelength axis if required.
             combined_beams = combined_beams[:, :, ::self.flipWaveIdx]
