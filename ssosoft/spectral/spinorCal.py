@@ -1246,6 +1246,8 @@ class SpinorCal:
                     np.arange(self.calcurves.shape[0]) * polyfitLP[0] + polyfitLP[1]
             )[lpOnlySelection]
 
+        self.calcurves = np.nan_to_num(self.calcurves)
+
         # Now create the input Stokes Vectors using the Telescope Matrix, plus cal unit parameters.
         # The cal train is Sky -> Telescope -> Polarizer -> Retarder -> Spectrograph
         inputStokes = np.zeros((self.calcurves.shape[0], 4))
@@ -2009,11 +2011,6 @@ class SpinorCal:
             plt.pause(0.001)
 
 
-
-
-
-
-
     def package_scan(self, datacube, wavelength_array, hdul):
         """
         Packages reduced scan into FITS HDUList. HDUList has 7 extensions:
@@ -2406,7 +2403,7 @@ class SpinorCal:
             error_function,
             x0=0,
             args=[stokesV[50:-50], stokesQU[50:-50]],
-            bounds=[-0.5, 0.5]
+            bounds=[-1, 1]
         )
 
         v2qu_crosstalk = fit_result.x
