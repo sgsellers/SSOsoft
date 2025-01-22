@@ -1267,7 +1267,7 @@ class SpinorCal:
                 ) @ initStokes
             inputStokes[i, :] = initStokes
 
-        self.inputStokes = inputStokes
+        self.inputStokes = np.nan_to_num(inputStokes)
         self.txmat = np.zeros((self.nSubSlits, 4, 4))
         self.txchi = np.zeros(self.nSubSlits)
         self.txmat00 = np.zeros(self.nSubSlits)
