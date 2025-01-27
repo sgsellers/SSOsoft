@@ -132,6 +132,7 @@ class SpinorCal:
         self.indir = ""
         self.finalDir=""
         self.reducedFilePattern = None
+        self.parameterMapPattern = None
         self.polcalFile = None
         self.solarFlatFileList = []
         self.solarFlatFile = None
@@ -298,6 +299,7 @@ class SpinorCal:
         self.indir = config[self.camera]["rawFileDirectory"]
         self.finalDir = config[self.camera]["reducedFileDirectory"]
         self.reducedFilePattern = config[self.camera]["reducedFilePattern"]
+        self.parameterMapPattern = config[self.camera]["reducedParameterMapPattern"]
 
         # Optional calibration file definitions. If these are left undefined, the directory parser below
         # sets these, however, it may be desirable to specify a flat file under certain circumstances.
@@ -510,7 +512,8 @@ class SpinorCal:
 
         return
 
-    def spinor_average_dark_from_hdul(self, hdulist):
+    @staticmethod
+    def spinor_average_dark_from_hdul(hdulist):
         """Computes an average dark image from a SPINOR fits file HDUList.
         Since SPINOR takes 4 dark frames at the start and end of a flat, lampflat,
         and polcal, but no separate dark files, the only way to get dark current is
@@ -539,7 +542,8 @@ class SpinorCal:
         averageDark /= darkctr
         return averageDark
 
-    def spinor_average_flat_from_hdul(self, hdulist):
+    @staticmethod
+    def spinor_average_flat_from_hdul(hdulist):
         """Computes an average flat image from a SPINOR fits file HDUList.
         Since SPINOR takes 4 dark frames at the start and end of a flat or lampflat,
         we need to process the whole file for flats and darks.
@@ -973,6 +977,7 @@ class SpinorCal:
         Pops up the line selection widget for gain table creation and wavelength determination
         Parameters
         ----------
+        averageProfile
         gratingParams : numpy.records.recarray
             From spectraTools.grating_calculations
 
@@ -1134,7 +1139,7 @@ class SpinorCal:
                 # If the polcal was completed on the same date as the gain tables,
                 # we can clean the polcals up with the gain to get a better estimate across the slit
                 # If the polcals are from a different date, we should be content with dark-subtraction
-                if (baseObsdate == polfileObsdate) & (self.polcalProcessing):
+                if (baseObsdate == polfileObsdate) & self.polcalProcessing:
                     data = self.demodulate_spinor(
                         (hdu.data - polcalDarkCurrent)/self.lampGain/self.combinedGainTable
                     )
@@ -1699,7 +1704,7 @@ class SpinorCal:
             # approx. min/max, the code changes the bounds, and
             if i == 1:
                 mean_profile = np.nanmean(combined_beams[0], axis=0)
-                approxWavelengthArray = self.spinor_wavelength_calibration(mean_profile)
+                approxWavelengthArray = self.tweak_wavelength_calibration(mean_profile)
                 print("Select spectral ranges (xmin, xmax) for overview maps. Close window when done.")
                 # Approximate indices of line cores
                 coarseIndices = spex.select_spans_singlepanel(mean_profile, xarr=approxWavelengthArray)
@@ -1757,10 +1762,27 @@ class SpinorCal:
                 plot_params[0][fig].savefig(filename, bbox_inches="tight")
 
         mean_profile = np.nanmean(reducedData[:, 0, :, :], axis=(0, 1))
-        approxWavelengthArray = self.spinor_wavelength_calibration(mean_profile)
+        approxWavelengthArray = self.tweak_wavelength_calibration(mean_profile)
 
-        self.package_scan(reducedData, approxWavelengthArray, science_hdu)
+        reduced_filename = self.package_scan(reducedData, approxWavelengthArray, science_hdu)
         science_hdu.close()
+        parameter_maps, referenceWavelengths, tweakedIndices, meanProfile, wavelengthArray = self.spinor_analysis(
+            reducedData, mapIndices
+        )
+        param_filename = self.package_analysis(
+            parameter_maps,
+            referenceWavelengths,
+            tweakedIndices,
+            meanProfile,
+            wavelengthArray,
+            reduced_filename
+        )
+
+        if self.verbose:
+            print("\n\n=====================")
+            print("Saved Reduced Data at: {0}".format(reduced_filename))
+            print("Saved Parameter Maps at: {0}".format(param_filename))
+            print("=====================\n\n")
 
         return
 
@@ -1808,6 +1830,10 @@ class SpinorCal:
         slitV : matplotlib.image.AxesImage
             Matplotlib axes class containing the slit Stokes-V image
         """
+        # Close all figures to reset plotting
+        plt.close("all")
+        plt.cla()
+
 
         # Required for live plotting
         plt.ion()
@@ -2100,7 +2126,7 @@ class SpinorCal:
 
         date, time = step_startobs[0].split("T")
         date = date.replace("-", "")
-        time = time.replace(":", "")
+        time = str(round(float(time.replace(":", "")), 0)).split(".")[0]
 
         outname = self.reducedFilePattern.format(
             date,
@@ -2293,10 +2319,10 @@ class SpinorCal:
         fitsHDUList = fits.HDUList(fitsHDUs)
         fitsHDUList.writeto(outfile, overwrite=True)
 
-        return
+        return outfile
 
 
-    def spinor_analysis(self, datacube, wavelengths, indices, rwvls):
+    def spinor_analysis(self, datacube, indices):
         """
         Performs moment analysis, determines mean circular/linear polarization, and net circular polarization
         maps for each of the given spectral windows. See Martinez Pillet et.al., 2011 discussion of mean polarization
@@ -2304,20 +2330,186 @@ class SpinorCal:
 
         Parameters
         ----------
-        datacube
-        wavelengths
-        indices
-        rwvls
+        datacube : numpy.ndarray
+            Reduced FIRS data
+        indices : list
+            List of indices for spectral regions of interest. Each entry in the list is a tuple of (xmin, xmax).
+
+        Returns
+        -------
+        parameter_maps : numpy.ndarray
+            Array of derived parameter maps. Has shape (number of regions, 6, ny, nx), where the number of regions is
+            chosen by the user during map reduction. 6 is from the number of parameters derived: Intensity, velocity,
+            velocity width, net circular polarization, mean circular polarization, and mean linear polarization
+
+        """
+        # 7 maps per region of interest: Core intensity, integrated circ. pol., mean circ. pol., net circ. pol.,
+        # mean lin. pol., velocity, velocity width
+        parameter_maps = np.zeros((len(indices), 6, datacube.shape[0], datacube.shape[2]))
+        meanProfile = np.nanmean(datacube[:, 0, :, :], axis=(0, 1))
+        wavelengthArray = self.tweak_wavelength_calibration(meanProfile)
+        # Tweak indices to be an even range around the line core
+        tweakedIndices = []
+        referenceWavelengths = []
+        for pair in indices:
+            # Integer line core
+            lineCore = spex.find_line_core(meanProfile[pair[0]:pair[1]])
+            referenceWavelengths.append(lineCore)
+            # New min
+            minRange = int(round(lineCore - (pair[1] - pair[0])/2), 0)
+            maxRange = int(round(lineCore + (pair[1] - pair[0])/2), 0) + 1
+            tweakedIndices.append((minRange, maxRange))
+        with tqdm.tqdm(
+            total=parameter_maps.shape[0] * parameter_maps.shape[2] * parameter_maps.shape[3],
+            desc="Constructing Derived Parameter Maps"
+        ) as pbar:
+            for i in range(parameter_maps.shape[0]):
+                for j in range(parameter_maps.shape[2]):
+                    for k in range(parameter_maps.shape[3]):
+                        spectralProfile = datacube[j, 0, k, tweakedIndices[i][0]:tweakedIndices[i][1]]
+                        intens, vel, wid = spex.moment_analysis(
+                            wavelengthArray[tweakedIndices[i][0]:tweakedIndices[i][1]],
+                            spectralProfile,
+                            referenceWavelengths[i]
+                        )
+                        parameter_maps[i, 0:3, j, k] = np.array([intens, vel, wid])
+                        # Rather than trying to calculate a continuum value, we'll take the average of the four
+                        # values on the outsize of the profiles.
+                        pseudoContinuum = np.nanmean(
+                            spectralProfile.take([-2, -1, 0, 1])
+                        )
+                        # Net V
+                        parameter_maps[i, 3, j, k] = spex.net_circular_polarization(
+                            datacube[j, 3, k, tweakedIndices[i][0]:tweakedIndices[i][1]],
+                            wavelengthArray[tweakedIndices[i][0]:tweakedIndices[i][1]]
+                        )
+                        # Mean V
+                        parameter_maps[i, 4, j, k] = spex.mean_circular_polarization(
+                            datacube[j, 3, k, tweakedIndices[i][0]:tweakedIndices[i][1]],
+                            wavelengthArray[tweakedIndices[i][0]:tweakedIndices[i][1]],
+                            referenceWavelengths[i],
+                            pseudoContinuum
+                        )
+                        # Mean QU
+                        parameter_maps[i, 5, j, k] = spex.mean_linear_polarization(
+                            datacube[j, 1, k, tweakedIndices[i][0]:tweakedIndices[i][1]],
+                            datacube[j, 2, k, tweakedIndices[i][0]:tweakedIndices[i][1]],
+                            pseudoContinuum
+                        )
+                        pbar.update(1)
+
+        return parameter_maps, referenceWavelengths, tweakedIndices, meanProfile, wavelengthArray
+
+
+    def package_analysis(self, analysis_maps, rwvls, indices, meanProfile, wavelengthArray, reference_file):
+        """
+        Write SPINOR first-order analysis maps to FITS file.
+
+        Parameters
+        ----------
+        analysis_maps : numpy.ndarray
+        rwvls : list
+        indices : list
+        meanProfile : numpy.ndarray
+        wavelengthArray : numpy.ndarray
+        reference_file : str
 
         Returns
         -------
 
         """
-        f=1
-        return
+        extnames = [
+            "INTENSITY",
+            "VELOCITY",
+            "WIDTH",
+            "NET-CPL",
+            "MEAN-CPL",
+            "MEAN-LPL"
+        ]
+        methods = [
+            "MOMENT-ANALYSIS",
+            "MOMENT-ANALYSIS",
+            "MOMENT-ANALYSIS",
+            "SOLANKI-MONTAVON",
+            "MARTINEZ-PILLET",
+            "MARTINEZ-PILLET"
+        ]
+        method_comments = [
+            "",
+            "",
+            "",
+            "1993",
+            "2011",
+            "2011"
+        ]
+        # Write a FITS file per line selected. Different than FIRS/HSG.
+        for i in range(len(rwvls)):
+            # Gonna crib the headers from the reduced science data file
+            with fits.open(reference_file) as hdul:
+                hdr0 = hdul[0].header.copy()
+                hdr1 = hdul[1].header.copy()
+                del hdr1['CDELT3']
+                del hdr1['CTYPE3']
+                del hdr1['CUNIT3']
+                del hdr1['CRVAL3']
+                del hdr1['CRPIX3']
+            ext0 = fits.PrimaryHDU()
+            ext0.header = hdr0
+            ext0.header["BTYPE"] = "Derived"
+            del ext0.header["BUNIT"]
+            prsteps = [x for x in ext0.header.keys() if "PRSTEP" in x]
+            ext0.header.insert(
+                prsteps[-1],
+                ("PRSTEP{0}".format(len(prsteps) + 1), "SPEC-ANALYSIS", "User-Chosen Spectral ROI"),
+                after=True
+            )
+            ext0.header.insert(
+                "WAVEMIN",
+                ("REFWVL", round(rwvls[i], 3), "Reference Wavelength Value")
+            )
+            ext0.header["WAVEMIN"] = (round(wavelengthArray[indices[i][0]], 3), "Lower Bound for Analysis")
+            ext0.header["WAVEMAX"] = (round(wavelengthArray[indices[i][1]], 3), "Upper Bound for Analysis")
+            ext0.header["COMMENT"] = "File contains derived parameters from moment analysis and polarization analysis"
+            fitsHDUs = [ext0]
+            for j in range(analysis_maps.shape[1]):
+                ext = fits.ImageHDU(analysis_maps[i, j, :, :])
+                ext.header = hdr1
+                ext.header['EXTNAME'] = extnames[j]
+                ext.header["METHOD"] = (methods[j], method_comments[j])
+                fitsHDUs.append(ext)
+
+            extWvl = fits.ImageHDU(wavelengthArray)
+            extWvl.header['EXTNAME'] = 'lambda-coordinate'
+            extWvl.header['BTYPE'] = 'lambda axis'
+            extWvl.header['BUNIT'] = '[AA]'
+            extWvl.header['COMMENT'] = "Reference Wavelength Array. For use with reference profile and WAVEMIN/MAX."
+            fitsHDUs.append(extWvl)
+
+            extRef = fits.ImageHDU(meanProfile)
+            extRef.header['EXTNAME'] = 'reference-profile'
+            extRef.header['BTYPE'] = 'Intensity'
+            extRef.header['BUNIT'] = 'Corrected DN'
+            extRef.header['COMMENT'] = "Mean spectral profile. For use with WAVEMIN/MAX."
+            fitsHDUs.append(extRef)
+
+            date, time = ext0.header['STARTOBS'].split("T")
+            date = date.replace("-", "")
+            time = str(round(float(time.replace(":", "")), 0)).split(".")[0]
+            outname = self.parameterMapPattern.format(
+                date,
+                time,
+                round(ext0.header['WAVEMIN'], 2),
+                round(ext0.header['WAVEMAX'], 2)
+            )
+            outfile = os.path.join(self.finalDir, outname)
+            fitsHDUList = fits.HDUList(fitsHDUs)
+            fitsHDUList.writeto(outfile, overwrite=True)
+
+        return outfile
 
 
-    def i2quv_crosstalk(self, stokesI, stokesQUV):
+    @staticmethod
+    def i2quv_crosstalk(stokesI, stokesQUV):
         """
         Corrects for Stokes-I => QUV crosstalk. In the old pipeline, this was done by
         taking the ratio of a continuum section in I, and in QUV, then subtracting
@@ -2368,7 +2560,8 @@ class SpinorCal:
         return correctedQUV
 
 
-    def v2qu_crosstalk(self, stokesV, stokesQU):
+    @staticmethod
+    def v2qu_crosstalk(stokesV, stokesQU):
         """
         Contrary to I->QUV crosstalk, we want the Q/U profiles to be dissimilar to V.
         Q in particular is HEAVILY affected by crosstalk from V.
@@ -2413,7 +2606,7 @@ class SpinorCal:
         return correctedQU
 
 
-    def spinor_wavelength_calibration(self, referenceProfile):
+    def tweak_wavelength_calibration(self, referenceProfile):
         """
         Determines wavelength array from grating parameters and FTS reference
 
@@ -2622,7 +2815,8 @@ class SpinorCal:
         return tmatrix
 
 
-    def determine_spectrum_flip(self, fts_spec, spinor_spex, spinPixPerFTSPix):
+    @staticmethod
+    def determine_spectrum_flip(fts_spec, spinor_spex, spinPixPerFTSPix):
         """
         Determine if SPINOR spectra are flipped by correlation value against interpolated
         FTS atlas spectrum. Have to interpolate FTS to SPINOR, determine offset via correlation.

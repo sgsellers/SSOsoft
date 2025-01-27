@@ -1094,6 +1094,71 @@ def moment_analysis(wave, intens, refwvl, continuumCorrect=True):
     return I, v, w
 
 
+def mean_circular_polarization(stokesV, wavelength, referenceWavelength, continuumI):
+    """
+    Computes mean circular polarization as described by Martinez Pillet (2011).
+    Adapted for many spectral positions.
+    Parameters
+    ----------
+    stokesV : numpy.ndarray
+    wavelength : numpy.ndarray
+    referenceWavelength : float
+    continuumI : float
+
+    Returns
+    -------
+    mean_circular_polarization : float
+    """
+    sign_vector = np.array([1 if x > referenceWavelength else -1 for x in wavelength])
+
+    mean_circular_polarization = (1/(len(wavelength) * continuumI)) * np.nansum(
+        sign_vector * np.abs(stokesV)
+    )
+    return mean_circular_polarization
+
+
+def mean_linear_polarization(stokesQ, stokesU, continuumI):
+    """
+    Computes mean linear polarization as described by Martinez Pillet (2011).
+    Parameters
+    ----------
+    stokesQ : numpy.ndarray
+        Stokes-Q profile
+    stokesU : numpy.ndarray
+        Stokes-U profile
+    continuumI : float
+        Mean Stokes-I continuum intensity
+
+    Returns
+    -------
+    float
+        Mean linear polarization
+    """
+    return (1/(len(stokesQ) * continuumI)) * np.nansum(np.sqrt(stokesQ**2 + stokesU**2))
+
+
+def net_circular_polarization(stokesV, wavelength, abs=False):
+    """
+    Just integrates the V-profile. Solanki & Montavon (1993)
+    Parameters
+    ----------
+    stokesV: numpy.ndarray
+        Stokes-V
+    wavelength: numpy.ndarray
+        Wavelengths
+    abs: bool
+        True to integrate the absolute value of V
+    Returns
+    -------
+    float
+        Net circular polarizaed light.
+    """
+    if abs:
+        return scint.simpson(np.abs(stokesV), x=wavelength)
+    else:
+        return scint.simpson(stokesV, x=wavelength)
+
+
 def chi_square(fit, prior):
     return np.nansum((fit - prior) ** 2) / len(fit)
 
