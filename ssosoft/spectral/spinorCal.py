@@ -1870,7 +1870,7 @@ class SpinorCal:
         fieldVAx = []
         for j in range(fieldImages.shape[0]):
             fieldFigList.append(
-                plt.figure("Line " + str(j), figsize=(10, 10/fieldAspectRatio+2))
+                plt.figure("Line " + str(j), figsize=(5, 5/fieldAspectRatio+1))
             )
             fieldGS.append(
                 fieldFigList[j].add_gridspec(2, 2, hspace=0.1, wspace=0.1)
@@ -2317,7 +2317,7 @@ class SpinorCal:
         return outfile
 
 
-    def spinor_analysis(self, datacube, indices):
+    def spinor_analysis(self, datacube, boundIndices):
         """
         Performs moment analysis, determines mean circular/linear polarization, and net circular polarization
         maps for each of the given spectral windows. See Martinez Pillet et.al., 2011 discussion of mean polarization
@@ -2327,7 +2327,7 @@ class SpinorCal:
         ----------
         datacube : numpy.ndarray
             Reduced FIRS data
-        indices : list
+        indices : numpy.ndarray
             List of indices for spectral regions of interest. Each entry in the list is a tuple of (xmin, xmax).
 
         Returns
@@ -2340,19 +2340,19 @@ class SpinorCal:
         """
         # 7 maps per region of interest: Core intensity, integrated circ. pol., mean circ. pol., net circ. pol.,
         # mean lin. pol., velocity, velocity width
-        parameter_maps = np.zeros((len(indices), 6, datacube.shape[0], datacube.shape[2]))
+        parameter_maps = np.zeros((boundIndices.shape[0], 6, datacube.shape[0], datacube.shape[2]))
         meanProfile = np.nanmean(datacube[:, 0, :, :], axis=(0, 1))
         wavelengthArray = self.tweak_wavelength_calibration(meanProfile)
         # Tweak indices to be an even range around the line core
         tweakedIndices = []
         referenceWavelengths = []
-        for pair in indices:
+        for i in range(boundIndices.shape[0]):
             # Integer line core
-            lineCore = spex.find_line_core(meanProfile[pair[0]:pair[1]])
+            lineCore = spex.find_line_core(meanProfile[boundIndices[i][0]:boundIndices[i][1]])
             referenceWavelengths.append(lineCore)
             # New min
-            minRange = int(round(lineCore - (pair[1] - pair[0])/2), 0)
-            maxRange = int(round(lineCore + (pair[1] - pair[0])/2), 0) + 1
+            minRange = int(round(lineCore - (boundIndices[i][1] - boundIndices[i][0])/2), 0)
+            maxRange = int(round(lineCore + (boundIndices[i][1] - boundIndices[i][0])/2), 0) + 1
             tweakedIndices.append((minRange, maxRange))
         with tqdm.tqdm(
             total=parameter_maps.shape[0] * parameter_maps.shape[2] * parameter_maps.shape[3],
