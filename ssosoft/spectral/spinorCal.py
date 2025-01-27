@@ -2399,7 +2399,7 @@ class SpinorCal:
         referenceWavelengths = []
         for i in range(boundIndices.shape[0]):
             # Integer line core
-            lineCore = spex.find_line_core(meanProfile[int(boundIndices[i][0]):int(boundIndices[i][1]]))
+            lineCore = spex.find_line_core(meanProfile[int(boundIndices[i][0]):int(boundIndices[i][1])])
             referenceWavelengths.append(lineCore)
             # New min
             minRange = int(round(lineCore - (boundIndices[i][1] - boundIndices[i][0])/2), 0)
