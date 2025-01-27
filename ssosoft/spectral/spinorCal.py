@@ -845,12 +845,14 @@ class SpinorCal:
             axis=0
         )
 
-        self.spinorLineCores, self.ftsLineCores, flipWave = self.spinor_fts_line_select(grating_params, avg_profile)
+        self.spinorLineCores, self.ftsLineCores, self.flipWave = self.spinor_fts_line_select(
+            grating_params, avg_profile
+        )
 
         # Rather than building in logic every time we need to flip/not flip a spectrum,
         # We'll define a flip index, and slice by it every time. So if we flip, we'll be
         # indexing [::-1]. Otherwise, we'll index [::1], i.e., doing nothing to the array
-        if flipWave:
+        if self.flipWave:
             self.flipWaveIdx = -1
         else:
             self.flipWaveIdx = 1
@@ -1747,7 +1749,7 @@ class SpinorCal:
                     # Choose lines for analysis. Use same method of choice as hsgCal, where user sets
                     # approx. min/max, the code changes the bounds, and
                     if stepIndex == 0:
-                        mean_profile = np.nanmean(combined_beams[0], axis=0)[::self.flipWaveIdx]
+                        mean_profile = np.nanmean(combined_beams[0], axis=0)
                         approxWavelengthArray = self.tweak_wavelength_calibration(mean_profile)
                         print("Select spectral ranges (xmin, xmax) for overview maps. Close window when done.")
                         # Approximate indices of line cores
