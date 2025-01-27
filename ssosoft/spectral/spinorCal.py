@@ -2032,9 +2032,9 @@ class SpinorCal:
                     vmax=np.mean(fieldImages[j, 3, :, :step]) + 3 * np.std(fieldImages[j, 3, :, :step])
                 )
             )
-            fieldFigList[j].canvas.draw()
+            # fieldFigList[j].canvas.draw()
             fieldFigList[j].canvas.flush_events()
-            plt.pause(0.001)
+            # plt.pause(0.001)
 
 
     def package_scan(self, datacube, wavelength_array, hdul):
