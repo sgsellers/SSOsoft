@@ -1832,8 +1832,6 @@ class SpinorCal:
         """
         # Close all figures to reset plotting
         plt.close("all")
-        plt.cla()
-
 
         # Required for live plotting
         plt.ion()
@@ -1842,7 +1840,7 @@ class SpinorCal:
         slitAspectRatio = slitImages.shape[2] / slitImages.shape[1]
 
         # Set up the spectral data first, since it's only one window
-        slitFig = plt.figure("Reduced Slit Images", figsize=(5, 5/slitAspectRatio+2))
+        slitFig = plt.figure("Reduced Slit Images", figsize=(5, 5/slitAspectRatio))
         slitGS = slitFig.add_gridspec(2, 2, hspace=0.1, wspace=0.1)
         slitAxI = slitFig.add_subplot(slitGS[0, 0])
         slitI = slitAxI.imshow(slitImages[0], cmap='gray', origin='lower')
@@ -2034,7 +2032,6 @@ class SpinorCal:
             )
             fieldFigList[j].canvas.draw()
             fieldFigList[j].canvas.flush_events()
-            # plt.pause(0.001)
 
 
     def package_scan(self, datacube, wavelength_array, hdul):
