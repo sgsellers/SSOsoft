@@ -1854,7 +1854,6 @@ class SpinorCal:
         slitAxV = slitFig.add_subplot(slitGS[1, 1])
         slitV = slitAxV.imshow(slitImages[3], cmap='gray', origin='lower')
         slitAxV.text(10, 10, "V", color='C1')
-        slitFig.tight_layout()
 
         # Now the multiple windows for the multiple lines of interest
         fieldAspectRatio = (dx * fieldImages.shape[3]) / (dy * fieldImages.shape[2])
@@ -1931,7 +1930,6 @@ class SpinorCal:
             fieldVAx[j].set_xlabel("Extent [arcsec]")
             fieldVAx[j].set_title("Integrated Stokes-V")
 
-            fieldFigList[j].tight_layout()
             plt.show(block=False)
             plt.pause(0.05)
 
