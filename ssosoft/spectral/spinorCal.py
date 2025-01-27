@@ -675,6 +675,8 @@ class SpinorCal:
                 self.spinorLineCores = [hdu[0].header['LC1'], hdu[0].header['LC2']]
                 self.ftsLineCores = [hdu[0].header['FTSLC1'], hdu[0].header["FTSLC2"]]
                 self.flipWaveIdx = hdu[0].header["SPFLIP"]
+                if self.flipWaveIdx == -1:
+                    self.flipWave = True
         else:
             self.spinor_create_solar_gain()
             self.spinor_save_gaintables(index)
