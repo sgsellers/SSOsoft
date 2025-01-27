@@ -1748,7 +1748,7 @@ class SpinorCal:
                     )
                 if i == 1:
                     slit_plate_scale = self.dstPlateScale * self.dstCollimator / self.slitCameraLens
-                    camera_dy = slit_plate_scale * (self.cameraLens / self.spectrographCollimator) * (
+                    camera_dy = slit_plate_scale * (self.spectrographCollimator / self.cameraLens) * (
                                 self.pixel_size / 1000)
                     map_dx = science_hdu[1].header['HSG_STEP']
 
@@ -2083,7 +2083,7 @@ class SpinorCal:
             )
 
         slit_plate_scale = self.dstPlateScale * self.dstCollimator/self.slitCameraLens
-        camera_dy = slit_plate_scale * (self.cameraLens/self.spectrographCollimator) * (self.pixel_size / 1000)
+        camera_dy = slit_plate_scale * (self.spectrographCollimator/self.cameraLens) * (self.pixel_size / 1000)
 
         exptime = hdul[1].header['EXPTIME']
         xposure = int(hdul[1].header['SUMS'] * exptime)
