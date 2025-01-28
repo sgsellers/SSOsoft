@@ -1790,10 +1790,14 @@ class SpinorCal:
                             ))
                         for j in range(len(lineCores)):
                             fieldImages[j, 0, :, stepIndex] = combined_beams[0, :, int(round(lineCores[j], 0))]
-                            fieldImages[j, 1:, :, stepIndex] = scinteg.trapezoid(
-                                np.nan_to_num(combined_beams[1:, :, int(mapIndices[j, 0]):int(mapIndices[j, 1])]),
-                                axis=-1
-                            )
+                            for k in range(1, 4):
+                                fieldImages[j, k, :, stepIndex] = scinteg.trapezoid(
+                                    np.nan_to_num(
+                                        combined_beams[k, :, int(mapIndices[j, 0]):int(mapIndices[j, 1])]/
+                                        combined_beams[0, :, int(mapIndices[j, 0]):int(mapIndices[j, 1])]
+                                    ),
+                                    axis=-1
+                                )
                         if stepIndex == 0:
                             slit_plate_scale = self.dstPlateScale * self.dstCollimator / self.slitCameraLens
                             camera_dy = slit_plate_scale * (self.spectrographCollimator / self.cameraLens) * (
