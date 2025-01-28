@@ -347,11 +347,31 @@ class SpinorCal:
         self.nSubSlits = int(config[self.camera]["slitDivisions"]) if (
             "slitdivisions" in config[self.camera].keys()
         ) else self.nSubSlits
-        self.verbose = bool(config[self.camera]["verbose"]) if "verbose" in config[self.camera].keys() else False
-        self.v2qu = bool(config[self.camera]["v2qu"]) if "v2qu" in config[self.camera].keys() else True
-        self.u2v = bool(config[self.camera]["u2v"]) if "u2v" in config[self.camera].keys() else True
-        self.plot = bool(config[self.camera]["plot"]) if "plot" in config[self.camera].keys() else False
-        self.saveFigs = bool(config[self.camera]["savePlot"]) if "saveplot" in config[self.camera].keys() else False
+        self.verbose = config[self.camera]["verbose"] if "verbose" in config[self.camera].keys() else "False"
+        if "t" in self.verbose.lower():
+            self.verbose = True
+        else:
+            self.verbose = False
+        self.v2qu = config[self.camera]["v2qu"] if "v2qu" in config[self.camera].keys() else "True"
+        if "t" in self.v2qu.lower():
+            self.v2qu = True
+        else:
+            self.v2qu = False
+        self.u2v = config[self.camera]["u2v"] if "u2v" in config[self.camera].keys() else "True"
+        if "t" in self.u2v.lower():
+            self.u2v = True
+        else:
+            self.u2v = False
+        self.plot = config[self.camera]["plot"] if "plot" in config[self.camera].keys() else "False"
+        if "t" in self.plot.lower():
+            self.plot = True
+        else:
+            self.plot = False
+        self.saveFigs = config[self.camera]["savePlot"] if "saveplot" in config[self.camera].keys() else "False"
+        if "t" in self.saveFigs.lower():
+            self.saveFigs = True
+        else:
+            self.saveFigs = False
         self.nhair = int(config[self.camera]["totalHairlines"]) if (
             "totalhairlines" in config[self.camera].keys()
         ) else self.nhair
@@ -370,9 +390,13 @@ class SpinorCal:
         if "polcalclipthreshold" in config[self.camera].keys():
             if config[self.camera]['polcalClipThreshold'] != "":
                 self.ilimit = [float(frac) for frac in config[self.camera]["polcalClipThresold"].split(",")]
-        self.polcalProcessing = bool(config[self.camera]["polcalProcessing"]) if (
+        self.polcalProcessing = config[self.camera]["polcalProcessing"] if (
             "polcalProcessing" in config[self.camera].keys()
-        ) else self.polcalProcessing
+        ) else "True"
+        if "t" in self.polcalProcessing.lower():
+            self.polcalProcessing = True
+        else:
+            self.polcalProcessing = False
 
         # Case where someone wants the old crosstalk determination, and has defined it themselves
         if "crosstalkcontinuum" in config[self.camera].keys():
