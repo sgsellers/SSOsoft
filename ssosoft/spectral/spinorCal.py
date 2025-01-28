@@ -2000,7 +2000,7 @@ class SpinorCal:
             return (fieldFigList, fieldI, fieldQ, fieldU, fieldV, slitFig, slitI, slitQ, slitU, slitV,
                     None, None, None, None)
         else:
-            crosstalkFig = plt.figure("Internal Crosstalks Along Slit", figsize=(5, 5))
+            crosstalkFig = plt.figure("Internal Crosstalks Along Slit", figsize=(8, 5))
             v2qAx = crosstalkFig.add_subplot(131)
             v2uAx = crosstalkFig.add_subplot(132)
             u2vAx = crosstalkFig.add_subplot(133)
