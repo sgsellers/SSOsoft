@@ -1730,16 +1730,17 @@ class SpinorCal:
                                     combined_beams[k, j, :]
                                 )
                     # V->QU crosstalk correction
+                    internal_crosstalks = np.zeros((3, combined_beams.shape[1]))
                     if self.v2qu:
                         for j in range(combined_beams.shape[1]):
                             for k in range(1, 3):
-                                combined_beams[k, j, :] = self.v2qu_crosstalk(
+                                combined_beams[k, j, :], internal_crosstalks[k-1, j] = self.v2qu_crosstalk(
                                     combined_beams[3, j, :],
                                     combined_beams[k, j, :]
                                 )
                     if self.u2v:
                         for j in range(combined_beams.shape[1]):
-                            combined_beams[3, j, :] = self.v2qu_crosstalk(
+                            combined_beams[3, j, :], internal_crosstalks[2, j] = self.v2qu_crosstalk(
                                 combined_beams[2, j, :],
                                 combined_beams[3, j, :]
                             )
@@ -1804,8 +1805,13 @@ class SpinorCal:
                                         self.pixel_size / 1000)
                             map_dx = science_hdu[1].header['HSG_STEP']
 
-                            plot_params = self.set_up_live_plot(fieldImages, combined_beams, camera_dy, map_dx)
-                        self.update_live_plot(*plot_params, fieldImages, combined_beams, stepIndex)
+
+                            plot_params = self.set_up_live_plot(
+                                fieldImages, combined_beams, internal_crosstalks, camera_dy, map_dx
+                            )
+                        self.update_live_plot(
+                            *plot_params, fieldImages, combined_beams, internal_crosstalks, stepIndex
+                        )
                     stepIndex += 1
                     pbar.update(1)
                 science_hdu.close()
@@ -1841,7 +1847,7 @@ class SpinorCal:
         return
 
 
-    def set_up_live_plot(self, fieldImages, slitImages, dy, dx):
+    def set_up_live_plot(self, fieldImages, slitImages, internalCrosstalks, dy, dx):
         """
         Initializes live plotting statements for monitoring progress of reductions
 
@@ -1856,6 +1862,8 @@ class SpinorCal:
         slitImages : numpy.ndarray
             Array of IQUV slit images. Shape 4, ny, nlambda where:
                 5.) nlambda is the wavelength axis
+        internalCrosstalks : numpy.ndarray
+            3 x ny array of V<->QU crosstalk values for monitoring
         dy : float
             Approximate resolution scale in y for sizing the map extent
         dx : float
@@ -1984,17 +1992,62 @@ class SpinorCal:
             fieldVAx[j].set_xlabel("Extent [arcsec]")
             fieldVAx[j].set_title("Integrated Stokes-V")
 
+        if not self.v2qu and not self.v2qu:
+
             plt.show(block=False)
             plt.pause(0.05)
 
-        return fieldFigList, fieldI, fieldQ, fieldU, fieldV, slitFig, slitI, slitQ, slitU, slitV
+            return (fieldFigList, fieldI, fieldQ, fieldU, fieldV, slitFig, slitI, slitQ, slitU, slitV,
+                    None, None, None, None)
+        else:
+            crosstalkFig = plt.figure("Internal Crosstalks Along Slit", figsize=(5, 5))
+            v2qAx = crosstalkFig.add_subplot(131)
+            v2uAx = crosstalkFig.add_subplot(132)
+            u2vAx = crosstalkFig.add_subplot(133)
+            v2q = v2qAx.plot(
+                internalCrosstalks[0, :], np.arange(internalCrosstalks.shape[1]),
+                color='C1'
+            )
+            v2qAx.set_xlim(-1.05, 1.05)
+            v2qAx.set_ylim(0, internalCrosstalks.shape[1])
+            v2qAx.set_title("V->U Crosstalk")
+            v2qAx.set_ylabel("Position Along Slit")
+
+            v2u = v2uAx.plot(
+                internalCrosstalks[1, :], np.arange(internalCrosstalks.shape[1]),
+                color='C1'
+            )
+            v2uAx.set_xlim(-1.05, 1.05)
+            v2uAx.set_ylim(0, internalCrosstalks.shape[1])
+            v2uAx.set_title("V->U Crosstalk")
+            v2uAx.set_xlabel("Crosstalk Value")
+
+            u2v = u2vAx.plot(
+                internalCrosstalks[2, :], np.arange(internalCrosstalks.shape[1]),
+                color="C1"
+            )
+            u2vAx.set_xlim(-1.05, 1.05)
+            u2vAx.set_ylim(0, internalCrosstalks.shape[1])
+            u2vAx.set_title("U->V Crosstalk [residual]")
+
+            plt.show(block=False)
+            plt.pause(0.05)
+
+            return (
+                fieldFigList, fieldI, fieldQ, fieldU, fieldV,
+                slitFig, slitI, slitQ, slitU, slitV,
+                crosstalkFig, v2q, v2u, u2v)
+
+
 
 
     def update_live_plot(
             self,
             fieldFigList, fieldI, fieldQ, fieldU, fieldV,
             slitFig, slitI, slitQ, slitU, slitV,
-            fieldImages, slitImages, step
+            crosstalkFig, v2q, v2u, u2v,
+            fieldImages, slitImages, internalCrosstalks,
+            step
     ):
         """
         Updates the plots created in self.set_up_live_plot.
@@ -2011,8 +2064,13 @@ class SpinorCal:
         slitQ : matplotlib.image.AxesImage
         slitU : matplotlib.image.AxesImage
         slitV : matplotlib.image.AxesImage
+        crosstalkFig : matplotlib.pyplot.figure
+        v2q : matplotlib.image.AxesImage
+        v2u : matplotlib.image.AxesImage
+        u2v : matplotlib.image.AxesImage
         fieldImages : numpy.ndarray
         slitImages : numpy.ndarray
+        internalCrosstalks : numpy.ndarray
         step : int
             Step of the reduction process we're on for normalization purposes.
 
@@ -2084,6 +2142,14 @@ class SpinorCal:
             )
             fieldFigList[j].canvas.draw()
             fieldFigList[j].canvas.flush_events()
+
+        if crosstalkFig is not None:
+            v2q.set_data(internalCrosstalks[0], np.arange(internalCrosstalks.shape[1]))
+            v2u.set_data(internalCrosstalks[1], np.arange(internalCrosstalks.shape[1]))
+            u2v.set_data(internalCrosstalks[2], np.arange(internalCrosstalks.shape[1]))
+            crosstalkFig.canvas.draw()
+            crosstalkFig.canvas.flush_events()
+        return
 
 
     def package_scan(self, datacube, wavelength_array):
@@ -2657,7 +2723,7 @@ class SpinorCal:
 
         correctedQU = stokesQU - v2qu_crosstalk * stokesV
 
-        return correctedQU
+        return correctedQU, v2qu_crosstalk
 
 
     def tweak_wavelength_calibration(self, referenceProfile):
