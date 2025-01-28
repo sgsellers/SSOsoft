@@ -2144,9 +2144,9 @@ class SpinorCal:
             fieldFigList[j].canvas.flush_events()
 
         if crosstalkFig is not None:
-            v2q.set_data(internalCrosstalks[0], np.arange(internalCrosstalks.shape[1]))
-            v2u.set_data(internalCrosstalks[1], np.arange(internalCrosstalks.shape[1]))
-            u2v.set_data(internalCrosstalks[2], np.arange(internalCrosstalks.shape[1]))
+            v2q[0].set_data(internalCrosstalks[0], np.arange(internalCrosstalks.shape[1]))
+            v2u[0].set_data(internalCrosstalks[1], np.arange(internalCrosstalks.shape[1]))
+            u2v[0].set_data(internalCrosstalks[2], np.arange(internalCrosstalks.shape[1]))
             crosstalkFig.canvas.draw()
             crosstalkFig.canvas.flush_events()
         return
