@@ -2406,8 +2406,8 @@ class SpinorCal:
             lineCore = spex.find_line_core(meanProfile[int(boundIndices[i][0]):int(boundIndices[i][1])])
             referenceWavelengths.append(lineCore)
             # New min
-            minRange = int(round(lineCore - np.abs(np.diff(boundIndices[i]))/2, 0))
-            maxRange = int(round(lineCore + np.abs(np.diff(boundIndices[i]))/2, 0)) + 1
+            minRange = int(round(lineCore - np.abs(np.diff(boundIndices[i]))[0]/2, 0))
+            maxRange = int(round(lineCore + np.abs(np.diff(boundIndices[i]))[0]/2, 0)) + 1
             tweakedIndices.append((minRange, maxRange))
         with tqdm.tqdm(
             total=parameter_maps.shape[0] * parameter_maps.shape[2] * parameter_maps.shape[3],
