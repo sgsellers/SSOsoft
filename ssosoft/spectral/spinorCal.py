@@ -1746,7 +1746,7 @@ class SpinorCal:
                     # Reverse the wavelength axis if required.
                     combined_beams = combined_beams[:, :, ::self.flipWaveIdx]
 
-                    reducedData[i - 1] = combined_beams
+                    reducedData[stepIndex] = combined_beams
 
                     # Choose lines for analysis. Use same method of choice as hsgCal, where user sets
                     # approx. min/max, the code changes the bounds, and
@@ -1791,7 +1791,7 @@ class SpinorCal:
                             fieldImages[j, 0, :, stepIndex] = combined_beams[0, :, int(round(lineCores[j], 0))]
                             fieldImages[j, 1:, :, stepIndex] = np.sum(
                                 np.abs(
-                                    combined_beams[1:, :, int(mapIndices[j, 0]):int(mapIndices[j, 1])]
+                                    np.nan_to_num(combined_beams[1:, :, int(mapIndices[j, 0]):int(mapIndices[j, 1])])
                                 ), axis=2
                             )
                         if stepIndex == 0:
@@ -2406,8 +2406,8 @@ class SpinorCal:
             lineCore = spex.find_line_core(meanProfile[int(boundIndices[i][0]):int(boundIndices[i][1])])
             referenceWavelengths.append(lineCore)
             # New min
-            minRange = int(round(lineCore - (boundIndices[i][1] - boundIndices[i][0])/2), 0)
-            maxRange = int(round(lineCore + (boundIndices[i][1] - boundIndices[i][0])/2), 0) + 1
+            minRange = int(round(lineCore - (boundIndices[i][1] - boundIndices[i][0])/2, 0))
+            maxRange = int(round(lineCore + (boundIndices[i][1] - boundIndices[i][0])/2, 0)) + 1
             tweakedIndices.append((minRange, maxRange))
         with tqdm.tqdm(
             total=parameter_maps.shape[0] * parameter_maps.shape[2] * parameter_maps.shape[3],
