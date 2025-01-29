@@ -1810,7 +1810,6 @@ class SpinorCal:
                             averageDelta = np.mean(np.abs(coarseIndices[j, :] - lineCores[j]))
                             mapIndices[j, 0] = int(round(lineCores[j] - averageDelta, 0))
                             mapIndices[j, 1] = int(round(lineCores[j] + averageDelta, 0) + 1)
-                        print(mapIndices)
 
                     if self.plot:
                         plt.ion()
@@ -2516,7 +2515,9 @@ class SpinorCal:
         referenceWavelengths = []
         for i in range(boundIndices.shape[0]):
             # Integer line core
-            lineCore = spex.find_line_core(meanProfile[int(boundIndices[i][0]):int(boundIndices[i][1])])
+            lineCore = spex.find_line_core(
+                meanProfile[int(boundIndices[i][0]):int(boundIndices[i][1])]
+            ) + int(boundIndices[i][0])
             referenceWavelengths.append(lineCore)
             # New min
             minRange = int(round(lineCore - np.abs(np.diff(boundIndices[i]))[0]/2, 0))
