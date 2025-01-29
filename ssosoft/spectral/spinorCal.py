@@ -180,7 +180,8 @@ class SpinorCal:
         self.blaze_angle = 52
         self.nSubSlits = 10
         self.verbose = False
-        self.v2qu = True
+        self.v2q = True
+        self.v2u = True
         self.u2v = True
         self.plot = False
         self.saveFigs = False
@@ -352,11 +353,16 @@ class SpinorCal:
             self.verbose = True
         else:
             self.verbose = False
-        self.v2qu = config[self.camera]["v2qu"] if "v2qu" in config[self.camera].keys() else "True"
-        if "t" in self.v2qu.lower():
-            self.v2qu = True
+        self.v2q = config[self.camera]["v2q"] if "v2q" in config[self.camera].keys() else "True"
+        if "t" in self.v2q.lower():
+            self.v2q = True
         else:
-            self.v2qu = False
+            self.v2q = False
+        self.v2u = config[self.camera]["v2u"] if "v2u" in config[self.camera].keys() else "True"
+        if "t" in self.v2u.lower():
+            self.v2u = True
+        else:
+            self.v2u = False
         self.u2v = config[self.camera]["u2v"] if "u2v" in config[self.camera].keys() else "True"
         if "t" in self.u2v.lower():
             self.u2v = True
@@ -1755,13 +1761,18 @@ class SpinorCal:
                                 )
                     # V->QU crosstalk correction
                     internal_crosstalks = np.zeros((3, combined_beams.shape[1]))
-                    if self.v2qu:
+                    if self.v2q:
                         for j in range(combined_beams.shape[1]):
-                            for k in range(1, 3):
-                                combined_beams[k, j, :], internal_crosstalks[k-1, j] = self.v2qu_crosstalk(
-                                    combined_beams[3, j, :],
-                                    combined_beams[k, j, :]
-                                )
+                            combined_beams[1, j, :], internal_crosstalks[0, j] = self.v2qu_crosstalk(
+                                combined_beams[3, j, :],
+                                combined_beams[1, j, :]
+                            )
+                    if self.v2u:
+                        for j in range(combined_beams.shape[1]):
+                            combined_beams[2, j, :], internal_crosstalks[1, j] = self.v2qu_crosstalk(
+                                combined_beams[3, j, :],
+                                combined_beams[2, j, :]
+                            )
                     if self.u2v:
                         for j in range(combined_beams.shape[1]):
                             combined_beams[3, j, :], internal_crosstalks[2, j] = self.v2qu_crosstalk(
@@ -2016,7 +2027,7 @@ class SpinorCal:
             fieldVAx[j].set_xlabel("Extent [arcsec]")
             fieldVAx[j].set_title("Integrated Stokes-V")
 
-        if not self.v2qu and not self.v2qu:
+        if not self.v2q and not self.v2q and not self.v2u:
 
             plt.show(block=False)
             plt.pause(0.05)
@@ -2213,9 +2224,16 @@ class SpinorCal:
             'spinorCal/SSOSoft'
         ]
 
-        if self.v2qu:
+        if self.v2q:
             prsteps.append(
-                'V->QU CROSSTALK'
+                'V->Q CROSSTALK'
+            )
+            prstep_comments.append(
+                'spinorCal/SSOSoft'
+            )
+        if self.v2u:
+            prsteps.append(
+                'V->U CROSSTALK'
             )
             prstep_comments.append(
                 'spinorCal/SSOSoft'
