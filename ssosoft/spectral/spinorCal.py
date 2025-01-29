@@ -2518,7 +2518,9 @@ class SpinorCal:
             lineCore = spex.find_line_core(
                 meanProfile[int(boundIndices[i][0]):int(boundIndices[i][1])]
             ) + int(boundIndices[i][0])
-            referenceWavelengths.append(lineCore)
+            referenceWavelengths.append(
+                float(scinterp.interp1d(np.arange(len(wavelengthArray)), wavelengthArray)(lineCore))
+            )
             # New min
             minRange = int(round(lineCore - np.abs(np.diff(boundIndices[i]))[0]/2, 0))
             maxRange = int(round(lineCore + np.abs(np.diff(boundIndices[i]))[0]/2, 0)) + 1
