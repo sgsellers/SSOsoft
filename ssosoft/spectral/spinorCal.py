@@ -1859,6 +1859,8 @@ class SpinorCal:
 
         mean_profile = np.nanmean(reducedData[:, 0, :, :], axis=(0, 1))
         approxWavelengthArray = self.tweak_wavelength_calibration(mean_profile)
+        # Swap axes to make X/Y contigent with data X/Y
+        reducedData = np.swapaxes(reducedData, 0, 2)
 
         reduced_filename = self.package_scan(reducedData, approxWavelengthArray)
         parameter_maps, referenceWavelengths, tweakedIndices, meanProfile, wavelengthArray = self.spinor_analysis(
@@ -2198,7 +2200,7 @@ class SpinorCal:
         Parameters
         ----------
         datacube : numpy.ndarray
-            4D reduced stokes data in shape nx, 4, ny, nlambda
+            4D reduced stokes data in shape ny, 4, nx, nlambda
         wavelength_array : numpy.ndarray
             1D array containing the wavelengths corrsponding to nlambda in datacube
 
@@ -2293,7 +2295,7 @@ class SpinorCal:
         outname = self.reducedFilePattern.format(
             date,
             time,
-            datacube.shape[0]
+            datacube.shape[2]
         )
         outfile = os.path.join(self.finalDir, outname)
 
@@ -2373,7 +2375,7 @@ class SpinorCal:
         ext0.header['XCEN'] = (round(centerX, 2), "[arcsec], Solar-X of Map Center")
         ext0.header['YCEN'] = (round(centerY, 2), "[arcsec], Solar-Y of Map Center")
         ext0.header['FOVX'] = (round(actmapsize, 3), "[arcsec], Field-of-view of raster-x")
-        ext0.header['FOVY'] = (round(datacube.shape[2] * camera_dy, 3), "[arcsec], Field-of-view of raster-y")
+        ext0.header['FOVY'] = (round(datacube.shape[0] * camera_dy, 3), "[arcsec], Field-of-view of raster-y")
         ext0.header['ROT'] = (round(rotan, 3), "[degrees] Rotation from Solar-North")
 
         for i in range(len(prsteps)):
@@ -2609,6 +2611,8 @@ class SpinorCal:
             "2011"
         ]
         # Write a FITS file per line selected. Different than FIRS/HSG.
+        # Case where there're no selected lines
+        outfile = ""
         for i in range(len(rwvls)):
             # Gonna crib the headers from the reduced science data file
             with fits.open(reference_file) as hdul:
