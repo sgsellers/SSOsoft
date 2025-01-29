@@ -1810,6 +1810,7 @@ class SpinorCal:
                             averageDelta = np.mean(np.abs(coarseIndices[j, :] - lineCores[j]))
                             mapIndices[j, 0] = int(round(lineCores[j] - averageDelta, 0))
                             mapIndices[j, 1] = int(round(lineCores[j] + averageDelta, 0) + 1)
+                        print(mapIndices)
 
                     if self.plot:
                         plt.ion()
