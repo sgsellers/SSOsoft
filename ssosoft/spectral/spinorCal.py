@@ -1559,10 +1559,12 @@ class SpinorCal:
             outfile = os.path.join(self.finalDir, outname)
             if os.path.exists(outfile):
                 remakeFile = input("File: {0}\nExists. (R)emake or (C)ontinue?  ".format(outname))
-                if ("c" in remakeFile.lower()) or ("" in remakeFile.lower()):
+                if ("c" in remakeFile.lower()) or (remakeFile.lower() == ""):
                     plt.pause(2)
                     plt.close("all")
                     return
+                elif ("r" in remakeFile.lower()) and self.verbose:
+                    print("Remaking file with user-specified corrections. This may take some time.")
 
         # fuq yea science beam
         science_beams = np.zeros((
@@ -3041,6 +3043,7 @@ class SpinorCal:
             kind='linear',
             fill_value='extrapolate'
         )(np.arange(0, len(spinor_spex), spinPixPerFTSPix))
+        # len(fts_spec) and 1/spinPix....
 
         fts_interp_reversed = fts_interp[::-1]
 
