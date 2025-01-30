@@ -1553,7 +1553,7 @@ class SpinorCal:
             )
             outfile = os.path.join(self.finalDir, outname)
             if os.path.exists(outfile):
-                remakeFile = input("File: {0}\nExists. (R)emake or (C)ontinue?".format(outfile))
+                remakeFile = input("File: {0}\nExists. (R)emake or (C)ontinue?".format(outname))
                 if ("c" in remakeFile.lower()) or ("" in remakeFile.lower()):
                     plt.close("all")
                     return
