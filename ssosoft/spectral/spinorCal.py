@@ -886,6 +886,10 @@ class SpinorCal:
         self.spinorLineCores, self.ftsLineCores, self.flipWave = self.spinor_fts_line_select(
             grating_params, avg_profile
         )
+        if self.verbose & self.flipWave:
+            print("Spectrum flipped along the wavelength axis... Correcting.")
+        if self.verbose and not self.flipWave:
+            print("Spectrum is not flipped, no correction necessary.")
 
         # Rather than building in logic every time we need to flip/not flip a spectrum,
         # We'll define a flip index, and slice by it every time. So if we flip, we'll be
@@ -3036,7 +3040,7 @@ class SpinorCal:
             fts_spec,
             kind='linear',
             fill_value='extrapolate'
-        )(np.arange(0, len(spinor_spex), 1/spinPixPerFTSPix))
+        )(np.arange(0, len(spinor_spex), spinPixPerFTSPix))
 
         fts_interp_reversed = fts_interp[::-1]
 
