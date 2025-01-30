@@ -266,6 +266,8 @@ class SpinorCal:
                     else:
                         print("Plots will NOT be saved.")
                 print("===========================\n\n")
+            self.__init__()
+            self.spinor_configure_run()
             self.spinor_get_cal_images(index)
             self.scienceFiles = self.scienceMapFileList[index]
             self.reduce_spinor_maps()
@@ -2643,7 +2645,7 @@ class SpinorCal:
             fitsHDUs = [ext0]
             for j in range(analysis_maps.shape[1]):
                 ext = fits.ImageHDU(analysis_maps[i, j, :, :])
-                ext.header = hdr1
+                ext.header = hdr1.copy()
                 ext.header['EXTNAME'] = extnames[j]
                 ext.header["METHOD"] = (methods[j], method_comments[j])
                 fitsHDUs.append(ext)
