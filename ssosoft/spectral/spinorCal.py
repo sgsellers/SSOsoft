@@ -266,7 +266,7 @@ class SpinorCal:
                     else:
                         print("Plots will NOT be saved.")
                 print("===========================\n\n")
-            self.__init__()
+            self.__init__(self.camera, self.configFile)
             self.spinor_configure_run()
             self.spinor_get_cal_images(index)
             self.scienceFiles = self.scienceMapFileList[index]
