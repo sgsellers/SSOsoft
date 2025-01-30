@@ -3033,7 +3033,7 @@ class SpinorCal:
             fts_spec,
             kind='linear',
             fill_value='extrapolate'
-        )(np.arange(0, len(fts_spec), 1/spinPixPerFTSPix))
+        )(np.arange(0, len(spinor_spec), 1/spinPixPerFTSPix))
 
         fts_interp_reversed = fts_interp[::-1]
 
