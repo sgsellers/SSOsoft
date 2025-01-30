@@ -2165,14 +2165,14 @@ class SpinorCal:
                     vmax=np.mean(fieldImages[j, 1, :, :step]) + 3 * np.std(fieldImages[j, 1, :, :step])
                 )
             )
-            fieldU[j].set_array(fieldImages[j, 1])
+            fieldU[j].set_array(fieldImages[j, 2])
             fieldU[j].set_norm(
                 matplotlib.colors.Normalize(
                     vmin=np.mean(fieldImages[j, 2, :, :step]) - 3 * np.std(fieldImages[j, 2, :, :step]),
                     vmax=np.mean(fieldImages[j, 2, :, :step]) + 3 * np.std(fieldImages[j, 2, :, :step])
                 )
             )
-            fieldV[j].set_array(fieldImages[j, 1])
+            fieldV[j].set_array(fieldImages[j, 3])
             fieldV[j].set_norm(
                 matplotlib.colors.Normalize(
                     vmin=np.mean(fieldImages[j, 3, :, :step]) - 3 * np.std(fieldImages[j, 3, :, :step]),
