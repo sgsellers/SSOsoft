@@ -270,6 +270,7 @@ class SpinorCal:
             self.spinor_configure_run()
             self.spinor_get_cal_images(index)
             if self.plot:
+                plt.pause(2)
                 plt.close("all")
             self.scienceFiles = self.scienceMapFileList[index]
             self.reduce_spinor_maps()
@@ -1555,6 +1556,7 @@ class SpinorCal:
             if os.path.exists(outfile):
                 remakeFile = input("File: {0}\nExists. (R)emake or (C)ontinue?  ".format(outname))
                 if ("c" in remakeFile.lower()) or ("" in remakeFile.lower()):
+                    plt.pause(2)
                     plt.close("all")
                     return
 
@@ -1902,6 +1904,7 @@ class SpinorCal:
             print("=====================\n\n")
 
         if self.plot:
+            plt.pause(2)
             plt.close("all")
 
         return
@@ -3033,7 +3036,7 @@ class SpinorCal:
             fts_spec,
             kind='linear',
             fill_value='extrapolate'
-        )(np.arange(0, len(spinor_spec), 1/spinPixPerFTSPix))
+        )(np.arange(0, len(spinor_spex), 1/spinPixPerFTSPix))
 
         fts_interp_reversed = fts_interp[::-1]
 
