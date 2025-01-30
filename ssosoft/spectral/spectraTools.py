@@ -1221,6 +1221,10 @@ def grating_calculations(
         incident angle of light/tilt angle of grating [degrees]
     pix_size : float
         size of detector pixels [um]
+    wavelength : float
+        Wavelength of interest in Angstrom
+    order : int
+        Spectral order of interest
     collimator : float
         focal length of spectrograph collimator [mm]. For SPINOR/HSG, this is usually 3040 mm
     camera : float

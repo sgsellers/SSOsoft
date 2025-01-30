@@ -269,6 +269,8 @@ class SpinorCal:
             self.__init__(self.camera, self.configFile)
             self.spinor_configure_run()
             self.spinor_get_cal_images(index)
+            if self.plot:
+                plt.close("all")
             self.scienceFiles = self.scienceMapFileList[index]
             self.reduce_spinor_maps()
         return
@@ -1539,6 +1541,22 @@ class SpinorCal:
                 total_slit_positions += len(hdul) - 1
         if self.verbose:
             print("{0} Slit Positions Observed in Sequence".format(total_slit_positions))
+        # Check for existence of output file:
+        with fits.open(self.scienceFiles[0]) as hdul:
+            date, time = hdul[1].header['DATE-OBS'].split("T")
+            date = date.replace("-", "")
+            time = str(round(float(time.replace(":", "")), 0)).split(".")[0]
+            outname = self.reducedFilePattern.format(
+                date,
+                time,
+                total_slit_positions
+            )
+            outfile = os.path.join(self.finalDir, outname)
+            if os.path.exists(outfile):
+                remakeFile = input("File: {0}\nExists. (R)emake or (C)ontinue?")
+                if ("c" in remakeFile.lower()) or ("" in remakeFile.lower()):
+                    plt.close("all")
+                    return
 
         # fuq yea science beam
         science_beams = np.zeros((
@@ -1882,6 +1900,9 @@ class SpinorCal:
             print("Saved Reduced Data at: {0}".format(reduced_filename))
             print("Saved Parameter Maps at: {0}".format(param_filename))
             print("=====================\n\n")
+
+        if self.plot:
+            plt.close("all")
 
         return
 
