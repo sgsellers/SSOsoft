@@ -3046,7 +3046,7 @@ class SpinorCal:
         spinor_spex = spinor_spex[sorted(spinorCores)[0]:sorted(spinorCores)[1]]
 
         fts_interp = scinterp.interp1d(
-            np.arange(len(fts_spec)),
+            np.arange(len(fts_spec[int(sorted(ftsCores)[0]):int(sorted(ftsCores)[1])])),
             fts_spec[int(sorted(ftsCores)[0]):int(sorted(ftsCores)[1])],
             kind='linear',
             fill_value='extrapolate'
