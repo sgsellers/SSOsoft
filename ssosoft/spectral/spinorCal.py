@@ -1077,7 +1077,10 @@ class SpinorCal:
 
         spinorPixPerFTSPix = np.abs(np.diff(spinorLineCores)) / np.abs(np.diff(ftsLineCores))
 
-        flipWave = self.determine_spectrum_flip(fts_spec, averageProfile, spinorPixPerFTSPix)
+        flipWave = self.determine_spectrum_flip(
+            fts_spec, averageProfile, spinorPixPerFTSPix,
+            spinorCores, ftsLineCores
+        )
 
         return spinorLineCores, ftsLineCores, flipWave
 
@@ -3018,7 +3021,7 @@ class SpinorCal:
 
 
     @staticmethod
-    def determine_spectrum_flip(fts_spec, spinor_spex, spinPixPerFTSPix):
+    def determine_spectrum_flip(fts_spec, spinor_spex, spinPixPerFTSPix, spinorCores, ftsCores):
         """
         Determine if SPINOR spectra are flipped by correlation value against interpolated
         FTS atlas spectrum. Have to interpolate FTS to SPINOR, determine offset via correlation.
@@ -3027,6 +3030,8 @@ class SpinorCal:
         fts_spec
         spinor_spex
         spinPixPerFTSPix
+        spinorCores
+        ftsCores
 
         Returns
         -------
@@ -3035,15 +3040,17 @@ class SpinorCal:
 
         """
 
+        # As of 2025-01-31, this hasn't been particularly reliable.
+        # Altering to clip spectra to the range between the selected lines.
         spinor_spex /= spinor_spex.max()
+        spinor_spex = spinor_spex[sorted(spinorCores)[0]:sorted(spinorCores)[1]]
 
         fts_interp = scinterp.interp1d(
             np.arange(len(fts_spec)),
-            fts_spec,
+            fts_spec[int(sorted(ftsCores)[0]):int(sorted(ftsCores)[1])],
             kind='linear',
             fill_value='extrapolate'
         )(np.arange(0, len(spinor_spex), spinPixPerFTSPix))
-        # len(fts_spec) and 1/spinPix....
 
         fts_interp_reversed = fts_interp[::-1]
 
