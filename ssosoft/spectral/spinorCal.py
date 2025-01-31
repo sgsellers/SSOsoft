@@ -1823,7 +1823,9 @@ class SpinorCal:
                         approxWavelengthArray = self.tweak_wavelength_calibration(mean_profile)
                         print("Select spectral ranges (xmin, xmax) for overview maps. Close window when done.")
                         # Approximate indices of line cores
-                        coarseIndices = spex.select_spans_singlepanel(mean_profile, xarr=approxWavelengthArray)
+                        coarseIndices = spex.select_spans_singlepanel(
+                            mean_profile, xarr=approxWavelengthArray, figName="Select Lines for Analysis"
+                        )
                         # Location of minimum in the range
                         minIndices = [
                             spex.find_nearest(

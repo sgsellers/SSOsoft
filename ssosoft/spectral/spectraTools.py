@@ -469,7 +469,7 @@ def select_lines_singlepanel_unbound_xarr(array, xarr=None):
     return xvals
 
 
-def select_spans_singlepanel(array, xarr=None):
+def select_spans_singlepanel(array, xarr=None, figName="Popup Figure!"):
     """
     Matplotlib-based function to select x range from the plot of a 1D array.
 
@@ -477,10 +477,11 @@ def select_spans_singlepanel(array, xarr=None):
         Array to plot and select from
     :param xarr: array-like
         Optional x array to plot against.
+    :param figName:
     :return xvals: numpy.ndarray
         Array of selected x-spans with shape (2, nselections)
     """
-    fig = plt.figure()
+    fig = plt.figure(figName)
     ax = fig.add_subplot(111)
     ax.set_title("Click to select min and max of spectral regions. Close window when done.")
     if xarr is None:
@@ -503,7 +504,7 @@ def select_spans_singlepanel(array, xarr=None):
         print("Selected: " + str(xcd))
 
     conn = fig.canvas.mpl_connect('button_press_event', onselect)
-    plt.show()
+    plt.show(block=True)
     xvals = np.sort(np.array(xvals).reshape(int(len(xvals) / 2), 2))
     return xvals
 
