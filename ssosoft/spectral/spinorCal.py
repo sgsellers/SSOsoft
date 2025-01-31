@@ -3054,30 +3054,6 @@ class SpinorCal:
 
         fts_interp_reversed = fts_interp[::-1]
 
-        # fts_shift = np.convolve(
-        #     spinor_spex[::-1] - (fts_interp.max() + fts_interp.min())/2,
-        #     fts_interp - (fts_interp.max() + fts_interp.min())/2,
-        #     mode='full'
-        # ).argmax() - len(spinor_spex)
-        #
-        # fts_reverse_shift = np.convolve(
-        #     spinor_spex[::-1] - (fts_interp_reversed.max() + fts_interp_reversed.min())/2,
-        #     fts_interp_reversed - (fts_interp_reversed.max() + fts_interp_reversed.min())/2,
-        #     mode='full'
-        # ).argmax() - len(spinor_spex)
-        #
-        # shifted = scind.shift(
-        #     fts_interp,
-        #     -fts_shift
-        # )[:len(spinor_spex)]
-        # shifted[shifted == 0] = 1
-        #
-        # shifted_reversed = scind.shift(
-        #     fts_interp_reversed,
-        #     -fts_reverse_shift
-        # )[:len(spinor_spex)]
-        # shifted_reversed[shifted_reversed == 0] = 1
-
         lin_corr = np.nansum(
             fts_interp*spinor_spex
         ) / np.sqrt(np.nansum(fts_interp**2) * np.nansum(spinor_spex**2))
