@@ -1079,7 +1079,7 @@ class SpinorCal:
 
         flipWave = self.determine_spectrum_flip(
             fts_spec, averageProfile, spinorPixPerFTSPix,
-            spinorCores, ftsLineCores
+            spinorLineCores, ftsLineCores
         )
 
         return spinorLineCores, ftsLineCores, flipWave
