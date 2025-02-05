@@ -183,6 +183,8 @@ class SpinorCal:
         self.v2q = True
         self.v2u = True
         self.u2v = True
+        self.despike = False
+        self.despikeFootprint = (1, 5, 1)
         self.plot = False
         self.saveFigs = False
         self.crosstalkContinuum = None
@@ -383,6 +385,12 @@ class SpinorCal:
             self.saveFigs = True
         else:
             self.saveFigs = False
+        self.despike = config[self.camera]['despike'] if "despike" in config[self.camera].keys() else "False"
+        if "t" in self.despike.lower():
+            self.despike = True
+        else:
+            self.despike = False
+
         self.nhair = int(config[self.camera]["totalHairlines"]) if (
             "totalhairlines" in config[self.camera].keys()
         ) else self.nhair
@@ -573,8 +581,8 @@ class SpinorCal:
 
         return
 
-    @staticmethod
-    def spinor_average_dark_from_hdul(hdulist):
+
+    def spinor_average_dark_from_hdul(self, hdulist):
         """Computes an average dark image from a SPINOR fits file HDUList.
         Since SPINOR takes 4 dark frames at the start and end of a flat, lampflat,
         and polcal, but no separate dark files, the only way to get dark current is
@@ -598,13 +606,17 @@ class SpinorCal:
         for hdu in hdulist:
             if "PT4_FS" in hdu.header.keys():
                 if "DARK" in hdu.header['PT4_FS']:
-                    averageDark += np.nanmean(hdu.data, axis=0)
+                    if self.despike:
+                        data = self.despike_image(hdu.data, footprint=self.despikeFootprint)
+                        averageDark += np.nanmean(data, axis=0)
+                    else:
+                        averageDark += np.nanmean(hdu.data, axis=0)
                     darkctr += 1
         averageDark /= darkctr
         return averageDark
 
-    @staticmethod
-    def spinor_average_flat_from_hdul(hdulist):
+
+    def spinor_average_flat_from_hdul(self, hdulist):
         """Computes an average flat image from a SPINOR fits file HDUList.
         Since SPINOR takes 4 dark frames at the start and end of a flat or lampflat,
         we need to process the whole file for flats and darks.
@@ -627,7 +639,11 @@ class SpinorCal:
         for hdu in hdulist:
             if "PT4_FS" in hdu.header.keys():
                 if "DARK" not in hdu.header['PT4_FS']:
-                    averageFlat += np.nanmean(hdu.data, axis=0)
+                    if self.despike:
+                        data = self.despike_image(hdu.data, footprint=self.despikeFootprint)
+                        averageFlat += np.nanmean(data, axis=0)
+                    else:
+                        averageFlat += np.nanmean(hdu.data, axis=0)
                     flatctr += 1
         averageFlat /= flatctr
         return averageFlat
@@ -648,6 +664,8 @@ class SpinorCal:
         """
 
         stokes = np.zeros((4, *poldata.shape[1:]))
+        if self.despike:
+            poldata = self.despike_image(poldata, footprint=self.despikeFootprint)
         for i in range(stokes.shape[0]):
             for j in range(poldata.shape[0]):
                 stokes[i] += self.polDemod[i, j] * poldata[j, :, :]
@@ -3068,3 +3086,33 @@ class SpinorCal:
             return True
         else:
             return False
+
+
+    @staticmethod
+    def despike_image(image, footprint=(5, 1), spikeRange=(0.75, 1.25)):
+        """Removes spikes in image caused by cosmic rays, hot pixels, etc. Works off median filtering image.
+        Placeholder for now. Will be replaced by a more robust function in the future.
+
+        Parameters
+        ----------
+        image : numpy.ndarray
+            ND image array. Length of footpoint should match the number of axes
+        footprint : tuple
+            Footpoint used in scipy.ndimage.median_filter to create median-smoothed image
+        spikeRange : tuple
+            Range to clip hot pixels from. Pixels in image/median_image exceeding range will be replaced
+            by corresponding pixels in median_image
+
+        Returns
+        -------
+        despikedImage : numpy.ndarray
+        """
+
+        medfiltImage = scind.median_filter(image, size=footprint)
+        spikeImage = image/medfiltImage
+        despikedImage = image.copy()
+        despikedImage[
+            (spikeImage > max(spikeRange)) | (spikeImage < min(spikeRange))
+        ] = medfiltImage[(spikeImage > max(spikeRange)) | (spikeImage < min(spikeRange))]
+        return despikedImage
+
