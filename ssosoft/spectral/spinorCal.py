@@ -1676,8 +1676,20 @@ class SpinorCal:
                     # Re-create the filtered hairline image
                     # Do spectral skew
                     # Register hairlines to common index
+                    # Altered 2025-02-05 to remove some hardcoded values for the range of the hairline
+                    hairline_minimum = hairlines[0, 0] - 7
+                    hairline_delta = 14
+                    hairline_maximum = hairlines[0, 0] + 7
+                    if hairline_minimum < 0:
+                        hairline_minimum = 0
+                        hairline_delta = int(2 * hairlines[0, 0])
+                        hairline_maximum = hairline_delta
+                    elif hairline_maximum >= tmp_beams.shape[1]:
+                        hairline_maximum = tmp_beams.shape[1] - 1
+                        hairline_delta = int(2*(hairline_maximum - hairlines[0, 0]))
+                        hairline_minimum = hairline_maximum - hairline_delta
                     medfilth0 = scind.median_filter(
-                        tmp_beams[:, int(hairlines[0, 0] - 7):int(hairlines[0,0] + 7), :],
+                        tmp_beams[:, hairline_minimum:hairline_maximum, :],
                         size=(1, 2, 25)
                     )
                     offsets = [round(
@@ -1688,14 +1700,21 @@ class SpinorCal:
                             )]
                         ),
                         0
-                    ) - 7 for x in range(2)]
+                    ) - hairline_delta/2 for x in range(2)]
                     medfilth0 = np.zeros(medfilth0.shape)
                     medfilth0[0] = scind.median_filter(
-                        tmp_beams[0, int(hairlines[0, 0] + offsets[0] - 7):int(hairlines[0,0] + offsets[0] + 7), :],
+                        tmp_beams[0, int(
+                            hairlines[0, 0] + offsets[0] - hairline_delta/2
+                        ):int(
+                            hairlines[0,0] + offsets[0] + hairline_delta/2), :],
                         size=(2, 25)
                     )
                     medfilth0[1] = scind.median_filter(
-                        tmp_beams[1, int(hairlines[0, 0] + offsets[1] - 7):int(hairlines[0, 0] + offsets[1] + 7), :],
+                        tmp_beams[1, int(
+                            hairlines[0, 0] + offsets[1] - hairline_delta/2
+                        ):int(
+                            hairlines[0, 0] + offsets[1] + hairline_delta/2
+                        ), :],
                         size=(2, 25)
                     )
                     hairline_skews = np.zeros((2, self.slitEdges[1] - self.slitEdges[0]))

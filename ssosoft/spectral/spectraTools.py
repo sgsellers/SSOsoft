@@ -746,7 +746,8 @@ def detect_beams_hairlines(
                 "Expected values not found within 50 iterations. Falling back to user selection."
             )
             beam_edges, slit_edges, hairline_centers = select_beam_edges_hairlines(
-                yprofile, xprofile, expected_hairlines, expected_beams, expected_slits
+                np.nanmedian(image, axis=1), np.nanmedian(image, axis=0),
+                expected_hairlines, expected_beams, expected_slits
             )
             return beam_edges, slit_edges, hairline_centers
         raise Exception(
