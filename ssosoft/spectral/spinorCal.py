@@ -830,7 +830,7 @@ class SpinorCal:
         diff = int(np.diff(np.diff(self.beamEdges, axis=1).flatten(), axis=0)[0])
         self.beamEdges[0, 1] += diff
 
-        self.hairlines = self.hairlines.reshape(2, int(self.nhair / 2))
+        self.hairlines = self.hairlines.reshape(int(self.nhair / 2), 2)
 
         beam0 = self.solarFlat[self.beamEdges[0, 0]:self.beamEdges[0, 1], self.slitEdges[0]:self.slitEdges[1]]
         beam1 = np.flipud(
