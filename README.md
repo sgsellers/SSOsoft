@@ -2,11 +2,17 @@
 
 SSOsoft is a set of tools for reducing data from the Sunspot Solar Observatory's Dunn Solar Telescope.
 
+This release should be considered the canonical version of the DST reduction pipelines, 
+and should be used in all applications, rather than the original branch.
+
 **Please report any bugs to sellers@nmsu.edu**
 
 ## Features
 
-SSOsoft currently supports the ROSA and HARDcam (aka Zyla) fast imaging systems, as well as the HSG spectrograph.
+SSOsoft currently supports the ROSA and HARDcam (aka Zyla) fast imaging systems, as well as the HSG spectrograph 
+and the SPINOR spectropolarimeter. The pipeline implementation used for SPINOR can be modified to reduce data from the
+FIRS spectropolarimeter by replacing the filesystem comprehension routines and updating the modulation pattern.
+Future releases will implement these changes as a standard calibration routine.
 
 ## ROSA/HARDcam
 ROSA and HARDcam are handled by the
@@ -15,15 +21,19 @@ ssosoft.imagers.rosaZylaCal
 ssosoft.imagers.kisipWrapper
 ssosoft.imagers.destretch
 ```
-submodules.
+submodules, with support from the
+```python
+ssosoft.imagers.pyDestretch
+```
+Image registration and dewarp submodule.
 
 ### Instrument Description
 The Rapid Oscillations in the Solar Atmosphere (ROSA) instrument is a centrally-triggered fast imaging system.
-The system can support up to 6 cameras, each with 1002x1004 pixel, 8x8 mm chips. The system is capable of up to 30 fps,
+The system can support up to 6 CCD cameras, each with 1002x1004 pixel, 8x8 mm chips. The system is capable of up to 30 fps,
 with various cameras dividing that master cadence to increase the exposure time while remaining synced. 
 The H-Alpha Rapid Dynamics camera (HARDcam) is typically operated in conjunction with ROSA, using the same initial 
 trigger pulse, in order to have a sync point at the start of a given observing series. 
-HARDcam uses a newer Andor Zyla camera, with a 2048x2048 pixel, 13.3x13.3 mm chip.
+HARDcam uses a newer Andor Zyla CMOS camera, with a 2048x2048 pixel, 13.3x13.3 mm chip.
 HARDcam and Zyla are used interchangeably in documentation, but the system should be referred to as HARDcam in publications.
 
 Typical filters for ROSA include the G-band 430 nm broadband filter, the 417 nm broadband filter, 
@@ -73,7 +83,7 @@ file, with common spectrograph tools contained in
 ```python
 ssosoft.spectral.spectraTools
 ```
-These common tools can be used by FIRS or SPINOR as well as HSG.
+These common tools are shared with the SPINOR pipeline, and will form the basis of the future FIRS implementation.
 
 ### Instrument Description
 
@@ -144,3 +154,77 @@ The structure of the output file is (indexing from 0):
   - "CROTAN": Rotation relative to Solar-North
   - "LIGHTLVL": The (unitless) amount of light seen by the DST guider. This can help the user filter out clouds, and correct continuum levels across slit positions, which is NOT a currently-implemented calibration step.
   - "SCINT": Values from the DST Seykora scintillation monitor at each slit position in arcsec. Note that typically AO is operated in conjunction with HSG, so these values should not be taken as the effective resolution of the telescope, but rather a quick reference.
+
+## SSOsoft for SPINOR 
+
+New in 2025, this package contains a general calibration pipeline for the SPINOR spectropolarimeter. 
+The introduction of a new rotating waveplate type modulator in October 2024, courtesy of R. Casini (HAO) 
+and D. Harrington (NSO), vastly improved the performance of the instrument. 
+The new modulator minimizes beam wobble induced by the rotating element, while also suppressing polarimetric fringes.
+The new modulator makes previous fringe suppression methods obsolete. 
+Residual fringes have been measured to be at the 10$^{-4}$ level in Stokes-QUV, comparable to the noise threshold.
+
+This pipeline is managed through a configuration file (see ssosoft.spectral.spinorConfig.ini). 
+The sample configuration file details which keywords are optional. Unlike other pipelines contained in SSOsoft,
+the configurable nature of the SPINOR instrument necessitates user intervention at two separate points in the reduction
+process. I have tried to make these as unobtrusive as possible.
+During gain table creation, user input is required to select both the spectral line used in gain table creation.
+A matplotlib widget is created with panels for the FTS reference spectrum (Kurucz 1987) and the observed spectrum.
+The user should select the same two lines on each panel, which chooses the gain table creation lines and sets up the
+wavelength calibration routine. During science map reduction, a second widget is produced that allows the user to
+select regions of interest for first-order analysis. 
+
+If plotting is switched on, additional (non-blocking) plots are spawned for the user to monitor the quality of gain
+corrections and polarization fits. During science map reduction, a series of live plots will be produced and updated
+for the user to monitor the reduced data at each slit position, as well as the structure of the map. This is fully
+optional. 
+
+Performing calibrations is done by setting up a configuration file, then in python:
+```python
+import ssosoft.spectral.spinorCal as spin
+s = spin.hsgCal("CAMERA_NAME", "configfile.ini")
+s.spinor_run_calibration()
+```
+The calibration pipeline currently performs the following corrections:
+- Dark subtraction
+- Solar gain table creation
+- (If available) Lamp gain table creation
+- Telescope Mueller matrix construction
+- Spectrograph Mueller matrix fitting
+
+These are applied to the science data files, along with:
+
+- Stokes-I -> Stokes-QUV crosstalk correction
+  - Unlike previous IDL pipelines, which rely on the user choosing a section of continuum, SSOsoft performs a linear fit to the dividend of I/QUV and attempts to minimize the residuals. This corrects for linearity and offset of the Stokes vectors. The code does provide the ability to return to continuum matching processes. 
+- Stokes-V -> Q, U and U -> V crosstalk correction.
+  - These can be applied individually. The internal crosstalk values are determined via minimization of the cosine similarity between two given Stokes-profiles.
+
+### spinorCal Level-1 Data Product
+spinorCal packages reduced data in FITS format with comprehensive header information. 
+The structure of the output file is (indexing from 0):
+- Extension 0: Header only, including spectrograph configuration params
+- Extension 1 - 4: Stokes-I, Q, U, V datacubes of shape (ny, nx, nlambda) each.
+  - Technically, solarnet anticipates IQUV data in a single extension. The choice was made to separate these in order to minimize the required memory footprint for the end user.
+  - Each of these extensions contains complete WCS information, compatible with astropy or sunpy.
+- Extension 5: Wavelength axis corresponding to nlambda. 
+- Extension 6: Metadata extension. This is a FITS BinTable, each column has (nx) values for each slit position. The columns are:
+  - T_ELAPSED: Seconds since midnight (UTC)
+  - TEL_SOLX: Telescope Solar-X coordinate. This may be different than the WCS values in the data headers. SPINOR is prone to crashing and the WCS headers compensate for incomplete maps.
+  - TEL_SOLY: Solar-Y coordinate as above
+  - LIGHTLVL: Guider light level value (unitlesS)
+  - TELESCIN: Output from the Seykora scintillation monitor
+
+### spinorCal Level-1.5 Data Produce
+User-selected lines from the spinorCal pipeline are subjected to low-level analysis for first-order data comprehension.
+One file is created for each ROI selected by the user. The spectral range is denoted in the filename and 0-index header.
+The structure of each file is (indexing from 0):
+- Extension 0: Header only, includes spectral region of interest
+- Extension 1: Line intensity map (moment analysis)
+- Extension 2: Velocity map (moment analysis)
+- Extension 3: Velocity width map (moment analysis)
+- Extension 4: Net circular polarized light map (Solanki & Montavon 1993)
+- Extension 5: Mean circular polarized light map (modified from Martinez-Pillet 2011)
+- Extension 6: Mean linear polarized light map (Martinez-Pillet 2011)
+
+Each extension has dimensions (ny, nx), as the wavelength axis is flattened.
+Each extension contains full WCS coordinates and can be read into Sunpy natively.
