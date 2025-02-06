@@ -1677,17 +1677,17 @@ class SpinorCal:
                     # Do spectral skew
                     # Register hairlines to common index
                     # Altered 2025-02-05 to remove some hardcoded values for the range of the hairline
-                    hairline_minimum = hairlines[0, 0] - 7
+                    hairline_minimum = int(hairlines[0, 0] - 7)
                     hairline_delta = 14
-                    hairline_maximum = hairlines[0, 0] + 7
+                    hairline_maximum = int(hairlines[0, 0] + 7)
                     if hairline_minimum < 0:
                         hairline_minimum = 0
                         hairline_delta = int(2 * hairlines[0, 0])
                         hairline_maximum = hairline_delta
                     elif hairline_maximum >= tmp_beams.shape[1]:
-                        hairline_maximum = tmp_beams.shape[1] - 1
+                        hairline_maximum = int(tmp_beams.shape[1] - 1)
                         hairline_delta = int(2*(hairline_maximum - hairlines[0, 0]))
-                        hairline_minimum = hairline_maximum - hairline_delta
+                        hairline_minimum = int(hairline_maximum - hairline_delta)
                     medfilth0 = scind.median_filter(
                         tmp_beams[:, hairline_minimum:hairline_maximum, :],
                         size=(1, 2, 25)
@@ -3098,7 +3098,7 @@ class SpinorCal:
 
         # As of 2025-01-31, this hasn't been particularly reliable.
         # Altering to clip spectra to the range between the selected lines.
-        spinor_spex /= spinor_spex.max()
+        spinor_spex /= np.nanmedian(spinor_spex)
         spinor_spex = spinor_spex[sorted(spinorCores)[0]:sorted(spinorCores)[1]]
 
         fts_interp = scinterp.interp1d(

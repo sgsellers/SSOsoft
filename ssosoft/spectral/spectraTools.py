@@ -560,9 +560,7 @@ def select_lines_doublepanel(array1, array2, nselections):
 
     conn = fig.canvas.mpl_connect('button_press_event', onselect_2panel)
     plt.show()
-    xvals1 = np.array(xvals1, dtype=np.int_)
-    xvals2 = np.array(xvals2, dtype=np.int_)
-    return xvals1, xvals2
+    return np.array(xvals1, dtype=np.int_), np.array(xvals2, dtype=np.int_)
 
 
 def spectral_skew(image, order=2, slit_reference=0.25):
