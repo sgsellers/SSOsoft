@@ -3108,7 +3108,7 @@ class SpinorCal:
 
         # As of 2025-01-31, this hasn't been particularly reliable.
         # Altering to clip spectra to the range between the selected lines.
-        spinor_spex /= np.nanmedian(spinor_spex)
+        spinor_spex /= spinor_spex.max()
         spinor_spex = spinor_spex[sorted(spinorCores)[0]:sorted(spinorCores)[1]]
 
         fts_interp = scinterp.interp1d(
