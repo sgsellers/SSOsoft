@@ -528,7 +528,7 @@ def select_lines_doublepanel(array1, array2, nselections):
         Array of selected x-values from array2 with length nselections/2
     """
 
-    fig = plt.figure()
+    fig = plt.figure("Select " + str(int(nselections / 2)) + " Positions on each plot")
     ax1 = fig.add_subplot(211)
     ax2 = fig.add_subplot(212)
     fig.suptitle("Select " + str(int(nselections / 2)) + " Positions on each plot")
@@ -559,7 +559,7 @@ def select_lines_doublepanel(array1, array2, nselections):
             plt.close(fig)
 
     conn = fig.canvas.mpl_connect('button_press_event', onselect_2panel)
-    plt.show()
+    plt.show(block=True)
     return np.array(xvals1, dtype=np.int_), np.array(xvals2, dtype=np.int_)
 
 
