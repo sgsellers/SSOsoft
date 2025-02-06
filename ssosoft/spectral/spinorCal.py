@@ -5,6 +5,7 @@ import glob
 import matplotlib.pyplot as plt
 import matplotlib
 import numpy as np
+import numpy.typing as npt
 import os
 import scipy.ndimage as scind
 import scipy.interpolate as scinterp
@@ -99,7 +100,7 @@ class SpinorCal:
             slit position and hairlines marked for ease of alignment.
     """
 
-    def __init__(self, camera, configFile):
+    def __init__(self, camera: str, configFile: str) -> None:
         """
 
         Parameters
@@ -228,11 +229,11 @@ class SpinorCal:
         return
 
 
-    def spinor_assert_file_list(self, flist):
+    def spinor_assert_file_list(self, flist: list) -> None:
         assert (len(flist) != 0), "List contains no matches."
 
 
-    def spinor_run_calibration(self):
+    def spinor_run_calibration(self) -> None:
         """Main SPINOR calibration module"""
 
         self.spinor_configure_run()
@@ -279,7 +280,7 @@ class SpinorCal:
         return
 
 
-    def spinor_configure_run(self):
+    def spinor_configure_run(self) -> None:
         """Reads configuration file and sets up parameters for calibration sequence"""
 
         """
@@ -299,7 +300,7 @@ class SpinorCal:
         return
 
 
-    def spinor_get_cal_images(self, index):
+    def spinor_get_cal_images(self, index: int) -> None:
         """
         Loads or creates flat, dark, lamp & solar gain, polcal arrays
         """
@@ -311,7 +312,7 @@ class SpinorCal:
         return
 
 
-    def spinor_parse_configfile(self):
+    def spinor_parse_configfile(self) -> None:
         """
         Parses configureation file and sets up the class structure for reductions
         """
@@ -468,7 +469,7 @@ class SpinorCal:
 
         return
 
-    def spinor_organize_directory(self):
+    def spinor_organize_directory(self) -> None:
         """
         Organizes files in the Level-0 SPINOR directory.
         Pairs science maps with their nearest solar and lamp flat files chronologically.
@@ -582,7 +583,7 @@ class SpinorCal:
         return
 
 
-    def spinor_average_dark_from_hdul(self, hdulist):
+    def spinor_average_dark_from_hdul(self, hdulist: fits.HDUList) -> npt.NDArray:
         """Computes an average dark image from a SPINOR fits file HDUList.
         Since SPINOR takes 4 dark frames at the start and end of a flat, lampflat,
         and polcal, but no separate dark files, the only way to get dark current is
@@ -616,7 +617,7 @@ class SpinorCal:
         return averageDark
 
 
-    def spinor_average_flat_from_hdul(self, hdulist):
+    def spinor_average_flat_from_hdul(self, hdulist: fits.HDUList) -> npt.NDArray:
         """Computes an average flat image from a SPINOR fits file HDUList.
         Since SPINOR takes 4 dark frames at the start and end of a flat or lampflat,
         we need to process the whole file for flats and darks.
@@ -649,7 +650,7 @@ class SpinorCal:
         return averageFlat
 
 
-    def demodulate_spinor(self, poldata):
+    def demodulate_spinor(self, poldata: npt.NDArray) -> npt.NDArray:
         """
         Applies demodulation, and returns 4-array of IQUV
         Parameters
@@ -672,7 +673,7 @@ class SpinorCal:
         return stokes
 
 
-    def spinor_get_lamp_gain(self):
+    def spinor_get_lamp_gain(self) -> None:
         """
         Creates or loads the SPINOR lamp gain.
         If there's no reduced lamp gain file, creates one from Level-0.
@@ -703,7 +704,7 @@ class SpinorCal:
         return
 
 
-    def spinor_get_solar_gain(self, index):
+    def spinor_get_solar_gain(self, index: int) -> None:
         """
         Creates or loads a solar gain file.
         Parameters
@@ -740,7 +741,7 @@ class SpinorCal:
 
         return
 
-    def spinor_get_solar_flat(self, index):
+    def spinor_get_solar_flat(self, index: int) -> None:
         """
         Creates solar flat and solar dark from file
         Parameters
@@ -766,7 +767,7 @@ class SpinorCal:
                 self.grating_angle = fhdul[1].header["HSG_GRAT"]
         return
 
-    def spinor_create_solar_gain(self):
+    def spinor_create_solar_gain(self) -> None:
         """
         Creates solar gain tables from the indexed file in a list of viable flat files.
         This also determines the beam/slit edges, hairline, positions,
@@ -953,7 +954,7 @@ class SpinorCal:
         return
 
 
-    def spinor_plot_gaintables(self, index):
+    def spinor_plot_gaintables(self, index: int) -> None:
         """
         Helper method to plot gaintables in case the user wants to
             A.) Deal with just... so many popups
@@ -1007,7 +1008,7 @@ class SpinorCal:
         return
 
 
-    def spinor_save_gaintables(self, index):
+    def spinor_save_gaintables(self, index: int) -> None:
         """
         Writes gain tables to appropriate FITS files.
         Format on these is nonstandard. Has to contain dark current, coarse and fine gain, beam/slit edges, hairlines,
@@ -1059,7 +1060,9 @@ class SpinorCal:
         return
 
 
-    def spinor_fts_line_select(self, gratingParams, averageProfile):
+    def spinor_fts_line_select(
+            self, gratingParams: npt.ArrayLike, averageProfile: npt.NDArray
+    ) -> tuple[list, list, bool]:
         """
         Pops up the line selection widget for gain table creation and wavelength determination
         Parameters
@@ -1103,7 +1106,7 @@ class SpinorCal:
         return spinorLineCores, ftsLineCores, flipWave
 
 
-    def spinor_get_polcal(self):
+    def spinor_get_polcal(self) -> None:
         """
         Loads or creates SPINOR polcal
 
@@ -1127,7 +1130,7 @@ class SpinorCal:
 
         return
 
-    def spinor_save_polcal(self):
+    def spinor_save_polcal(self) -> None:
         """
         Writes FITS file with SPINOR polcal parameters
 
@@ -1163,7 +1166,7 @@ class SpinorCal:
 
         return
 
-    def spinor_polcal(self):
+    def spinor_polcal(self) -> None:
         """
         Performs polarization calibration on SPINOR data.
 
@@ -1480,7 +1483,7 @@ class SpinorCal:
         return
 
 
-    def spinor_plot_polcal(self):
+    def spinor_plot_polcal(self) -> None:
         """
         For the lovers of screen clutter, plots the polcal input and output vectors
 
@@ -1549,7 +1552,7 @@ class SpinorCal:
         return
 
 
-    def reduce_spinor_maps(self):
+    def reduce_spinor_maps(self) -> None:
         """
         Performs reduction of SPINOR science data maps.
         Applies Dark Current, Lamp Gain, Solar Gain Corrections
@@ -1939,7 +1942,10 @@ class SpinorCal:
         return
 
 
-    def set_up_live_plot(self, fieldImages, slitImages, internalCrosstalks, dy, dx):
+    def set_up_live_plot(
+            self, fieldImages: npt.NDArray, slitImages: npt.NDArray, internalCrosstalks: npt.NDArray,
+            dy: float, dx:float
+    ) -> tuple:
         """
         Initializes live plotting statements for monitoring progress of reductions
 
@@ -2135,12 +2141,14 @@ class SpinorCal:
 
     def update_live_plot(
             self,
-            fieldFigList, fieldI, fieldQ, fieldU, fieldV,
-            slitFig, slitI, slitQ, slitU, slitV,
-            crosstalkFig, v2q, v2u, u2v,
-            fieldImages, slitImages, internalCrosstalks,
-            step
-    ):
+            fieldFigList: list, fieldI: list, fieldQ: list, fieldU: list, fieldV: list,
+            slitFig: matplotlib.pyplot.figure, slitI: matplotlib.image.AxesImage, slitQ: matplotlib.image.AxesImage,
+            slitU: matplotlib.image.AxesImage, slitV: matplotlib.image.AxesImage,
+            crosstalkFig: matplotlib.pyplot.figure, v2q: matplotlib.image.AxesImage,
+            v2u: matplotlib.image.AxesImage, u2v: matplotlib.image.AxesImage,
+            fieldImages: npt.NDArray, slitImages: npt.NDArray, internalCrosstalks: npt.NDArray,
+            step: int
+    ) -> None:
         """
         Updates the plots created in self.set_up_live_plot.
 
@@ -2244,7 +2252,7 @@ class SpinorCal:
         return
 
 
-    def package_scan(self, datacube, wavelength_array):
+    def package_scan(self, datacube: npt.NDArray, wavelength_array: npt.NDArray) -> str:
         """
         Packages reduced scan into FITS HDUList. HDUList has 7 extensions:
             1.) Empty data attr with top-level header info
@@ -2541,7 +2549,9 @@ class SpinorCal:
         return outfile
 
 
-    def spinor_analysis(self, datacube, boundIndices):
+    def spinor_analysis(
+            self, datacube: npt.NDArray, boundIndices: npt.NDArray
+    ) -> tuple[npt.NDArray, list, list, npt.NDArray, npt.NDArray]:
         """
         Performs moment analysis, determines mean circular/linear polarization, and net circular polarization
         maps for each of the given spectral windows. See Martinez Pillet et.al., 2011 discussion of mean polarization
@@ -2624,7 +2634,10 @@ class SpinorCal:
         return parameter_maps, referenceWavelengths, tweakedIndices, meanProfile, wavelengthArray
 
 
-    def package_analysis(self, analysis_maps, rwvls, indices, meanProfile, wavelengthArray, reference_file):
+    def package_analysis(
+            self, analysis_maps: npt.NDArray, rwvls: list, indices: list,
+            meanProfile: npt.NDArray, wavelengthArray: npt.NDArray, reference_file: str
+    ) -> str:
         """
         Write SPINOR first-order analysis maps to FITS file.
 
@@ -2734,7 +2747,7 @@ class SpinorCal:
 
 
     @staticmethod
-    def i2quv_crosstalk(stokesI, stokesQUV):
+    def i2quv_crosstalk(stokesI: npt.NDArray, stokesQUV: npt.NDArray) -> npt.NDArray:
         """
         Corrects for Stokes-I => QUV crosstalk. In the old pipeline, this was done by
         taking the ratio of a continuum section in I, and in QUV, then subtracting
@@ -2786,7 +2799,7 @@ class SpinorCal:
 
 
     @staticmethod
-    def v2qu_crosstalk(stokesV, stokesQU):
+    def v2qu_crosstalk(stokesV: npt.NDArray, stokesQU: npt.NDArray) -> npt.NDArray:
         """
         Contrary to I->QUV crosstalk, we want the Q/U profiles to be dissimilar to V.
         Q in particular is HEAVILY affected by crosstalk from V.
@@ -2831,7 +2844,7 @@ class SpinorCal:
         return correctedQU, v2qu_crosstalk
 
 
-    def tweak_wavelength_calibration(self, referenceProfile):
+    def tweak_wavelength_calibration(self, referenceProfile: npt.NDArray) -> npt.NDArray:
         """
         Determines wavelength array from grating parameters and FTS reference
 
@@ -2886,7 +2899,7 @@ class SpinorCal:
         return wavelengthArray
 
 
-    def spherical_coordinate_transform(self, telescopeAngles):
+    def spherical_coordinate_transform(self, telescopeAngles: list) -> list:
         """
         Transforms from telescope pointing to parallatic angle using the site latitude
 
@@ -2927,7 +2940,7 @@ class SpinorCal:
         return coordinateAngles
 
 
-    def get_telescope_matrix(self, telescopeGeometry):
+    def get_telescope_matrix(self, telescopeGeometry: npt.NDArray) -> npt.NDArray:
         """
         Gets telescope matrix from IDL save (2010 matrix) or numpy save (TBD, hopefully we measure it in the future)
         file. Returns the Mueller matrix of the telescope from these measurements.
@@ -3041,7 +3054,10 @@ class SpinorCal:
 
 
     @staticmethod
-    def determine_spectrum_flip(fts_spec, spinor_spex, spinPixPerFTSPix, spinorCores, ftsCores):
+    def determine_spectrum_flip(
+            fts_spec: npt.NDArray, spinor_spex: npt.NDArray, spinPixPerFTSPix: float,
+            spinorCores: list, ftsCores: list
+    ) -> bool:
         """
         Determine if SPINOR spectra are flipped by correlation value against interpolated
         FTS atlas spectrum. Have to interpolate FTS to SPINOR, determine offset via correlation.
@@ -3089,7 +3105,7 @@ class SpinorCal:
 
 
     @staticmethod
-    def despike_image(image, footprint=(5, 1), spikeRange=(0.75, 1.25)):
+    def despike_image(image: npt.NDArray, footprint: tuple=(5, 1), spikeRange: tuple=(0.75, 1.25)) -> npt.NDArray:
         """Removes spikes in image caused by cosmic rays, hot pixels, etc. Works off median filtering image.
         Placeholder for now. Will be replaced by a more robust function in the future.
 
