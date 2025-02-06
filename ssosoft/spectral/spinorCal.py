@@ -784,7 +784,8 @@ class SpinorCal:
             hairline_width=self.hairlineWidth,
             expected_hairlines=self.nhair,  # Possible that FLIR cams only have one hairline
             expected_beams=2,  # If there's only one beam, use hsgCal
-            expected_slits=1  # ...we're not getting a multislit unit for SPINOR.
+            expected_slits=1, # ...we're not getting a multislit unit for SPINOR.
+            fallback=True # FLIR cameras in particular have difficulties with the automated detection
         )
         self.slitEdges = self.slitEdges[0]
         if self.verbose:
