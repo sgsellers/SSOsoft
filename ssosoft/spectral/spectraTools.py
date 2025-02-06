@@ -2,8 +2,8 @@ import FTS_atlas
 import matplotlib
 import tqdm
 
-
 import numpy as np
+import numpy.typing as npt
 import numpy.lib.recfunctions as nrec
 import numpy.polynomial.polynomial as npoly
 import matplotlib.pyplot as plt
@@ -397,7 +397,7 @@ def rolling_median(data, window):
     return rolled
 
 
-def select_lines_singlepanel(array, nselections):
+def select_lines_singlepanel(array, nselections, figName="Popup Figure"):
     """
     Matplotlib-based function to select an x-value, or series of x-values
     From the plot of a 1D array.
@@ -410,7 +410,7 @@ def select_lines_singlepanel(array, nselections):
         Array of selected x-values with length nselections
     """
 
-    fig = plt.figure()
+    fig = plt.figure(figName)
     ax = fig.add_subplot(111)
     ax.set_title("Select " + str(nselections) + " Positions, then Click Again to Exit")
     spectrum, = ax.plot(array)
@@ -624,7 +624,8 @@ def spectral_skew(image, order=2, slit_reference=0.25):
 @count_recursive_calls
 def detect_beams_hairlines(
         image, threshold=0.5, hairline_width=5, line_width=15,
-        expected_hairlines=2, expected_slits=1, expected_beams=1
+        expected_hairlines=2, expected_slits=1, expected_beams=1,
+        fallback=False
 ):
     """
     Detects beam edges and intensity thresholds from an image (typically a flat).
@@ -650,6 +651,8 @@ def detect_beams_hairlines(
         Expected number of beams in y. Used to recurse the function to fine-tune threshold
     :param expected_slits: int
         Expected number of slits in x. Used to recurse the function to fine-tune threshold
+    :param fallback: bool
+        If True, when the function fails, fall back to user selection of hairlines via interactive widget
     :return beam_edges: numpy.ndarray
         Numpy.ndarray of shape (2, nBeams), where each pair is (y0, y1) for each beam
     :return slit_edges: numpy.ndarray
@@ -733,6 +736,19 @@ def detect_beams_hairlines(
     # looped from threshold 0.85 to 5e-2 twice without finding a correct
     # solution. Raise an error.
     if detect_beams_hairlines.num_calls > 50:
+        if fallback:
+            print(
+                "expected_hairlines={0}, expected_beams={1}, expected_slits={3}, ".format(
+                    expected_hairlines, expected_beams, expected_slits
+                )
+            )
+            print(
+                "Expected values not found within 50 iterations. Falling back to user selection."
+            )
+            beam_edges, slit_edges, hairline_centers = select_beam_edges_hairlines(
+                yprofile, xprofile, expected_hairlines, expected_beams, expected_slits
+            )
+            return beam_edges, slit_edges, hairline_centers
         raise Exception(
             "expected_hairlines={0}, expected_beams={1}, expected_slits={2}, ".format(
                 expected_hairlines, expected_beams, expected_slits
@@ -771,6 +787,94 @@ def detect_beams_hairlines(
 
 
     return beam_edges, slit_edges, hairline_centers
+
+
+def select_beam_edges_hairlines(
+        averageYProfile: npt.NDArray, averageXProfile: npt.NDArray,
+        expectedHairlines: int, expectedBeams: int, expectedSlits: int
+) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray]:
+    """
+    Fallback function for user selection of hairlines, beam edges, and slit edges
+    via widgets found elsewhere in this file. Called by detect_beams_hairlines with
+    the fallback=True keyword argument.
+
+    Typically encountered in situations where a hairline is close to an image edge,
+    such as with the FLIR cameras, which have a smaller chip size than the Sarnoff
+    cameras
+
+    Parameters
+    ----------
+    averageYProfile : numpy.ndarray
+        Average profile along the y-axis of the original image
+    averageXProfile : numpy.ndarray
+        Average profile along the x-axis of the original image
+    expectedHairlines : int
+        Number of hairlines to select
+    expectedBeams : int
+        Twice this number of edges to select in y
+    expectedSlits : int
+        Twice this number of edges to select in x
+
+    Returns
+    -------
+    beamEdges: numpy.ndarray
+        Edges of the beam reshaped to (expectedBeams, 2)
+    slitEdges: numpy.ndarray
+        Edges of the slit image reshaped to (expectedSlits, 2)
+    hairlines: numpy.ndarray
+        Hairline centers in a 1D array
+    """
+
+    # Select Beam Edges
+    print(
+        "\nSelect {0} Intensity Jumps. These correspond to the edges of the spatial beam(s)\n".format(
+            int(2*expectedBeams)
+        )
+    )
+    print("Beam Edges May Extend across the range. If the beam fills the range, select the edges of the range")
+    approxBeamEdges = select_lines_singlepanel(
+        averageYProfile, int(2*expectedBeams),
+        figName="Select {0} Positions corresponding to edges of the spatial beam".format(
+            int(2*expectedBeams)
+        )
+    )
+    # Clean the beam edges to remove out-of-bounds values
+    approxBeamEdges[approxBeamEdges < 0] = 0
+    approxBeamEdges[approxBeamEdges >= len(averageYProfile)] = len(averageYProfile) - 1
+    beamEdges = np.sort(approxBeamEdges).reshape(expectedBeams, 2)
+    # Select Slit Edges
+    print(
+        "\nSelect {0} Intensity Jumps. These correspond to the edges of the spectral beam(s)\n".format(
+            int(2 * expectedSlits)
+        )
+    )
+    print("Take care not to select spectral lines")
+    approxSlitEdges = select_lines_singlepanel(
+        averageXProfile, int(2*expectedSlits),
+        figName="Select {0} Positions corresponding to the edges of the spectral beam".format(
+            int(2*expectedSlits)
+        )
+    )
+    # Clean slit edges to remove out-of-bounds values
+    approxSlitEdges[approxSlitEdges < 0] = 0
+    approxSlitEdges[approxSlitEdges >= len(averageXProfile)] = len(averageXProfile) - 1
+    slitEdges = np.sort(approxSlitEdges).reshape(expectedSlits, 2)
+    # Select Hairlines
+    print(
+        "\nSelect {0} Intensity dips. These should correspond to the hairlines\n".format(
+            int(expectedHairlines)
+        )
+    )
+    approxHairlines = select_lines_singlepanel(
+        averageYProfile, int(expectedHairlines),
+        figName="Select {0} Positions corresponding to hairline positions".format(
+            int(expectedHairlines)
+        )
+    )
+    approxHairlines = np.sort(approxHairlines)
+    # Clean up hairlines by finding subpixel line center
+    hairlines = np.array([find_line_core(approxHairlines[int(i-3):int(i+4)]) for i in approxHairlines])
+    return beamEdges, slitEdges, hairlines
 
 
 def create_gaintables(flat, lines_indices,
