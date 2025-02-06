@@ -771,7 +771,8 @@ def detect_beams_hairlines(
             line_width=line_width,
             expected_hairlines=expected_hairlines,
             expected_beams=expected_beams,
-            expected_slits=expected_slits
+            expected_slits=expected_slits,
+            fallback=fallback
         )
     elif threshold <= 5e-2:
         # If the threshold falls without the correct number of hairlines
@@ -782,7 +783,8 @@ def detect_beams_hairlines(
             line_width=line_width,
             expected_hairlines=expected_hairlines,
             expected_beams=expected_beams,
-            expected_slits=expected_slits
+            expected_slits=expected_slits,
+            fallback=fallback
         )
 
 
