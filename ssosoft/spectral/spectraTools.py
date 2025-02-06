@@ -876,7 +876,7 @@ def select_beam_edges_hairlines(
     )
     approxHairlines = np.sort(approxHairlines)
     # Clean up hairlines by finding subpixel line center
-    hairlines = np.array([find_line_core(approxHairlines[int(i-3):int(i+4)]) for i in approxHairlines])
+    hairlines = np.array([find_line_core(averageYProfile[int(i-3):int(i+4)]) for i in approxHairlines])
     return beamEdges, slitEdges, hairlines
 
 
