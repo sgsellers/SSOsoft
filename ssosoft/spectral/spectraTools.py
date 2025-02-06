@@ -738,7 +738,7 @@ def detect_beams_hairlines(
     if detect_beams_hairlines.num_calls > 50:
         if fallback:
             print(
-                "expected_hairlines={0}, expected_beams={1}, expected_slits={3}, ".format(
+                "expected_hairlines={0}, expected_beams={1}, expected_slits={2}, ".format(
                     expected_hairlines, expected_beams, expected_slits
                 )
             )
