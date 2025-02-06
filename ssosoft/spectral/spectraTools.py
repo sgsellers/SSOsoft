@@ -844,7 +844,7 @@ def select_beam_edges_hairlines(
     # Clean the beam edges to remove out-of-bounds values
     approxBeamEdges[approxBeamEdges < 0] = 0
     approxBeamEdges[approxBeamEdges >= len(averageYProfile)] = len(averageYProfile) - 1
-    beamEdges = np.sort(approxBeamEdges).reshape(expectedBeams, 2)
+    beamEdges = np.sort(np.round(approxBeamEdges)).reshape(expectedBeams, 2).astype(int)
     # Select Slit Edges
     print(
         "\nSelect {0} Intensity Jumps. These correspond to the edges of the spectral beam(s)\n".format(
@@ -861,7 +861,7 @@ def select_beam_edges_hairlines(
     # Clean slit edges to remove out-of-bounds values
     approxSlitEdges[approxSlitEdges < 0] = 0
     approxSlitEdges[approxSlitEdges >= len(averageXProfile)] = len(averageXProfile) - 1
-    slitEdges = np.sort(approxSlitEdges).reshape(expectedSlits, 2)
+    slitEdges = np.sort(np.round(approxSlitEdges)).reshape(expectedSlits, 2).astype(int)
     # Select Hairlines
     print(
         "\nSelect {0} Intensity dips. These should correspond to the hairlines\n".format(
