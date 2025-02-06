@@ -538,7 +538,7 @@ def select_lines_doublepanel(array1, array2, nselections):
     xvals1 = []
     xvals2 = []
 
-    def onselect(event):
+    def onselect_2panel(event):
         if event.inaxes == ax1:
             if len(xvals1) < int(nselections / 2):
                 xcd = event.xdata
@@ -558,7 +558,7 @@ def select_lines_doublepanel(array1, array2, nselections):
             fig.canvas.mpl_disconnect(conn)
             plt.close(fig)
 
-    conn = fig.canvas.mpl_connect('button_press_event', onselect)
+    conn = fig.canvas.mpl_connect('button_press_event', onselect_2panel)
     plt.show()
     xvals1 = np.array(xvals1, dtype=np.int_)
     xvals2 = np.array(xvals2, dtype=np.int_)
@@ -876,7 +876,7 @@ def select_beam_edges_hairlines(
     )
     approxHairlines = np.sort(approxHairlines)
     # Clean up hairlines by finding subpixel line center
-    hairlines = np.array([find_line_core(averageYProfile[int(i-3):int(i+4)]) for i in approxHairlines])
+    hairlines = np.array([find_line_core(averageYProfile[int(i-3):int(i+4)]) + i - 3 for i in approxHairlines])
     return beamEdges, slitEdges, hairlines
 
 
