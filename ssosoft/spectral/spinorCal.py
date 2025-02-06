@@ -1754,8 +1754,14 @@ class SpinorCal:
                                    stepIndex, 0, 0, :,
                                    int(self.spinorLineCores[0] - x1):int(self.spinorLineCores[0]+x2)
                         ].copy()
-                        deskBeam[int(hairlines[0, 0] - 4):int(hairlines[0, 0] + 4)] = np.nan
-                        deskBeam[int(hairlines[0, 1] - 4):int(hairlines[0, 1] + 4)] = np.nan
+                        # Accidentally had this hardcoded for two hairlines per beam.
+                        # Not the case for FLIR necessarily, thanks to a slightly smaller chip
+                        for hair in hairlines[0]:
+                            hairMin = int(hair - 4)
+                            hairMax = int(hair + 4)
+                            hairMin = 0 if hairMin < 0 else hairMin
+                            hairMax = int(deskBeam.shape[0] - 1) if hairMax > deskBeam.shape[0] - 1 else hairMax
+                            deskBeam[hairMin:hairMax] = np.nan
                         spectral_skews[0, 0] = spex.spectral_skew(
                             deskBeam,
                             slit_reference=0.5, order=order
@@ -1764,8 +1770,12 @@ class SpinorCal:
                                    stepIndex, 1, 0, :,
                                    int(self.spinorLineCores[0] - x1):int(self.spinorLineCores[0] + x2)
                         ].copy()
-                        deskBeam[int(hairlines[0, 0] - 4):int(hairlines[0, 0] + 4)] = np.nan
-                        deskBeam[int(hairlines[0, 1] - 4):int(hairlines[0, 1] + 4)] = np.nan
+                        for hair in hairlines[0]:
+                            hairMin = int(hair - 4)
+                            hairMax = int(hair + 4)
+                            hairMin = 0 if hairMin < 0 else hairMin
+                            hairMax = int(deskBeam.shape[0] - 1) if hairMax > deskBeam.shape[0] - 1 else hairMax
+                            deskBeam[hairMin:hairMax] = np.nan
                         spectral_skews[1, 0] = spex.spectral_skew(
                             deskBeam,
                             slit_reference=0.5, order=order
