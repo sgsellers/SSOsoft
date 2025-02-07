@@ -1615,10 +1615,10 @@ class SpinorCal:
         )(np.arange(0, self.beamEdges[0, 1]-self.beamEdges[0, 0]))
 
         stepIndex = 0
-        with tqdm.tqdm(
+        with (tqdm.tqdm(
             total=total_slit_positions,
             desc="Reducing Science Map"
-        ) as pbar:
+        ) as pbar):
             for file in self.scienceFiles:
                 science_hdu = fits.open(file)
                 for i in range(1, len(science_hdu)):
@@ -1820,12 +1820,16 @@ class SpinorCal:
                     combined_beams[1, :, :] = crot*qtmp + srot*utmp
                     combined_beams[2, :, :] = -srot*qtmp + crot*utmp
 
+                    # Trying something new -- smoothing the combined beams before doing crosstalk.
+                    # Smoothing is heavier in y than lambda, since Q/U profiles in particular have
+                    # fine resolved structure.
+                    smoothed_beams = scind.median_filter(combined_beams, size=(1, 8, 4))
                     if self.crosstalkContinuum is not None:
                         # Shape 3xNY
                         i2quv = np.mean(
-                            combined_beams[1:, :, self.crosstalkContinuum[0]:self.crosstalkContinuum[1]] /
+                            smoothed_beams[1:, :, self.crosstalkContinuum[0]:self.crosstalkContinuum[1]] /
                             np.repeat(
-                                combined_beams[0, :,
+                                smoothed_beams[0, :,
                                     self.crosstalkContinuum[0]:self.crosstalkContinuum[1]][np.newaxis, :, :],
                                 3, axis=0
                             ), axis=2
@@ -1837,29 +1841,46 @@ class SpinorCal:
                         for j in range(combined_beams.shape[1]):
                             # I->QUV crosstalk correction
                             for k in range(1, 4):
-                                combined_beams[k, j, : ] = self.i2quv_crosstalk(
-                                    combined_beams[0, j, :],
-                                    combined_beams[k, j, :]
+                                corrected_profile, fit_params = self.i2quv_crosstalk(
+                                    smoothed_beams[0, j, :], smoothed_beams[k, j, :]
                                 )
+                                combined_beams[k, j, :] = (
+                                    combined_beams[k, j, :] - (
+                                        np.arange(combined_beams.shape[2])*fit_params[0] + fit_params[1]
+                                ) * combined_beams[0, j, :]
+                                )
+                                # combined_beams[k, j, : ] = self.i2quv_crosstalk(
+                                #     combined_beams[0, j, :],
+                                #     combined_beams[k, j, :]
+                                # )
                     # V->QU crosstalk correction
                     internal_crosstalks = np.zeros((3, combined_beams.shape[1]))
                     if self.v2q:
                         for j in range(combined_beams.shape[1]):
-                            combined_beams[1, j, :], internal_crosstalks[0, j] = self.v2qu_crosstalk(
-                                combined_beams[3, j, :],
-                                combined_beams[1, j, :]
+                            smoothed_profile, internal_crosstalks[0, j] = self.v2qu_crosstalk(
+                                smoothed_beams[3, j, :],
+                                smoothed_beams[1, j, :]
+                            )
+                            combined_beams[1, j, :] = (
+                                combined_beams[1, j, :] - internal_crosstalks[0, j] * combined_beams[3, j, :]
                             )
                     if self.v2u:
                         for j in range(combined_beams.shape[1]):
-                            combined_beams[2, j, :], internal_crosstalks[1, j] = self.v2qu_crosstalk(
-                                combined_beams[3, j, :],
-                                combined_beams[2, j, :]
+                            smoothed_profile, internal_crosstalks[1, j] = self.v2qu_crosstalk(
+                                smoothed_beams[3, j, :],
+                                smoothed_beams[2, j, :]
+                            )
+                            combined_beams[2, j, :] = (
+                                combined_beams[2, j, :] - internal_crosstalks[1, j] * combined_beams[3, j, :]
                             )
                     if self.u2v:
                         for j in range(combined_beams.shape[1]):
-                            combined_beams[3, j, :], internal_crosstalks[2, j] = self.v2qu_crosstalk(
-                                combined_beams[2, j, :],
-                                combined_beams[3, j, :]
+                            smoothed_profile, internal_crosstalks[2, j] = self.v2qu_crosstalk(
+                                smoothed_beams[2, j, :],
+                                smoothed_beams[3, j, :]
+                            )
+                            combined_beams[3, j, :] = (
+                                combined_beams[3, j, :] - internal_crosstalks[2, j] * combined_beams[2, j, :]
                             )
 
                     # Reverse the wavelength axis if required.
@@ -2825,7 +2846,7 @@ class SpinorCal:
 
         correctedQUV = stokesQUV - (np.arange(len(stokesI))*ilinearParams[0] + ilinearParams[1])*stokesI
 
-        return correctedQUV
+        return correctedQUV, ilinearParams
 
 
     @staticmethod
