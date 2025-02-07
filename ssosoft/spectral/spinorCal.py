@@ -2012,7 +2012,7 @@ class SpinorCal:
             for j in range(iquvCube.shape[1]):
                 # I->QUV crosstalk correction
                 for k in range(1, 4):
-                    iquvCube[k, j, :], crosstalkI2QUV[k, :, j] = self.i2quv_crosstalk(
+                    iquvCube[k, j, :], crosstalkI2QUV[k - 1, :, j] = self.i2quv_crosstalk(
                         iquvCube[0, j, :],
                         iquvCube[k, j, :]
                     )
