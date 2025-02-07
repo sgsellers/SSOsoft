@@ -5,7 +5,6 @@ import glob
 import matplotlib.pyplot as plt
 import matplotlib
 import numpy as np
-import numpy.typing as npt
 import os
 import scipy.ndimage as scind
 import scipy.interpolate as scinterp
@@ -583,7 +582,7 @@ class SpinorCal:
         return
 
 
-    def spinor_average_dark_from_hdul(self, hdulist: fits.HDUList) -> npt.NDArray:
+    def spinor_average_dark_from_hdul(self, hdulist: fits.HDUList) -> np.ndarray:
         """Computes an average dark image from a SPINOR fits file HDUList.
         Since SPINOR takes 4 dark frames at the start and end of a flat, lampflat,
         and polcal, but no separate dark files, the only way to get dark current is
@@ -617,7 +616,7 @@ class SpinorCal:
         return averageDark
 
 
-    def spinor_average_flat_from_hdul(self, hdulist: fits.HDUList) -> npt.NDArray:
+    def spinor_average_flat_from_hdul(self, hdulist: fits.HDUList) -> np.ndarray:
         """Computes an average flat image from a SPINOR fits file HDUList.
         Since SPINOR takes 4 dark frames at the start and end of a flat or lampflat,
         we need to process the whole file for flats and darks.
@@ -650,7 +649,7 @@ class SpinorCal:
         return averageFlat
 
 
-    def demodulate_spinor(self, poldata: npt.NDArray) -> npt.NDArray:
+    def demodulate_spinor(self, poldata: np.ndarray) -> np.ndarray:
         """
         Applies demodulation, and returns 4-array of IQUV
         Parameters
@@ -1062,7 +1061,7 @@ class SpinorCal:
 
 
     def spinor_fts_line_select(
-            self, gratingParams: npt.ArrayLike, averageProfile: npt.NDArray
+            self, gratingParams: np.rec.recarray, averageProfile: np.ndarray
     ) -> tuple[list, list, bool]:
         """
         Pops up the line selection widget for gain table creation and wavelength determination
@@ -1844,23 +1843,38 @@ class SpinorCal:
                     # V->QU crosstalk correction
                     internal_crosstalks = np.zeros((3, combined_beams.shape[1]))
                     if self.v2q:
+                        bulkV2QCrosstalk = self.internal_crosstalk_2d(
+                            combined_beams[1, :, :], combined_beams[3, :, :]
+                        )
+                        combined_beams[1, :, :] = combined_beams[1, :, :] - bulkV2QCrosstalk * combined_beams[3, :, :]
                         for j in range(combined_beams.shape[1]):
                             combined_beams[1, j, :], internal_crosstalks[0, j] = self.v2qu_crosstalk(
                                 combined_beams[3, j, :],
                                 combined_beams[1, j, :]
                             )
+                        internal_crosstalks[0] += bulkV2QCrosstalk
                     if self.v2u:
+                        bulkV2UCrosstalk = self.internal_crosstalk_2d(
+                            combined_beams[2, :, :], combined_beams[3, :, :]
+                        )
+                        combined_beams[2, :, :] = combined_beams[2, :, :] - bulkV2UCrosstalk * combined_beams[3, :, :]
                         for j in range(combined_beams.shape[1]):
                             combined_beams[2, j, :], internal_crosstalks[1, j] = self.v2qu_crosstalk(
                                 combined_beams[3, j, :],
                                 combined_beams[2, j, :]
                             )
+                        internal_crosstalks[1] += bulkV2UCrosstalk
                     if self.u2v:
+                        bulkU2VCrosstalk = self.internal_crosstalk_2d(
+                            combined_beams[3, :, :], combined_beams[2, :, :]
+                        )
+                        combined_beams[3, :, :] = combined_beams[3, :, :] - bulkU2VCrosstalk * combined_beams[2, :, :]
                         for j in range(combined_beams.shape[1]):
                             combined_beams[3, j, :], internal_crosstalks[2, j] = self.v2qu_crosstalk(
                                 combined_beams[2, j, :],
                                 combined_beams[3, j, :]
                             )
+                        internal_crosstalks[2] += bulkU2VCrosstalk
 
                     # Reverse the wavelength axis if required.
                     combined_beams = combined_beams[:, :, ::self.flipWaveIdx]
@@ -1973,7 +1987,7 @@ class SpinorCal:
 
 
     def set_up_live_plot(
-            self, fieldImages: npt.NDArray, slitImages: npt.NDArray, internalCrosstalks: npt.NDArray,
+            self, fieldImages: np.ndarray, slitImages: np.ndarray, internalCrosstalks: np.ndarray,
             dy: float, dx:float
     ) -> tuple:
         """
@@ -2138,7 +2152,7 @@ class SpinorCal:
             )
             v2qAx.set_xlim(-1.05, 1.05)
             v2qAx.set_ylim(0, internalCrosstalks.shape[1])
-            v2qAx.set_title("V->U Crosstalk")
+            v2qAx.set_title("V->Q Crosstalk")
             v2qAx.set_ylabel("Position Along Slit")
 
             v2u = v2uAx.plot(
@@ -2176,7 +2190,7 @@ class SpinorCal:
             slitU: matplotlib.image.AxesImage, slitV: matplotlib.image.AxesImage,
             crosstalkFig: matplotlib.pyplot.figure, v2q: matplotlib.image.AxesImage,
             v2u: matplotlib.image.AxesImage, u2v: matplotlib.image.AxesImage,
-            fieldImages: npt.NDArray, slitImages: npt.NDArray, internalCrosstalks: npt.NDArray,
+            fieldImages: np.ndarray, slitImages: np.ndarray, internalCrosstalks: np.ndarray,
             step: int
     ) -> None:
         """
@@ -2282,7 +2296,7 @@ class SpinorCal:
         return
 
 
-    def package_scan(self, datacube: npt.NDArray, wavelength_array: npt.NDArray) -> str:
+    def package_scan(self, datacube: np.ndarray, wavelength_array: np.ndarray) -> str:
         """
         Packages reduced scan into FITS HDUList. HDUList has 7 extensions:
             1.) Empty data attr with top-level header info
@@ -2580,8 +2594,8 @@ class SpinorCal:
 
 
     def spinor_analysis(
-            self, datacube: npt.NDArray, boundIndices: npt.NDArray
-    ) -> tuple[npt.NDArray, list, list, npt.NDArray, npt.NDArray]:
+            self, datacube: np.ndarray, boundIndices: np.ndarray
+    ) -> tuple[np.ndarray, list, list, np.ndarray, np.ndarray]:
         """
         Performs moment analysis, determines mean circular/linear polarization, and net circular polarization
         maps for each of the given spectral windows. See Martinez Pillet et.al., 2011 discussion of mean polarization
@@ -2665,8 +2679,8 @@ class SpinorCal:
 
 
     def package_analysis(
-            self, analysis_maps: npt.NDArray, rwvls: list, indices: list,
-            meanProfile: npt.NDArray, wavelengthArray: npt.NDArray, reference_file: str
+            self, analysis_maps: np.ndarray, rwvls: list, indices: list,
+            meanProfile: np.ndarray, wavelengthArray: np.ndarray, reference_file: str
     ) -> str:
         """
         Write SPINOR first-order analysis maps to FITS file.
@@ -2777,7 +2791,7 @@ class SpinorCal:
 
 
     @staticmethod
-    def i2quv_crosstalk(stokesI: npt.NDArray, stokesQUV: npt.NDArray) -> npt.NDArray:
+    def i2quv_crosstalk(stokesI: np.ndarray, stokesQUV: np.ndarray) -> np.ndarray:
         """
         Corrects for Stokes-I => QUV crosstalk. In the old pipeline, this was done by
         taking the ratio of a continuum section in I, and in QUV, then subtracting
@@ -2829,7 +2843,7 @@ class SpinorCal:
 
 
     @staticmethod
-    def v2qu_crosstalk(stokesV: npt.NDArray, stokesQU: npt.NDArray) -> npt.NDArray:
+    def v2qu_crosstalk(stokesV: np.ndarray, stokesQU: np.ndarray) -> np.ndarray:
         """
         Contrary to I->QUV crosstalk, we want the Q/U profiles to be dissimilar to V.
         Q in particular is HEAVILY affected by crosstalk from V.
@@ -2873,8 +2887,58 @@ class SpinorCal:
 
         return correctedQU, v2qu_crosstalk
 
+    @staticmethod
+    def internal_crosstalk_2d(baseImage: np.ndarray, contaminationImage: np.ndarray) -> float:
+        """
+        Determines a single crosstalk value for a pair of 2D images.
+        Minimizes the linear correlation between:
+            baseImage - crosstalkValue * contaminationImage
+                and
+            contaminationImage
+        The v2qu_crosstalk function should be used for individual vectors (uses cosine similarity,
+        which scales to 2D poorly). This should be used as an inital guess, with v2qu_crosstalk providing
+        fine corrections.
 
-    def tweak_wavelength_calibration(self, referenceProfile: npt.NDArray) -> npt.NDArray:
+        Parameters
+        ----------
+        baseImage : numpy.ndarray
+            2D image of a spatially-resolved Stokes vector
+        contaminationImage : numpy.ndarray
+            2D image of a different spatially-resolved Stokes vector that is contaminating baseImage
+
+        Returns
+        -------
+        crosstalkValue : float
+            Value that, when baseImage - crosstalkValue*contaminationImage is considered, minimizes correlation
+        """
+        def model_function(param, contam, img):
+            """Fit model"""
+            return img - param * contam
+        def error_function(param, contam, img):
+            """Error function
+            We'll use cosine similarity for this, as a cosine similarity of 0
+            should indicate completely orthogonal, i.e., dissimilar vectors
+            """
+            contam_corr = model_function(param, contam, img)
+            linCorr = np.nansum(contam_corr * contam) / np.sqrt(np.nansum(contam_corr**2) * np.nansum(contam**2))
+
+            return linCorr
+        # Clean up array for correlation
+        baseImage = np.abs(baseImage) - np.nanmean(np.abs(baseImage))
+        contaminationImage = np.abs(contaminationImage) - np.nanmean(np.abs(contaminationImage))
+        fit_result = scopt.least_squares(
+            error_function,
+            x0=0,
+            args=[contaminationImage[50:-50, 50:-50], baseImage[50:-50, 50:-50]],
+            bounds=[-1, 1]
+        )
+
+        crosstalkValue = fit_result.x
+
+        return crosstalkValue
+
+
+    def tweak_wavelength_calibration(self, referenceProfile: np.ndarray) -> np.ndarray:
         """
         Determines wavelength array from grating parameters and FTS reference
 
@@ -2970,7 +3034,7 @@ class SpinorCal:
         return coordinateAngles
 
 
-    def get_telescope_matrix(self, telescopeGeometry: npt.NDArray) -> npt.NDArray:
+    def get_telescope_matrix(self, telescopeGeometry: np.ndarray) -> np.ndarray:
         """
         Gets telescope matrix from IDL save (2010 matrix) or numpy save (TBD, hopefully we measure it in the future)
         file. Returns the Mueller matrix of the telescope from these measurements.
@@ -3085,7 +3149,7 @@ class SpinorCal:
 
     @staticmethod
     def determine_spectrum_flip(
-            fts_spec: npt.NDArray, spinor_spex: npt.NDArray, spinPixPerFTSPix: float,
+            fts_spec: np.ndarray, spinor_spex: np.ndarray, spinPixPerFTSPix: float,
             spinorCores: list, ftsCores: list
     ) -> bool:
         """
@@ -3135,7 +3199,7 @@ class SpinorCal:
 
 
     @staticmethod
-    def despike_image(image: npt.NDArray, footprint: tuple=(5, 1), spikeRange: tuple=(0.75, 1.25)) -> npt.NDArray:
+    def despike_image(image: np.ndarray, footprint: tuple=(5, 1), spikeRange: tuple=(0.75, 1.25)) -> np.ndarray:
         """Removes spikes in image caused by cosmic rays, hot pixels, etc. Works off median filtering image.
         Placeholder for now. Will be replaced by a more robust function in the future.
 
