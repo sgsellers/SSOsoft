@@ -275,7 +275,7 @@ class SpinorCal:
                 plt.pause(2)
                 plt.close("all")
             self.scienceFiles = self.scienceMapFileList[index]
-            self.reduce_spinor_maps()
+            self.reduce_spinor_maps(index)
         return
 
 
@@ -1552,13 +1552,18 @@ class SpinorCal:
         return
 
 
-    def reduce_spinor_maps(self) -> None:
+    def reduce_spinor_maps(self, index: str) -> None:
         """
         Performs reduction of SPINOR science data maps.
         Applies Dark Current, Lamp Gain, Solar Gain Corrections
         Applies inverse spectrograph correction matric and telescope correction matrix to data.
         Corrects QU for parallactic angle.
         Performs simple I->QUV crosstalk estimation, and (optionally) V<-->QU crosstalk estimation.
+
+        Paramters
+        ---------
+        index: int
+            Index of the map currently being reduced. Used in naming the crosstalk file
 
         Returns
         -------
@@ -1603,6 +1608,15 @@ class SpinorCal:
             4,
             self.beamEdges[0, 1] - self.beamEdges[0, 0],
             self.slitEdges[1] - self.slitEdges[0]
+        ))
+        completeI2QUVCrosstalk = np.zeros((
+            total_slit_positions,
+            3, 2, self.beamEdges[0, 1] - self.beamEdges[0, 0]
+        ))
+        completeInternalCrosstalks = np.zeros((
+            total_slit_positions,
+            3,
+            self.beamEdges[0, 1] - self.beamEdges[0, 0]
         ))
         shift = self.beam1Yshift if self.beam1Yshift else 0
 
@@ -1819,67 +1833,16 @@ class SpinorCal:
                     combined_beams[1, :, :] = crot*qtmp + srot*utmp
                     combined_beams[2, :, :] = -srot*qtmp + crot*utmp
 
-                    if self.crosstalkContinuum is not None:
-                        # Shape 3xNY
-                        i2quv = np.mean(
-                            combined_beams[1:, :, self.crosstalkContinuum[0]:self.crosstalkContinuum[1]] /
-                            np.repeat(
-                                combined_beams[0, :,
-                                    self.crosstalkContinuum[0]:self.crosstalkContinuum[1]][np.newaxis, :, :],
-                                3, axis=0
-                            ), axis=2
-                        )
-                        combined_beams[1:] = combined_beams[1:] - np.repeat(
-                            i2quv[:, :, np.newaxis], combined_beams.shape[2], axis=2
-                        )
-                    else:
-                        for j in range(combined_beams.shape[1]):
-                            # I->QUV crosstalk correction
-                            for k in range(1, 4):
-                                combined_beams[k, j, : ] = self.i2quv_crosstalk(
-                                    combined_beams[0, j, :],
-                                    combined_beams[k, j, :]
-                                )
-                    # V->QU crosstalk correction
-                    internal_crosstalks = np.zeros((3, combined_beams.shape[1]))
-                    if self.v2q:
-                        bulkV2QCrosstalk = self.internal_crosstalk_2d(
-                            combined_beams[1, :, :], combined_beams[3, :, :]
-                        )
-                        combined_beams[1, :, :] = combined_beams[1, :, :] - bulkV2QCrosstalk * combined_beams[3, :, :]
-                        for j in range(combined_beams.shape[1]):
-                            combined_beams[1, j, :], internal_crosstalks[0, j] = self.v2qu_crosstalk(
-                                combined_beams[3, j, :],
-                                combined_beams[1, j, :]
-                            )
-                        internal_crosstalks[0] += bulkV2QCrosstalk
-                    if self.v2u:
-                        bulkV2UCrosstalk = self.internal_crosstalk_2d(
-                            combined_beams[2, :, :], combined_beams[3, :, :]
-                        )
-                        combined_beams[2, :, :] = combined_beams[2, :, :] - bulkV2UCrosstalk * combined_beams[3, :, :]
-                        for j in range(combined_beams.shape[1]):
-                            combined_beams[2, j, :], internal_crosstalks[1, j] = self.v2qu_crosstalk(
-                                combined_beams[3, j, :],
-                                combined_beams[2, j, :]
-                            )
-                        internal_crosstalks[1] += bulkV2UCrosstalk
-                    if self.u2v:
-                        bulkU2VCrosstalk = self.internal_crosstalk_2d(
-                            combined_beams[3, :, :], combined_beams[2, :, :]
-                        )
-                        combined_beams[3, :, :] = combined_beams[3, :, :] - bulkU2VCrosstalk * combined_beams[2, :, :]
-                        for j in range(combined_beams.shape[1]):
-                            combined_beams[3, j, :], internal_crosstalks[2, j] = self.v2qu_crosstalk(
-                                combined_beams[2, j, :],
-                                combined_beams[3, j, :]
-                            )
-                        internal_crosstalks[2] += bulkU2VCrosstalk
+                    combined_beams, i2quvCrosstalk, internal_crosstalks = self.solve_spinor_crosstalks(
+                        combined_beams
+                    )
 
                     # Reverse the wavelength axis if required.
                     combined_beams = combined_beams[:, :, ::self.flipWaveIdx]
 
                     reducedData[stepIndex] = combined_beams
+                    completeI2QUVCrosstalk[stepIndex] = i2quvCrosstalk
+                    completeInternalCrosstalks[stepIndex] = internal_crosstalks
 
                     # Choose lines for analysis. Use same method of choice as hsgCal, where user sets
                     # approx. min/max, the code changes the bounds, and
@@ -1961,6 +1924,7 @@ class SpinorCal:
         reducedData = np.swapaxes(reducedData, 0, 2)
 
         reduced_filename = self.package_scan(reducedData, approxWavelengthArray)
+        crosstalk_filename = self.package_crosstalks(completeI2QUVCrosstalk, completeInternalCrosstalks, index)
         parameter_maps, referenceWavelengths, tweakedIndices, meanProfile, wavelengthArray = self.spinor_analysis(
             reducedData, mapIndices
         )
@@ -1977,6 +1941,7 @@ class SpinorCal:
             print("\n\n=====================")
             print("Saved Reduced Data at: {0}".format(reduced_filename))
             print("Saved Parameter Maps at: {0}".format(param_filename))
+            print("Saved Crosstalk Coefficients at: {0}".format(crosstalk_filename))
             print("=====================\n\n")
 
         if self.plot:
@@ -1984,6 +1949,169 @@ class SpinorCal:
             plt.close("all")
 
         return
+
+
+    def solve_spinor_crosstalks(self, iquvCube: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Wrapper for all crosstalk solving terms in reduce_spinor_maps.
+
+        This is done both for cleanliness, and because many of the methods contained within
+        are static. An additional benefit is the ability to write crosstalk files for the user to check the
+        quality of corrections and revert them if desired.
+
+        In a future release, this function could be expanded to omit "self" in favor of
+        a more complete set of keyword argument switches. At that point, this and the other crosstalk
+        functions could be moved to top-level and parallelized using either dask.delayed or dask array
+        calls.
+
+        The original, iquvCube[1:] can be recovered by performing the following operations:
+        1.) Undo U -> V
+            iquvCube[3] += np.repeat(internalCrosstalk[2, :, np.newaxis], iquvCube.shape[2], axis=-1) * iquvCube[2]
+        2.) Undo V -> U
+            iquvCube[2] += np.repeat(internalCrosstalk[1, :, np.newaxis], iquvCube.shape[2], axis=-1) * iquvCube[3]
+        3.) Undo V -> Q
+            iquvCube[1] += np.repeat(internalCrosstalk[0, :, np.newaxis], iquvCube.shape[2], axis=-1) * iquvCube[3]
+        4.) Undo I -> QUV
+            iquvCube[1:] += (np.repeat(crosstalkI2QUV[:, 0, :, np.newaxis], iquvCube.shape[2], axis=-1) *
+                    np.arange(iquvCube.shape[2] +
+                    np.repeat(crosstalkI2QUV[:, 1, :, np.newaxis], iquvCube.shape[2], axis=-1)) *
+                np.repeat(iquvCube[0][np.newaxis, :, :], 3, axis=0)
+
+        Parameters
+        ----------
+        iquvCube : numpy.ndarray
+            Mostly-corrected 3D array of a combined full-Stokes slit image. Should have shape (4, ny, nlambda)
+
+        Returns
+        -------
+        iquvCube : numpy.ndarray
+            Shape (4, ny, nlamba), crosstalk-isolated datacube.
+        crosstalkI2QUV : numpy.ndarray
+            Has shape (3, 2, ny), contains I->QUV crosstalk coefficients.
+        internalCrosstalk : numpy.ndarray
+            Has shape (3, ny), contains V->Q, V->U, U->V crosstalks
+        """
+
+        crosstalkI2QUV = np.zeros((3, 2, iquvCube.shape[1]))
+        internalCrosstalk = np.zeros((3, iquvCube.shape[1]))
+
+        if self.crosstalkContinuum is not None:
+            # Shape 3xNY
+            i2quv = np.mean(
+                iquvCube[1:, :, self.crosstalkContinuum[0]:self.crosstalkContinuum[1]] /
+                np.repeat(
+                    iquvCube[0, :, self.crosstalkContinuum[0]:self.crosstalkContinuum[1]][np.newaxis, :, :],
+                    3, axis=0
+                ), axis=2
+            )
+            iquvCube[1:] = iquvCube[1:] - np.repeat(
+                i2quv[:, :, np.newaxis], iquvCube.shape[2], axis=2
+            ) * np.repeat(iquvCube[0][np.newaxis, :, :], 3, axis=0)
+            crosstalkI2QUV[:, 1, :] = i2quv
+        else:
+            for j in range(iquvCube.shape[1]):
+                # I->QUV crosstalk correction
+                for k in range(1, 4):
+                    iquvCube[k, j, :], crosstalkI2QUV[k, :, j] = self.i2quv_crosstalk(
+                        iquvCube[0, j, :],
+                        iquvCube[k, j, :]
+                    )
+        # V->QU crosstalk correction
+        if self.v2q:
+            bulkV2QCrosstalk = self.internal_crosstalk_2d(
+                iquvCube[1, :, :], iquvCube[3, :, :]
+            )
+            iquvCube[1, :, :] = iquvCube[1, :, :] - bulkV2QCrosstalk * iquvCube[3, :, :]
+            for j in range(iquvCube.shape[1]):
+                iquvCube[1, j, :], internalCrosstalk[0, j] = self.v2qu_crosstalk(
+                    iquvCube[3, j, :],
+                    iquvCube[1, j, :]
+                )
+            internalCrosstalk[0] += bulkV2QCrosstalk
+        if self.v2u:
+            bulkV2UCrosstalk = self.internal_crosstalk_2d(
+                iquvCube[2, :, :], iquvCube[3, :, :]
+            )
+            iquvCube[2, :, :] = iquvCube[2, :, :] - bulkV2UCrosstalk * iquvCube[3, :, :]
+            for j in range(iquvCube.shape[1]):
+                iquvCube[2, j, :], internalCrosstalk[1, j] = self.v2qu_crosstalk(
+                    iquvCube[3, j, :],
+                    iquvCube[2, j, :]
+                )
+            internalCrosstalk[1] += bulkV2UCrosstalk
+        if self.u2v:
+            bulkU2VCrosstalk = self.internal_crosstalk_2d(
+                iquvCube[3, :, :], iquvCube[2, :, :]
+            )
+            iquvCube[3, :, :] = iquvCube[3, :, :] - bulkU2VCrosstalk * iquvCube[2, :, :]
+            for j in range(iquvCube.shape[1]):
+                iquvCube[3, j, :], internalCrosstalk[2, j] = self.v2qu_crosstalk(
+                    iquvCube[2, j, :],
+                    iquvCube[3, j, :]
+                )
+            internalCrosstalk[2] += bulkU2VCrosstalk
+
+        return iquvCube, crosstalkI2QUV, internalCrosstalk
+
+
+    def package_crosstalks(self, i2quvCrosstalks: np.ndarray, internalCrosstalks: np.ndarray, index: int) -> str:
+        """
+        Places Stokes-vector crosstalk parameters in a file for interested end users.
+
+        Parameters
+        ----------
+        i2quvCrosstalks : numpy.ndarray
+            Array of shape (nx, 3, 2, ny) of I->QUV crosstalk parameters.
+            The option exists to use a 1D fit for crosstalk, hence the 2-axis, where the 2 entries are "m" and "b"
+            in y=mx+b
+        internalCrosstalks : numpy.ndarray
+            Array of shape (nx, 3, ny) of internal crosstalk. (:, 0, :) is V->Q, (:, 1, :) is V->U, (:, 2, :) is U->V
+        index : int
+            For formatting the output filename
+
+        Returns
+        -------
+        crosstalkFile : str
+            Name of file where crosstalk parameters are stored.
+
+        """
+        ext0 = fits.PrimaryHDU()
+        ext0.header['DATE'] = (np.datetime64('now').astype(str), "File Creation Date and Time")
+        ext0.header['ORIGIN'] = "NMSU/SSOC"
+        if self.crosstalkContinuum is not None:
+            ext0.header['I2QUV'] = ("CONST", "0-D I2QUV Crosstalk")
+        else:
+            ext0.header['I2QUV'] = ("1DFIT", "1-D I2QUV Crosstalk")
+        ext0.header['V2Q'] = (int(self.v2q), "1 if V->Q Calculated, else 0")
+        ext0.header['V2U'] = (int(self.v2u), "1 if V->U Calculated, else 0")
+        ext0.header['U2V'] = (int(self.u2v), "1 if U->V Calculated, else 0")
+        ext0.header['COMMENT'] = "Crosstalks applied in order:"
+        ext0.header['COMMENT'] = "I->QUV"
+        ext0.header['COMMENT'] = "V->Q"
+        ext0.header['COMMENT'] = "V->U"
+        ext0.header['COMMENT'] = "U->V"
+
+        i2quvExt = fits.ImageHDU(i2quvCrosstalks)
+        i2quvExt.header['EXTNAME'] = "I2QUV"
+        i2quvExt.header[""] = "<QUV> = <QUV> - (coef[0]*[0, 1, ... nlambda] + coef[1]) * I"
+
+        v2qExt = fits.ImageHDU(internalCrosstalks[:, 0, :])
+        v2qExt.header['EXTNAME'] = "V2Q"
+        v2qExt.header[""] = "Q = Q - coef*V"
+
+        v2uExt = fits.ImageHDU(internalCrosstalks[:, 1, :])
+        v2uExt.header['EXTNAME'] = "V2U"
+        v2uExt.header[""] = "U = U - coef*V"
+
+        u2vExt = fits.ImageHDU(internalCrosstalks[:, 2, :])
+        u2vExt.header['EXTNAME'] = "U2V"
+        u2vExt.header[""] = "V = V - coef*U"
+
+        hdul = fits.HDUList([ext0, i2quvExt, v2qExt, v2uExt, u2vExt])
+        filename = "{0}_MAP_{1}_CROSSTALKS.fits".format(self.camera, index)
+        crosstalkFile = os.path.join(self.finalDir, filename)
+        hdul.writeto(crosstalkFile, overwrite=True)
+        return crosstalkFile
 
 
     def set_up_live_plot(
@@ -2134,7 +2262,7 @@ class SpinorCal:
             fieldVAx[j].set_xlabel("Extent [arcsec]")
             fieldVAx[j].set_title("Integrated Stokes-V")
 
-        if not self.v2q and not self.v2q and not self.v2u:
+        if not any((self.v2q, self.v2q, self.v2u)):
 
             plt.show(block=False)
             plt.pause(0.05)
@@ -2839,7 +2967,7 @@ class SpinorCal:
 
         correctedQUV = stokesQUV - (np.arange(len(stokesI))*ilinearParams[0] + ilinearParams[1])*stokesI
 
-        return correctedQUV
+        return correctedQUV, ilinearParams
 
 
     @staticmethod
@@ -2878,7 +3006,7 @@ class SpinorCal:
             error_function,
             x0=0,
             args=[stokesV[50:-50], stokesQU[50:-50]],
-            bounds=[-0.25, 0.25]
+            bounds=[-0.5, 0.5]
         )
 
         v2qu_crosstalk = fit_result.x
