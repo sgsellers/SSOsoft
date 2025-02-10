@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import re
+import warnings
 
 from sunpy.coordinates import frames
 import astropy.units as u
@@ -617,17 +618,28 @@ class rosaZylaCal:
                 orderList = [''] * len(fList)  ## List length same as fList
                 ptrn = '[0-9]+'  # Match any digit one or more times.
                 p = re.compile(ptrn)
+                flag = 0
                 for f in fList:
                     head, tail = os.path.split(f)
                     match = p.match(tail)
                     if match:
                         digitNew = match.group()[::-1]
+                        # Added 2025-02-10 to skip any missing files and warn user
+                        if int(digitNew) >= len(orderList):
+                            flag += 1
+                            continue
                         orderList[int(digitNew)] = f
                     else:
                         self.logger.error(
                             "Unexpected filename format: "
                             "{0}".format(f)
                         )
+                if flag != 0:
+                    for f in orderList:
+                        if f == "":
+                            flag += 1
+                    orderList = [f for f in orderList if f != ""]
+                    warnings.warn("WARNING: Zyla transfer error, {0} files missing".format(flag))
             if 'ROSA' in self.instrument:
                 fList.sort()
                 orderList = fList
