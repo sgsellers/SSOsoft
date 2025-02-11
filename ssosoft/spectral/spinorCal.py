@@ -1740,9 +1740,9 @@ class SpinorCal:
                     # Do spectral skew
                     # Register hairlines to common index
                     # Altered 2025-02-05 to remove some hardcoded values for the range of the hairline
-                    hairline_minimum = int(hairlines[0, 0] - 7)
-                    hairline_delta = 14
-                    hairline_maximum = int(hairlines[0, 0] + 7)
+                    hairline_minimum = int(hairlines[0, 0] - 14)
+                    hairline_delta = 28
+                    hairline_maximum = int(hairlines[0, 0] + 14)
                     if hairline_minimum < 0:
                         hairline_minimum = 0
                         hairline_delta = int(2 * hairlines[0, 0])
