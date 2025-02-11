@@ -3300,12 +3300,26 @@ class SpinorCal:
 
         # As of 2025-01-31, this hasn't been particularly reliable.
         # Altering to clip spectra to the range between the selected lines.
+        # 2025-02-11, Still has trouble with broad profiles with few features.
+        # Going to increase the range used slightly and alter the normalization
+        # New norm should put approx half the profile negative, half positive.
         spinor_spex /= spinor_spex.max()
-        spinor_spex = spinor_spex[sorted(spinorCores)[0]:sorted(spinorCores)[1]]
+        spinor_spex -= (spinor_spex.max() + spinor_spex.min())/2
+        spinorEdgePad = 10
+        # Edge case cleaning just in case one of the selected lines is near the edge
+        if (min(spinorCores) > 10) & (spinor_spex.shape[0] - 10 > max(spinorCores)):
+            # Pad out to the edge of the beam
+            spinorEdgePad = min([min(spinorCores), spinor_spex.shape[0] - max(spinorCores)])
+
+        spinor_spex = spinor_spex[min(spinorCores) - spinorEdgePad:max(spinorCores) + spinorEdgePad]
+
+        ftsEdgePad = int(spinorEdgePad / spinPixPerFTSPix)
+        fts_spec -= (fts_spec.max() + fts_spec.min()) / 2
+        fts_spec = fts_spec[int(min(ftsCores) - ftsEdgePad):int(max(ftsCores) + ftsEdgePad)]
 
         fts_interp = scinterp.interp1d(
-            np.arange(len(fts_spec[int(sorted(ftsCores)[0]):int(sorted(ftsCores)[1])])),
-            fts_spec[int(sorted(ftsCores)[0]):int(sorted(ftsCores)[1])],
+            np.arange(fts_spec.shape[0]),
+            fts_spec,
             kind='linear',
             fill_value='extrapolate'
         )(np.arange(len(spinor_spex)))
