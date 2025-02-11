@@ -1646,7 +1646,6 @@ class SpinorCal:
                 elif ("r" in remakeFile.lower()) and self.verbose:
                     print("Remaking file with user-specified corrections. This may take some time.")
 
-        # fuq yea science beam
         science_beams = np.zeros((
             total_slit_positions,
             2,
