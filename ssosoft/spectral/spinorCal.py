@@ -1769,7 +1769,7 @@ class SpinorCal:
                     hairline_maximum = int(hairlines[0, 0] + offsets[0] + hairline_delta/2)
                     if hairline_minimum < 0:
                         hairline_minimum = 0
-                        harline_maximum = hairline_delta
+                        harline_maximum = hairline_delta + 1
                     if hairline_maximum > tmp_beams.shape[1]:
                         hairline_minimum = tmp_beams.shape[1] - hairline_delta
                         hairline_maximum = -1
