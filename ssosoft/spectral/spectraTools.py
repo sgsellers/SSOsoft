@@ -683,6 +683,8 @@ def detect_beams_hairlines(
             hairline_ends.append(peak)
         else:
             edges.append(peak)
+    # This should return same sized lists for hairline_starts and hairline_ends. In case it isn't:
+    hairline_ends = hairline_ends[:len(hairline_starts)]
     # Sort the beam edges
     # Should also pad with 0 and -1 if there's no gap between the beam and the detector edge
     # We'll do this by checking if the first edge is < 100, and adding 0 as the first edge if it isn't
