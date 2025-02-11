@@ -1809,11 +1809,11 @@ class SpinorCal:
                     ) - spex.find_line_core(meanHairlineProfiles[1])
                     for j in range(hairline_skews.shape[1]):
                         science_beams[stepIndex, 0, :, :, j] = scind.shift(
-                            science_beams[stepIndex, 0, :, :, j], (0, -hairline_skews[0, j]),
+                            science_beams[stepIndex, 0, :, :, j], (0, hairline_skews[0, j]),
                             mode='nearest'
                         )
                         science_beams[stepIndex, 1, :, :, j] = scind.shift(
-                            science_beams[stepIndex, 1, :, :, j], (0, -hairline_skews[1, j] + bulkHairOffset),
+                            science_beams[stepIndex, 1, :, :, j], (0, hairline_skews[1, j] + bulkHairOffset),
                             mode='nearest'
                         )
                     # Reuse spectral lines from gain table creation to deskew...
