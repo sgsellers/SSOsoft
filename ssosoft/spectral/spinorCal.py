@@ -3307,7 +3307,7 @@ class SpinorCal:
         spinor_spex -= (spinor_spex.max() + spinor_spex.min())/2
         spinorEdgePad = 10
         # Edge case cleaning just in case one of the selected lines is near the edge
-        if (min(spinorCores) > 10) & (spinor_spex.shape[0] - 10 > max(spinorCores)):
+        if (min(spinorCores) < 10) & (spinor_spex.shape[0] - 10 < max(spinorCores)):
             # Pad out to the edge of the beam
             spinorEdgePad = min([min(spinorCores), spinor_spex.shape[0] - max(spinorCores)])
 
