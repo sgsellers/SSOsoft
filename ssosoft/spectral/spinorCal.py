@@ -690,7 +690,8 @@ class SpinorCal:
             with fits.open(self.lampFlatFile) as lhdul:
                 lampDark = self.spinor_average_dark_from_hdul(lhdul)
                 lampFlat = self.spinor_average_flat_from_hdul(lhdul)
-            self.lampGain = (lampFlat - lampDark) / np.nanmedian(lampFlat - lampDark)
+            cleanedLampFlat = self.clean_lamp_flat(lampFlat - lampDark)
+            self.lampGain = cleanedLampFlat / np.nanmedian(cleanedLampFlat)
             hdu = fits.PrimaryHDU(self.lampGain)
             hdu.header["DATE"] = np.datetime64("now").astype(str)
             hdu.header["COMMENT"] = "Created from file {0}".format(self.lampFlatFile)
@@ -701,6 +702,56 @@ class SpinorCal:
             warnings.warn("No lamp flat available. Reduced data may show strong internal fringes.")
 
         return
+
+
+    def clean_lamp_flat(self, lampFlatImage: np.ndarray) -> np.ndarray:
+        """
+        Cleans lamp flat image by finding hairlines and removing them via scipy.interpolate.griddata
+        Uses spectraTools.detect_beams_hairlines to get hairlines, replace them with NaNs and interpolate
+        over the NaNs.
+
+        Unfortunately griddata is one of those scipy functions that's just... really slow.
+        I'll keep researching faster methods. Might be worth modifying the solar gain routines to iteratively
+        remove hairlines in the same manner that the solar spectrum is removed.
+
+        Parameters
+        ----------
+        lampFlatImage : numpy.ndarray
+            Dark-subtracted lamp flat image
+
+        Returns
+        -------
+        cleanedLampFlatImage : numpy.ndarray
+            Lamp flat with hairlines removed
+
+        """
+
+        _, _, hairlines = spex.detect_beams_hairlines(
+            lampFlatImage,
+            threshold=self.beamThreshold, hairline_width=self.hairlineWidth,
+            expected_hairlines=self.nhair, expected_beams=2,
+            fallback=True # Hate relying on it, but safer for now
+        )
+        # Reset recursive counter since we'll need to use the function again later
+        spex.detect_beams_hairlines.num_calls=0
+        for line in hairlines:
+            # range + 1 to compensate for casting a float to an int
+            lampFlatImage[int(line - self.hairlineWidth):int(line + self.hairlineWidth + 1), :] = np.nan
+        x = np.arange(0, lampFlatImage.shape[1])
+        y = np.arange(0, lampFlatImage.shape[0])
+        maskedLampFlat = np.ma.masked_invalid(lampFlatImage)
+        xx, yy = np.meshgrid(x, y)
+        x1 = xx[~maskedLampFlat.mask]
+        y1 = yy[~maskedLampFlat.mask]
+        newFlat = maskedLampFlat[~maskedLampFlat.mask]
+        cleanedLampFlatImage = scinterp.griddata(
+            (x1, y1),
+            newFlat.ravel(),
+            (xx, yy),
+            method='nearest',
+            fill_value=np.nanmedian(lampFlatImage)
+        )
+        return cleanedLampFlatImage
 
 
     def spinor_get_solar_gain(self, index: int) -> None:
