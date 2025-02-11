@@ -3315,7 +3315,7 @@ class SpinorCal:
         fts_spec = fts_spec[int(min(ftsCores) - ftsEdgePad):int(max(ftsCores) + ftsEdgePad)]
 
         fts_interp = scinterp.interp1d(
-            np.arange(fts_spec.shape[0]),
+            np.arange(0, fts_spec.shape[0]*spinPixPerFTSPix, spinPixPerFTSPix),
             fts_spec,
             kind='linear',
             fill_value='extrapolate'
