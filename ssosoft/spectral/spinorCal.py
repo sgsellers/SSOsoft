@@ -1975,8 +1975,8 @@ class SpinorCal:
         # Perform spectral line deskew. Do this iteratively using gain table creation line.
         x1, x2 = 20, 21
         spectralSkews = np.zeros((5, 2, deskewedDualBeams.shape[1]))
-        for spiter in range(2):
-            order = 1 if spiter < 1 else 2
+        for spiter in range(5):
+            order = 2  if spiter < 2 else 2
             for beam in range(2):
                 spectralImage = deskewedDualBeams[
                     beam, :, int(self.spinorLineCores[0] - x1):int(self.spinorLineCores[0] + x2)
