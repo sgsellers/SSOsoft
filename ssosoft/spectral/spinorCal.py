@@ -1730,7 +1730,7 @@ class SpinorCal:
                                 )
                     # Perform alignment on deskewed beams
                     scienceBeams[1] = scind.shift(
-                        scienceBeams[1], (0, -np.diff(hairlineCenters), -np.diff(spectralCenters)),
+                        scienceBeams[1], (0, -np.diff(hairlineCenters)[0], -np.diff(spectralCenters)[0]),
                         mode='nearest'
                     )
                     # Perform master registration to 0th slit image.
@@ -1965,7 +1965,7 @@ class SpinorCal:
                 hairlineCenter[1] + np.diff(self.hairlines, axis=1)[1]
             )
         # Shift to common, deskewed center
-        deskewedDualBeams[1] = scind.shift(deskewedDualBeams[1], (-np.diff(hairlineCenter), 0), mode='nearest')
+        deskewedDualBeams[1] = scind.shift(deskewedDualBeams[1], (-np.diff(hairlineCenter)[0], 0), mode='nearest')
         # Perform spectral line deskew. Do this iteratively using gain table creation line.
         x1, x2 = 20, 21
         spectralSkews = np.zeros((5, 2, deskewedDualBeams.shape[1]))
