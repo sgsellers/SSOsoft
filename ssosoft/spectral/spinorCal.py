@@ -1731,7 +1731,7 @@ class SpinorCal:
                             for specProf in range(scienceBeams.shape[2]):
                                 scienceBeams[beam, :, specProf, :] = scind.shift(
                                     scienceBeams[beam, :, specProf, :],
-                                    (0, -spectralSkews[beam, spiter, specProf]),
+                                    (0, spectralSkews[beam, spiter, specProf]),
                                     mode='nearest'
                                 )
                     # Perform alignment on deskewed beams
@@ -1971,7 +1971,7 @@ class SpinorCal:
                 hairlineCenter[1] + np.diff(self.hairlines, axis=1)[1]
             )
         # Shift to common, deskewed center
-        deskewedDualBeams[1] = scind.shift(deskewedDualBeams[1], (-np.diff(hairlineCenter)[0], 0), mode='nearest')
+        deskewedDualBeams[1] = scind.shift(deskewedDualBeams[1], (np.diff(hairlineCenter)[0], 0), mode='nearest')
         # Perform spectral line deskew. Do this iteratively using gain table creation line.
         x1, x2 = 20, 21
         spectralSkews = np.zeros((5, 2, deskewedDualBeams.shape[1]))
@@ -2001,7 +2001,7 @@ class SpinorCal:
                 )
                 for prof in range(deskewedDualBeams.shape[1]):
                     deskewedDualBeams[beam, prof, :] = scind.shift(
-                        deskewedDualBeams[beam, prof, :], -spectralSkews[spiter, beam, prof], mode='nearest'
+                        deskewedDualBeams[beam, prof, :], spectralSkews[spiter, beam, prof], mode='nearest'
                     )
             x1 -= 3
             x2 -= 3
