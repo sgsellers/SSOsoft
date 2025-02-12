@@ -1950,10 +1950,10 @@ class SpinorCal:
         # Find bulk hairline center for full alignment
         hairlineCenter = (
             spex.find_line_core(
-                np.nanmedian(deskewedDualBeams[0, hairlineMinimum:hairlineMaximum, :], axis=2)
+                np.nanmedian(deskewedDualBeams[0, hairlineMinimum:hairlineMaximum, :], axis=1)
             ) + hairlineMinimum,
             spex.find_line_core(
-                np.nanmedian(deskewedDualBeams[1, hairlineMinimum:hairlineMaximum, :], axis=2)
+                np.nanmedian(deskewedDualBeams[1, hairlineMinimum:hairlineMaximum, :], axis=1)
             ) + hairlineMinimum
         )
         # For good measure (and masking) determine upper hairline approx. center
@@ -2004,13 +2004,13 @@ class SpinorCal:
             spex.find_line_core(
                 np.nanmedian(
                     deskewedDualBeams[0, :, int(self.spinorLineCores - 10): int(self.spinorLineCores + 10)],
-                    axis=1
+                    axis=0
                 )
             ) + int(self.spinorLineCores - 10),
             spex.find_line_core(
                 np.nanmedian(
                     deskewedDualBeams[1, :, int(self.spinorLineCores - 10): int(self.spinorLineCores + 10)],
-                    axis=1
+                    axis=0
                 )
             ) + int(self.spinorLineCores - 10),
         )
