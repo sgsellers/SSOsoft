@@ -2019,13 +2019,13 @@ class SpinorCal:
         spectralCenter = (
             spex.find_line_core(
                 np.nanmedian(
-                    cutoutBeams[0, :, int(self.spinorLineCores[0] - 10): int(self.spinorLineCores[0] + 10)],
+                    cutoutBeams[0, 0, :, int(self.spinorLineCores[0] - 10): int(self.spinorLineCores[0] + 10)],
                     axis=0
                 )
             ) + int(self.spinorLineCores[0] - 10),
             spex.find_line_core(
                 np.nanmedian(
-                    cutoutBeams[1, :, int(self.spinorLineCores[0] - 10): int(self.spinorLineCores[0] + 10)],
+                    cutoutBeams[1, 0, :, int(self.spinorLineCores[0] - 10): int(self.spinorLineCores[0] + 10)],
                     axis=0
                 )
             ) + int(self.spinorLineCores[0] - 10),
