@@ -1718,9 +1718,15 @@ class SpinorCal:
                         for hairProf in range(scienceBeams.shape[3]):
                             scienceBeams[beam, :, :, hairProf] = scind.shift(
                                 scienceBeams[beam, :, :, hairProf],
-                                (0, -hairlineSkews[beam, hairProf]),
+                                (0, hairlineSkews[beam, hairProf]),
                                 mode='nearest'
                             )
+                    # Perform alignment on deskewed beams
+                    scienceBeams[1] = scind.shift(
+                        scienceBeams[1], (0, np.diff(hairlineCenters)[0], 0),
+                        mode='nearest'
+                    )
+                    for beam in range(scienceBeams.shape[0]):
                         for spiter in range(spectralSkews.shape[1]):
                             for specProf in range(scienceBeams.shape[2]):
                                 scienceBeams[beam, :, specProf, :] = scind.shift(
@@ -1730,7 +1736,7 @@ class SpinorCal:
                                 )
                     # Perform alignment on deskewed beams
                     scienceBeams[1] = scind.shift(
-                        scienceBeams[1], (0, -np.diff(hairlineCenters)[0], np.diff(spectralCenters)[0]),
+                        scienceBeams[1], (0, 0, np.diff(spectralCenters)[0]),
                         mode='nearest'
                     )
                     # Perform master registration to 0th slit image.
