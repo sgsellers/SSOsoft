@@ -1706,14 +1706,10 @@ class SpinorCal:
                     # correction done, due to hairline residuals. It *should* be safe to use the
                     # lamp gain, as the hairlines in that should've been cleaned up.
                     alignmentBeam = (np.mean(science_hdu[i].data, axis=0) - self.solarDark)/self.lampGain
-                    hairlineSkews, hairlineCenters, spectralSkews, spectralCenters = self.subpixel_align_spinor_beams(
+                    hairlineSkews, hairlineCenters = self.subpixel_hairline_align(
                         alignmentBeam
                     )
-                    # Common positions to register observation to.
-                    if stepIndex == 0:
-                        masterHairlineCenters = hairlineCenters
-                        masterSpectralLineCenters = spectralCenters
-                    # Perform deskew
+                    # Perform hairline deskew
                     for beam in range(scienceBeams.shape[0]):
                         for hairProf in range(scienceBeams.shape[3]):
                             scienceBeams[beam, :, :, hairProf] = scind.shift(
@@ -1721,24 +1717,25 @@ class SpinorCal:
                                 (0, -hairlineSkews[beam, hairProf]),
                                 mode='nearest'
                             )
-                    # Perform alignment on deskewed beams
+                    # Perform bulk hairline alignment on deskewed beams
                     scienceBeams[1] = scind.shift(
                         scienceBeams[1], (0, np.diff(hairlineCenters)[0], 0),
                         mode='nearest'
                     )
-                    for beam in range(scienceBeams.shape[0]):
-                        for spiter in range(spectralSkews.shape[1]):
-                            for specProf in range(scienceBeams.shape[2]):
-                                scienceBeams[beam, :, specProf, :] = scind.shift(
-                                    scienceBeams[beam, :, specProf, :],
-                                    (0, spectralSkews[beam, spiter, specProf]),
-                                    mode='nearest'
-                                )
-                    # Perform alignment on deskewed beams
+
+                    # Perform spectral deskew
+                    scienceBeams, spectralCenters = self.subpixel_spectral_align(scienceBeams, hairlineCenters)
+
+                    # Perform bulk spectral alignment on deskewed beams
                     scienceBeams[1] = scind.shift(
                         scienceBeams[1], (0, 0, np.diff(spectralCenters)[0]),
                         mode='nearest'
                     )
+
+                    # Common positions to register observation to.
+                    if stepIndex == 0:
+                        masterHairlineCenters = hairlineCenters.copy()
+                        masterSpectralLineCenters = spectralCenters.copy()
                     # Perform master registration to 0th slit image.
                     scienceBeams = scind.shift(
                         scienceBeams, (
@@ -1896,10 +1893,10 @@ class SpinorCal:
         return
 
 
-    def subpixel_align_spinor_beams(self, slitImage: np.ndarray) -> tuple[np.ndarray, tuple, np.ndarray, tuple]:
+    def subpixel_hairline_align(self, slitImage: np.ndarray) -> tuple[np.ndarray, tuple]:
         """
-        Performs subpixel alignment of two beams into a single image and returns the necessary translations.
-        Returns shift map for hairline alignment and spectral line alignment.
+        Performs subpixel hairline alignment of two beams into a single image and returns the necessary translations.
+        Returns shift map for hairline alignment.
 
         Parameters
         ----------
@@ -1912,10 +1909,6 @@ class SpinorCal:
             Array of shape (2, nx) containing subpixel shifts for hairline registration
         hairlineCenter : tuple
             Centers of the registered hairline. Should assist in getting an evenly-registered image across all slit pos.
-        spectralSkews : numpy.ndarray
-            Array of shape (5, 2, ny) containing subpixel shifts for hairline registration
-        spectralCenter : tuple
-            Centers of the registered spectral line. Assist in even registration across all slits.
         """
         beam0 = slitImage[self.beamEdges[0, 0]:self.beamEdges[0, 1], self.slitEdges[0]:self.slitEdges[1]]
         beam1 = np.flip(
@@ -1962,6 +1955,27 @@ class SpinorCal:
                 np.nanmedian(deskewedDualBeams[1, hairlineMinimum:hairlineMaximum, :], axis=1)
             ) + hairlineMinimum
         )
+
+        return hairlineSkews, hairlineCenter
+
+    def subpixel_spectral_align(self, cutoutBeams: np.ndarray, hairlineCenter: tuple) -> tuple[np.ndarray, float]:
+        """
+        Performs iterative deskew and align along the spectral axis.
+        Returns the aligned beam and spectral line center of the aligned beam.
+        Parameters
+        ----------
+        cutoutBeams : numpy.ndarray
+            Cut-out and vertically-aligned
+        hairlineCenter : tuple
+            Position of hairline in each beam for masking
+
+        Returns
+        -------
+        cutoutBeams : numpy.ndarray
+            Horizontally-aligned
+        lineCenter : numpy.ndarray
+            Position of line used for alignment. Can be used to register the entire image sequence
+        """
         # For good measure (and masking) determine upper hairline approx. center
         # From initial spacing between upper/lower hairline pairs.
         # FLIR may not have another set of hairlines.
@@ -1970,16 +1984,12 @@ class SpinorCal:
                 hairlineCenter[0] + np.diff(self.hairlines, axis=1)[0],
                 hairlineCenter[1] + np.diff(self.hairlines, axis=1)[1]
             )
-        # Shift to common, deskewed center
-        deskewedDualBeams[1] = scind.shift(deskewedDualBeams[1], (np.diff(hairlineCenter)[0], 0), mode='nearest')
-        # Perform spectral line deskew. Do this iteratively using gain table creation line.
         x1, x2 = 20, 21
-        spectralSkews = np.zeros((5, 2, deskewedDualBeams.shape[1]))
         for spiter in range(5):
             order = 2  if spiter < 2 else 2
             for beam in range(2):
-                spectralImage = deskewedDualBeams[
-                    beam, :, int(self.spinorLineCores[0] - x1):int(self.spinorLineCores[0] + x2)
+                spectralImage = cutoutBeams[
+                    beam, 0, :, int(self.spinorLineCores[0] - x1):int(self.spinorLineCores[0] + x2)
                 ].copy()
                 # Deskew function is written to cope with NaNs.
                 # It is NOT written to deal with a hairline.
@@ -1996,12 +2006,12 @@ class SpinorCal:
                     hairMin = 0 if hairMin < 0 else hairMin
                     hairMax = int(spectralImage.shape[0] - 1) if hairMax > spectralImage.shape[0] - 1 else hairMax
                     spectralImage[hairMin:hairMax, :] = np.nan
-                spectralSkews[spiter, beam, :] = spex.spectral_skew(
+                spectralSkews = spex.spectral_skew(
                     spectralImage, order=order, slit_reference=0.5
                 )
-                for prof in range(deskewedDualBeams.shape[1]):
-                    deskewedDualBeams[beam, prof, :] = scind.shift(
-                        deskewedDualBeams[beam, prof, :], spectralSkews[spiter, beam, prof], mode='nearest'
+                for prof in range(cutoutBeams.shape[2]):
+                    cutoutBeams[beam, :, prof, :] = scind.shift(
+                        cutoutBeams[beam, :, prof, :], (0, spectralSkews[prof]), mode='nearest'
                     )
             x1 -= 3
             x2 -= 3
@@ -2009,18 +2019,19 @@ class SpinorCal:
         spectralCenter = (
             spex.find_line_core(
                 np.nanmedian(
-                    deskewedDualBeams[0, :, int(self.spinorLineCores[0] - 10): int(self.spinorLineCores[0] + 10)],
+                    cutoutBeams[0, :, int(self.spinorLineCores[0] - 10): int(self.spinorLineCores[0] + 10)],
                     axis=0
                 )
             ) + int(self.spinorLineCores[0] - 10),
             spex.find_line_core(
                 np.nanmedian(
-                    deskewedDualBeams[1, :, int(self.spinorLineCores[0] - 10): int(self.spinorLineCores[0] + 10)],
+                    cutoutBeams[1, :, int(self.spinorLineCores[0] - 10): int(self.spinorLineCores[0] + 10)],
                     axis=0
                 )
             ) + int(self.spinorLineCores[0] - 10),
         )
-        return hairlineSkews, hairlineCenter, spectralSkews, spectralCenter
+        return cutoutBeams, spectralCenter
+
 
 
     def solve_spinor_crosstalks(self, iquvCube: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
