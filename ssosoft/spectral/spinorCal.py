@@ -1997,7 +1997,7 @@ class SpinorCal:
                     hairMax = int(spectralImage.shape[0] - 1) if hairMax > spectralImage.shape[0] - 1 else hairMax
                     spectralImage[hairMin:hairMax, :] = np.nan
                 spectralSkews[spiter, beam, :] = spex.spectral_skew(
-                    spectralImage, order=order
+                    spectralImage, order=order, slit_reference=0.5
                 )
                 for prof in range(deskewedDualBeams.shape[1]):
                     deskewedDualBeams[beam, prof, :] = scind.shift(
