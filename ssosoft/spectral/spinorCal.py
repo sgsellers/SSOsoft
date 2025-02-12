@@ -1719,7 +1719,7 @@ class SpinorCal:
                             )
                     # Perform bulk hairline alignment on deskewed beams
                     scienceBeams[1] = scind.shift(
-                        scienceBeams[1], (0, -np.diff(hairlineCenters)[0], 0),
+                        scienceBeams[1], (0, np.diff(hairlineCenters)[0], 0),
                         mode='nearest'
                     )
 
@@ -1740,7 +1740,7 @@ class SpinorCal:
                     scienceBeams = scind.shift(
                         scienceBeams, (
                             0, 0,
-                            (hairlineCenters[0] - masterHairlineCenters[0]),
+                            -(hairlineCenters[0] - masterHairlineCenters[0]),
                             (spectralCenters[0] - masterSpectralLineCenters[0])
                         ),
                         mode='nearest'
