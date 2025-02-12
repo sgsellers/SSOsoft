@@ -1921,9 +1921,9 @@ class SpinorCal:
         dualBeams = np.stack([beam0, beam1], axis=0)
         deskewedDualBeams = dualBeams.copy()
         deskewHairline = self.hairlines[0, 0]
-        hairlineMinimum = deskewHairline - 14
+        hairlineMinimum = int(deskewHairline - 14)
         hairlineDelta = 28
-        hairlineMaximum = deskewHairline + 14
+        hairlineMaximum = int(deskewHairline + 14)
         if hairlineMinimum < 0:
             hairlineMinimum = 0
             hairlineDelta = int(2*deskewHairline)
@@ -1934,7 +1934,7 @@ class SpinorCal:
             hairlineMinimum = hairlineMaximum - hairlineDelta
 
         medfiltHairlineImage = scind.median_filter(
-            dualBeams[:, hairlineMinimum:hairlineMaximum, :],
+            dualBeams[:, int(hairlineMinimum):int(hairlineMaximum), :],
             size=(1, 2, 25)
         )
         hairlineSkews = np.zeros((2, medfiltHairlineImage.shape[2]))
