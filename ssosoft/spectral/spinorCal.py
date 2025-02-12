@@ -1734,8 +1734,8 @@ class SpinorCal:
 
                     # Common positions to register observation to.
                     if stepIndex == 0:
-                        masterHairlineCenters = hairlineCenters.copy()
-                        masterSpectralLineCenters = spectralCenters.copy()
+                        masterHairlineCenters = hairlineCenters
+                        masterSpectralLineCenters = spectralCenters
                     # Perform master registration to 0th slit image.
                     scienceBeams = scind.shift(
                         scienceBeams, (
