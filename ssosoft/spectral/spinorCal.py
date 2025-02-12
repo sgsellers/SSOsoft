@@ -1718,14 +1718,14 @@ class SpinorCal:
                         for hairProf in range(scienceBeams.shape[3]):
                             scienceBeams[beam, :, :, hairProf] = scind.shift(
                                 scienceBeams[beam, :, :, hairProf],
-                                (0, hairlineSkews[beam, hairProf]),
+                                (0, -hairlineSkews[beam, hairProf]),
                                 mode='nearest'
                             )
                         for spiter in range(spectralSkews.shape[1]):
                             for specProf in range(scienceBeams.shape[2]):
                                 scienceBeams[beam, :, specProf, :] = scind.shift(
                                     scienceBeams[beam, :, specProf, :],
-                                    (0, spectralSkews[beam, spiter, specProf]),
+                                    (0, -spectralSkews[beam, spiter, specProf]),
                                     mode='nearest'
                                 )
                     # Perform alignment on deskewed beams
@@ -1944,7 +1944,7 @@ class SpinorCal:
             )
             for j in range(hairlineSkews.shape[1]):
                 deskewedDualBeams[i, :, j] = scind.shift(
-                    dualBeams[i, :, j], hairlineSkews[i, j],
+                    dualBeams[i, :, j], -hairlineSkews[i, j],
                     mode='nearest'
                 )
         # Find bulk hairline center for full alignment
