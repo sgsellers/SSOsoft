@@ -1973,7 +1973,7 @@ class SpinorCal:
             order = 1 if spiter < 2 else 2
             for beam in range(2):
                 spectralImage = deskewedDualBeams[
-                    beam, :, int(self.spinorLineCores - x1):int(self.spinorLineCores + x2)
+                    beam, :, int(self.spinorLineCores[0] - x1):int(self.spinorLineCores[0] + x2)
                 ].copy()
                 # Deskew function is written to cope with NaNs.
                 # It is NOT written to deal with a hairline.
@@ -2003,16 +2003,16 @@ class SpinorCal:
         spectralCenter = (
             spex.find_line_core(
                 np.nanmedian(
-                    deskewedDualBeams[0, :, int(self.spinorLineCores - 10): int(self.spinorLineCores + 10)],
+                    deskewedDualBeams[0, :, int(self.spinorLineCores[0] - 10): int(self.spinorLineCores[0] + 10)],
                     axis=0
                 )
-            ) + int(self.spinorLineCores - 10),
+            ) + int(self.spinorLineCores[0] - 10),
             spex.find_line_core(
                 np.nanmedian(
-                    deskewedDualBeams[1, :, int(self.spinorLineCores - 10): int(self.spinorLineCores + 10)],
+                    deskewedDualBeams[1, :, int(self.spinorLineCores[0] - 10): int(self.spinorLineCores[0] + 10)],
                     axis=0
                 )
-            ) + int(self.spinorLineCores - 10),
+            ) + int(self.spinorLineCores[0] - 10),
         )
         return hairlineSkews, hairlineCenter, spectralSkews, spectralCenter
 
