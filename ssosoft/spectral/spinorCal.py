@@ -1646,13 +1646,6 @@ class SpinorCal:
                 elif ("r" in remakeFile.lower()) and self.verbose:
                     print("Remaking file with user-specified corrections. This may take some time.")
 
-        science_beams = np.zeros((
-            total_slit_positions,
-            2,
-            4,
-            self.beamEdges[0, 1] - self.beamEdges[0, 0],
-            self.slitEdges[1] - self.slitEdges[0]
-        ))
         reducedData = np.zeros((
             total_slit_positions,
             4,
@@ -1678,6 +1671,9 @@ class SpinorCal:
         )(np.arange(0, self.beamEdges[0, 1]-self.beamEdges[0, 0]))
 
         stepIndex = 0
+        # Setting these up for later
+        masterHairlineCenters = (0, 0)
+        masterSpectralLineCenters = (0, 0)
         with tqdm.tqdm(
             total=total_slit_positions,
             desc="Reducing Science Map"
@@ -1688,12 +1684,15 @@ class SpinorCal:
                     iquv = self.demodulate_spinor(
                         (science_hdu[i].data - self.solarDark)/self.lampGain/self.combinedGainTable
                     )
-                    science_beams[stepIndex, 0, :, :, :] = iquv[
+                    scienceBeams = np.zeros(
+                        (2, 4, self.beamEdges[0, 1] - self.beamEdges[0, 0], self.slitEdges[1] - self.slitEdges[0])
+                    )
+                    scienceBeams[0, :, :, :] = iquv[
                         :,
                         self.beamEdges[0, 0]:self.beamEdges[0, 1],
                         self.slitEdges[0]:self.slitEdges[1]
                     ]
-                    science_beams[stepIndex, 1, :, :, :] = np.flip(
+                    scienceBeams[1, :, :, :] = np.flip(
                         scind.shift(
                             iquv[
                                 :,
@@ -1703,170 +1702,51 @@ class SpinorCal:
                         ), axis=1
                     )
 
-                    # Now, to subpixel align the two beams, we have to align the hairlines
-                    # Then the spectral lines. We'll have to pop a widget up for the spectral lines.
-                    # For the hairlines, we should use the *raw* image, as the gain correction washes
-                    # the hairlines out. So define a beam cutout for the 0th mod state
-
-                    tmp_beams = np.zeros((
-                        2,
-                        science_beams.shape[-2],
-                        science_beams.shape[-1]
-                    ))
-                    tmp_beams[0] = (
-                            np.nanmean(science_hdu[i].data, axis=0) - self.solarDark
-                    )[
-                        self.beamEdges[0, 0]:self.beamEdges[0, 1],
-                        self.slitEdges[0]:self.slitEdges[1]
-                    ]
-                    tmp_beams[1] = np.flip(
-                        scind.shift(
-                            np.nanmean(science_hdu[i].data, axis=0)[
-                                self.beamEdges[1, 0]:self.beamEdges[1, 1],
-                                self.slitEdges[0]:self.slitEdges[1]
-                            ], (shift, self.beam1Xshift)
-                        ), axis=0
+                    # Reference beam for hairline/spectral line deskew shouldn't have full gain
+                    # correction done, due to hairline residuals. It *should* be safe to use the
+                    # lamp gain, as the hairlines in that should've been cleaned up.
+                    alignmentBeam = (np.mean(science_hdu[i].data, axis=0) - self.solarDark)/self.lampGain
+                    hairlineSkews, hairlineCenters, spectralSkews, spectralCenters = self.subpixel_align_spinor_beams(
+                        alignmentBeam
                     )
-
-                    hairlines = self.hairlines.copy()
-                    hairlines[0] = hairlines[0] - self.beamEdges[0, 0]
-                    hairlines[1] = self.beamEdges[1, 1] - hairlines[1] + shift
-
-                    # Having some issues with the hairline deskew.
-                    # Going to try something new:
-                    # Median filter the hairline image
-                    # Find the mean argmin
-                    # Re-create the filtered hairline image
-                    # Do spectral skew
-                    # Register hairlines to common index
-                    # Altered 2025-02-05 to remove some hardcoded values for the range of the hairline
-                    hairline_minimum = int(hairlines[0, 0] - 14)
-                    hairline_delta = 28
-                    hairline_maximum = int(hairlines[0, 0] + 14)
-                    if hairline_minimum < 0:
-                        hairline_minimum = 0
-                        hairline_delta = int(2 * hairlines[0, 0])
-                        hairline_maximum = hairline_delta
-                    elif hairline_maximum >= tmp_beams.shape[1]:
-                        hairline_maximum = int(tmp_beams.shape[1] - 1)
-                        hairline_delta = int(2*(hairline_maximum - hairlines[0, 0]))
-                        hairline_minimum = int(hairline_maximum - hairline_delta)
-                    medfilth0 = scind.median_filter(
-                        tmp_beams[:, hairline_minimum:hairline_maximum, :],
-                        size=(1, 2, 25)
-                    )
-                    offsets = [round(
-                        np.nanmean(
-                            [medfilth0[x, :, y].argmin() for y in range(
-                                int(medfilth0.shape[2]/2 - 50),
-                                int(medfilth0.shape[2]/2 + 50)
-                            )]
-                        ),
-                        0
-                    ) - hairline_delta/2 for x in range(2)]
-                    medfilth0 = np.zeros(medfilth0.shape)
-                    hairline_minimum = int(hairlines[0, 0] + offsets[0] - hairline_delta/2)
-                    hairline_maximum = int(hairlines[0, 0] + offsets[0] + hairline_delta/2)
-                    if hairline_minimum < 0:
-                        hairline_minimum = 0
-                        hairline_maximum = hairline_delta
-                    if hairline_maximum > tmp_beams.shape[1]:
-                        hairline_minimum = tmp_beams.shape[1] - hairline_delta
-                        hairline_maximum = -1
-                    medfilth0[0] = scind.median_filter(
-                        tmp_beams[0, hairline_minimum:hairline_maximum,:],
-                        size=(2, 25)
-                    )
-                    hairline_minimum = int(hairlines[0, 0] + offsets[1] - hairline_delta / 2)
-                    hairline_maximum = int(hairlines[0, 0] + offsets[1] + hairline_delta / 2)
-                    if hairline_minimum < 0:
-                        hairline_minimum = 0
-                        hairline_maximum = hairline_delta
-                    if hairline_maximum > tmp_beams.shape[1]:
-                        hairline_minimum = tmp_beams.shape[1] - hairline_delta
-                        hairline_maximum = -1
-                    medfilth0[1] = scind.median_filter(
-                        tmp_beams[1, hairline_minimum:hairline_maximum, :],
-                        size=(2, 25)
-                    )
-                    hairline_skews = np.zeros((2, self.slitEdges[1] - self.slitEdges[0]))
-                    deskewedHairs = medfilth0.copy()
-
-                    for j in range(2):
-                        hairline_skews[j, :] = spex.spectral_skew(
-                            np.rot90(
-                                medfilth0[j, :, :]
-                            ), order=1
-                        )
-                        for k in range(hairline_skews.shape[1]):
-                            deskewedHairs[j, :, k] = scind.shift(
-                                medfilth0[j, :, k], hairline_skews[j, k],
+                    # Common positions to register observation to.
+                    if stepIndex == 0:
+                        masterHairlineCenters = hairlineCenters
+                        masterSpectralLineCenters = spectralCenters
+                    # Perform deskew
+                    for beam in range(scienceBeams.shape[0]):
+                        for hairProf in range(scienceBeams.shape[3]):
+                            scienceBeams[beam, :, :, hairProf] = scind.shift(
+                                scienceBeams[beam, :, :, hairProf],
+                                (0, -hairlineSkews[beam, hairProf]),
                                 mode='nearest'
                             )
-                    meanHairlineProfiles = np.nanmean(deskewedHairs, axis=2)
-                    bulkHairOffset = spex.find_line_core(
-                        meanHairlineProfiles[0]
-                    ) - spex.find_line_core(meanHairlineProfiles[1])
-                    for j in range(hairline_skews.shape[1]):
-                        science_beams[stepIndex, 0, :, :, j] = scind.shift(
-                            science_beams[stepIndex, 0, :, :, j], (0, hairline_skews[0, j]),
-                            mode='nearest'
-                        )
-                        science_beams[stepIndex, 1, :, :, j] = scind.shift(
-                            science_beams[stepIndex, 1, :, :, j], (0, hairline_skews[1, j] + bulkHairOffset),
-                            mode='nearest'
-                        )
-                    # Reuse spectral lines from gain table creation to deskew...
-                    x1 = 20
-                    x2 = 21
-                    for k in range(5):
-                        order = 1 if k < 2 else 2
-                        spectral_skews = np.zeros((2, 2, science_beams.shape[-2]))
-                        deskBeam = science_beams[
-                                   stepIndex, 0, 0, :,
-                                   int(self.spinorLineCores[0] - x1):int(self.spinorLineCores[0]+x2)
-                        ].copy()
-                        # Accidentally had this hardcoded for two hairlines per beam.
-                        # Not the case for FLIR necessarily, thanks to a slightly smaller chip
-                        for hair in hairlines[0]:
-                            hairMin = int(hair - 4)
-                            hairMax = int(hair + 4)
-                            hairMin = 0 if hairMin < 0 else hairMin
-                            hairMax = int(deskBeam.shape[0] - 1) if hairMax > deskBeam.shape[0] - 1 else hairMax
-                            deskBeam[hairMin:hairMax] = np.nan
-                        spectral_skews[0, 0] = spex.spectral_skew(
-                            deskBeam,
-                            slit_reference=0.5, order=order
-                        )
-                        deskBeam = science_beams[
-                                   stepIndex, 1, 0, :,
-                                   int(self.spinorLineCores[0] - x1):int(self.spinorLineCores[0] + x2)
-                        ].copy()
-                        for hair in hairlines[0]:
-                            hairMin = int(hair - 4)
-                            hairMax = int(hair + 4)
-                            hairMin = 0 if hairMin < 0 else hairMin
-                            hairMax = int(deskBeam.shape[0] - 1) if hairMax > deskBeam.shape[0] - 1 else hairMax
-                            deskBeam[hairMin:hairMax] = np.nan
-                        spectral_skews[1, 0] = spex.spectral_skew(
-                            deskBeam,
-                            slit_reference=0.5, order=order
-                        )
-                        spectral_skews = spectral_skews[:, 0, :]
-                        for j in range(spectral_skews.shape[1]):
-                            science_beams[stepIndex, 0, :, j, :] = scind.shift(
-                                science_beams[stepIndex, 0, :, j, :], (0, spectral_skews[0, j])
-                            )
-                            science_beams[stepIndex, 1, :, j, :] = scind.shift(
-                                science_beams[stepIndex, 1, :, j, :], (0, spectral_skews[1, j])
-                            )
-                        x1 -= 3
-                        x2 -= 3
+                        for spiter in range(spectralSkews.shape[1]):
+                            for specProf in range(scienceBeams.shape[2]):
+                                scienceBeams[beam, :, specProf, :] = scind.shift(
+                                    scienceBeams[beam, :, specProf, :],
+                                    (0, -spectralSkews[beam, spiter, specProf]),
+                                    mode='nearest'
+                                )
+                    # Perform alignment on deskewed beams
+                    scienceBeams[1] = scind.shift(
+                        scienceBeams[1], (0, -np.diff(hairlineCenters), -np.diff(spectralCenters)),
+                        mode='nearest'
+                    )
+                    # Perform master registration to 0th slit image.
+                    scienceBeams = scind.shift(
+                        scienceBeams, (
+                            0, 0,
+                            -(hairlineCenters[0] - masterHairlineCenters[0]),
+                            -(spectralCenters[0] - masterSpectralLineCenters[0])
+                        ),
+                        mode='nearest'
+                    )
 
-                    combined_beams = np.zeros(science_beams.shape[2:])
-                    combined_beams[0] = np.nanmean(science_beams[stepIndex, :, 0, :, :], axis=0)
+                    combined_beams = np.zeros(scienceBeams.shape[1:])
+                    combined_beams[0] = np.nanmean(scienceBeams[:, 0, :, :], axis=0)
                     combined_beams[1:] = (
-                        science_beams[stepIndex, 0, 1:, :, :] - science_beams[stepIndex, 1, 1:, :, :]
+                        scienceBeams[0, 1:, :, :] - scienceBeams[1, 1:, :, :]
                     )/2
                     tmtx = self.get_telescope_matrix(
                         [science_hdu[i].header['DST_AZ'],
@@ -2008,6 +1888,133 @@ class SpinorCal:
             plt.close("all")
 
         return
+
+
+    def subpixel_align_spinor_beams(self, slitImage: np.ndarray) -> tuple[np.ndarray, tuple, np.ndarray, tuple]:
+        """
+        Performs subpixel alignment of two beams into a single image and returns the necessary translations.
+        Returns shift map for hairline alignment and spectral line alignment.
+
+        Parameters
+        ----------
+        slitImage : numpy.ndarray
+            Minimally-processed image of the spectrum. Beams will be cut out and aligned from this. Shape (ny, nx)
+
+        Returns
+        -------
+        hairlineSkews : numpy.ndarray
+            Array of shape (2, nx) containing subpixel shifts for hairline registration
+        hairlineCenter : tuple
+            Centers of the registered hairline. Should assist in getting an evenly-registered image across all slit pos.
+        spectralSkews : numpy.ndarray
+            Array of shape (5, 2, ny) containing subpixel shifts for hairline registration
+        spectralCenter : tuple
+            Centers of the registered spectral line. Assist in even registration across all slits.
+        """
+        beam0 = slitImage[self.beamEdges[0, 0]:self.beamEdges[0, 1], self.slitEdges[0]:self.slitEdges[1]]
+        beam1 = np.flip(
+            scind.shift(
+                slitImage[self.beamEdges[1, 0]:self.beamEdges[1, 1], self.slitEdges[0]:self.slitEdges[1]],
+                (self.beam1Yshift, self.beam1Xshift)
+            ), axis=0
+        )
+        dualBeams = np.stack([beam0, beam1], axis=0)
+        deskewedDualBeams = dualBeams.copy()
+        deskewHairline = self.hairlines[0, 0]
+        hairlineMinimum = deskewHairline - 14
+        hairlineDelta = 28
+        hairlineMaximum = deskewHairline + 14
+        if hairlineMinimum < 0:
+            hairlineMinimum = 0
+            hairlineDelta = int(2*deskewHairline)
+            hairlineMaximum = hairlineDelta
+        elif hairlineMaximum >= dualBeams.shape[1]:
+            hairlineMaximum = int(dualBeams.shape[1] - 1)
+            hairlineDelta = int(2 * (hairlineMaximum - deskewHairline))
+            hairlineMinimum = hairlineMaximum - hairlineDelta
+
+        medfiltHairlineImage = scind.median_filter(
+            dualBeams[:, hairlineMinimum:hairlineMaximum, :],
+            size=(1, 2, 25)
+        )
+        hairlineSkews = np.zeros((2, medfiltHairlineImage.shape[2]))
+        for i in range(dualBeams.shape[0]):
+            hairlineSkews[i, :] = spex.spectral_skew(
+                np.rot90(medfiltHairlineImage[i, :, :]), order=1, slit_reference=0.5
+            )
+            for j in range(hairlineSkews.shape[1]):
+                deskewedDualBeams[i, :, j] = scind.shift(
+                    dualBeams[i, :, j], -hairlineSkews[i, j],
+                    mode='nearest'
+                )
+        # Find bulk hairline center for full alignment
+        hairlineCenter = (
+            spex.find_line_core(
+                np.nanmedian(deskewedDualBeams[0, hairlineMinimum:hairlineMaximum, :], axis=2)
+            ) + hairlineMinimum,
+            spex.find_line_core(
+                np.nanmedian(deskewedDualBeams[1, hairlineMinimum:hairlineMaximum, :], axis=2)
+            ) + hairlineMinimum
+        )
+        # For good measure (and masking) determine upper hairline approx. center
+        # From initial spacing between upper/lower hairline pairs.
+        # FLIR may not have another set of hairlines.
+        if self.hairlines.shape[1] > 1:
+            upperHairlineCenter = (
+                hairlineCenter[0] + np.diff(self.hairlines, axis=1)[0],
+                hairlineCenter[1] + np.diff(self.hairlines, axis=1)[1]
+            )
+        # Shift to common, deskewed center
+        deskewedDualBeams[1] = scind.shift(deskewedDualBeams[1], (-np.diff(hairlineCenter), 0), mode='nearest')
+        # Perform spectral line deskew. Do this iteratively using gain table creation line.
+        x1, x2 = 20, 21
+        spectralSkews = np.zeros((5, 2, deskewedDualBeams.shape[1]))
+        for spiter in range(5):
+            order = 1 if spiter < 2 else 2
+            for beam in range(2):
+                spectralImage = deskewedDualBeams[
+                    beam, :, int(self.spinorLineCores - x1):int(self.spinorLineCores + x2)
+                ].copy()
+                # Deskew function is written to cope with NaNs.
+                # It is NOT written to deal with a hairline.
+                # Mask hairlines
+                hairMin = int(hairlineCenter[beam] - 4)
+                hairMax = int(hairlineCenter[beam] + 5)
+                hairMin = 0 if hairMin < 0 else hairMin
+                hairMax = int(spectralImage.shape[0] - 1) if hairMax > spectralImage.shape[0] - 1 else hairMax
+                spectralImage[hairMin:hairMax, :] = np.nan
+                # FLIR may not have another set of hairlines.
+                if self.hairlines.shape[1] > 1:
+                    hairMin = int(upperHairlineCenter[beam] - 4)
+                    hairMax = int(upperHairlineCenter[beam] + 5)
+                    hairMin = 0 if hairMin < 0 else hairMin
+                    hairMax = int(spectralImage.shape[0] - 1) if hairMax > spectralImage.shape[0] - 1 else hairMax
+                    spectralImage[hairMin:hairMax, :] = np.nan
+                spectralSkews[spiter, beam, :] = spex.spectral_skew(
+                    spectralImage, slit_reference=0.5, order=order
+                )
+                for prof in range(deskewedDualBeams.shape[1]):
+                    deskewedDualBeams[beam, prof, :] = scind.shift(
+                        deskewedDualBeams[beam, prof, :], -spectralSkews[spiter, beam, prof], mode='nearest'
+                    )
+            x1 -= 3
+            x2 -= 3
+        # Find bulk spectral line center for full alignment
+        spectralCenter = (
+            spex.find_line_core(
+                np.nanmedian(
+                    deskewedDualBeams[0, :, int(self.spinorLineCores - 10): int(self.spinorLineCores + 10)],
+                    axis=1
+                )
+            ) + int(self.spinorLineCores - 10),
+            spex.find_line_core(
+                np.nanmedian(
+                    deskewedDualBeams[1, :, int(self.spinorLineCores - 10): int(self.spinorLineCores + 10)],
+                    axis=1
+                )
+            ) + int(self.spinorLineCores - 10),
+        )
+        return hairlineSkews, hairlineCenter, spectralSkews, spectralCenter
 
 
     def solve_spinor_crosstalks(self, iquvCube: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
