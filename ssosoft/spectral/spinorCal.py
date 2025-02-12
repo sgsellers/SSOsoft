@@ -1718,7 +1718,7 @@ class SpinorCal:
                         for hairProf in range(scienceBeams.shape[3]):
                             scienceBeams[beam, :, :, hairProf] = scind.shift(
                                 scienceBeams[beam, :, :, hairProf],
-                                (0, hairlineSkews[beam, hairProf]),
+                                (0, -hairlineSkews[beam, hairProf]),
                                 mode='nearest'
                             )
                     # Perform alignment on deskewed beams
