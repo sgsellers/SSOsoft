@@ -1725,19 +1725,19 @@ class SpinorCal:
                             for specProf in range(scienceBeams.shape[2]):
                                 scienceBeams[beam, :, specProf, :] = scind.shift(
                                     scienceBeams[beam, :, specProf, :],
-                                    (0, -spectralSkews[beam, spiter, specProf]),
+                                    (0, spectralSkews[beam, spiter, specProf]),
                                     mode='nearest'
                                 )
                     # Perform alignment on deskewed beams
                     scienceBeams[1] = scind.shift(
-                        scienceBeams[1], (0, np.diff(hairlineCenters)[0], np.diff(spectralCenters)[0]),
+                        scienceBeams[1], (0, -np.diff(hairlineCenters)[0], np.diff(spectralCenters)[0]),
                         mode='nearest'
                     )
                     # Perform master registration to 0th slit image.
                     scienceBeams = scind.shift(
                         scienceBeams, (
                             0, 0,
-                            (hairlineCenters[0] - masterHairlineCenters[0]),
+                            -(hairlineCenters[0] - masterHairlineCenters[0]),
                             (spectralCenters[0] - masterSpectralLineCenters[0])
                         ),
                         mode='nearest'
