@@ -1705,7 +1705,7 @@ class SpinorCal:
                     # Reference beam for hairline/spectral line deskew shouldn't have full gain
                     # correction done, due to hairline residuals. It *should* be safe to use the
                     # lamp gain, as the hairlines in that should've been cleaned up.
-                    alignmentBeam = (np.mean(science_hdu[i].data, axis=0) - self.solarDark)
+                    alignmentBeam = (np.mean(science_hdu[i].data, axis=0) - self.solarDark)/self.lampGain
                     hairlineSkews, hairlineCenters, spectralSkews, spectralCenters = self.subpixel_align_spinor_beams(
                         alignmentBeam
                     )
@@ -1718,14 +1718,14 @@ class SpinorCal:
                         for hairProf in range(scienceBeams.shape[3]):
                             scienceBeams[beam, :, :, hairProf] = scind.shift(
                                 scienceBeams[beam, :, :, hairProf],
-                                (0, hairlineSkews[beam, hairProf]),
+                                (0, -hairlineSkews[beam, hairProf]),
                                 mode='nearest'
                             )
                         for spiter in range(spectralSkews.shape[1]):
                             for specProf in range(scienceBeams.shape[2]):
                                 scienceBeams[beam, :, specProf, :] = scind.shift(
                                     scienceBeams[beam, :, specProf, :],
-                                    (0, spectralSkews[beam, spiter, specProf]),
+                                    (0, -spectralSkews[beam, spiter, specProf]),
                                     mode='nearest'
                                 )
                     # Perform alignment on deskewed beams
@@ -1944,7 +1944,7 @@ class SpinorCal:
             )
             for j in range(hairlineSkews.shape[1]):
                 deskewedDualBeams[i, :, j] = scind.shift(
-                    dualBeams[i, :, j], hairlineSkews[i, j],
+                    dualBeams[i, :, j], -hairlineSkews[i, j],
                     mode='nearest'
                 )
         # Find bulk hairline center for full alignment
@@ -1995,7 +1995,7 @@ class SpinorCal:
                 )
                 for prof in range(deskewedDualBeams.shape[1]):
                     deskewedDualBeams[beam, prof, :] = scind.shift(
-                        deskewedDualBeams[beam, prof, :], spectralSkews[spiter, beam, prof], mode='nearest'
+                        deskewedDualBeams[beam, prof, :], -spectralSkews[spiter, beam, prof], mode='nearest'
                     )
             x1 -= 3
             x2 -= 3
