@@ -1705,10 +1705,17 @@ class SpinorCal:
                     # Reference beam for hairline/spectral line deskew shouldn't have full gain
                     # correction done, due to hairline residuals. It *should* be safe to use the
                     # lamp gain, as the hairlines in that should've been cleaned up.
-                    alignmentBeam = (np.mean(science_hdu[i].data, axis=0) - self.solarDark)#/self.lampGain
-                    hairlineSkews, hairlineCenters = self.subpixel_hairline_align(
-                        alignmentBeam
-                    )
+                    alignmentBeam = (np.mean(science_hdu[i].data, axis=0) - self.solarDark)/self.lampGain
+                    if stepIndex == 0:
+                        alignmentBeam, hairlineCenters = self.subpixel_hairline_align(
+                            alignmentBeam, hairCenters=None
+                        )
+                        masterHairlineCenters = hairlineCenters
+
+                    else:
+                        hairlineSkews, hairlineCenters = self.subpixel_hairline_align(
+                            alignmentBeam, hairCenters=np.array(hairlineCenters)
+                        )
                     # Perform hairline deskew
                     for beam in range(scienceBeams.shape[0]):
                         for hairProf in range(scienceBeams.shape[3]):
@@ -1734,7 +1741,6 @@ class SpinorCal:
 
                     # Common positions to register observation to.
                     if stepIndex == 0:
-                        masterHairlineCenters = hairlineCenters
                         masterSpectralLineCenters = spectralCenters
                     # Perform master registration to 0th slit image.
                     # scienceBeams = scind.shift(
@@ -1893,7 +1899,7 @@ class SpinorCal:
         return
 
 
-    def subpixel_hairline_align(self, slitImage: np.ndarray) -> tuple[np.ndarray, tuple]:
+    def subpixel_hairline_align(self, slitImage: np.ndarray, hairCenters=None) -> tuple[np.ndarray, tuple]:
         """
         Performs subpixel hairline alignment of two beams into a single image and returns the necessary translations.
         Returns shift map for hairline alignment.
@@ -1902,6 +1908,10 @@ class SpinorCal:
         ----------
         slitImage : numpy.ndarray
             Minimally-processed image of the spectrum. Beams will be cut out and aligned from this. Shape (ny, nx)
+        hairCenters : numpy.ndarray or None
+            If None, calls ssosoft.spectraTools.detect_beams_hairlines to get a guess of hairline position
+            that's a bit more robust than what we can fit in this function.
+            If given as a tuple, takes that as the centers of the hairlines to deskew
 
         Returns
         -------
@@ -1910,6 +1920,15 @@ class SpinorCal:
         hairlineCenter : tuple
             Centers of the registered hairline. Should assist in getting an evenly-registered image across all slit pos.
         """
+        if hairCenters is None:
+            spex.detect_beams_hairlines.num_calls = 0
+            _, _, tmpHairlines = spex.detect_beams_hairlines(
+                slitImage, threshold=self.beamThreshold, hairline_width=self.hairlineWidth,
+                expected_hairlines=self.nhair, expected_slits=1, expected_beams=2, fallback=True # Just in case
+            )
+            hairCenters = tmpHairlines.reshape(2, int(self.nhair / 2))
+            hairCenters = np.array((hairCenters[0, 0], hairCenters[1, 0] - self.beamEdges[1, 0] + self.beam1Yshift))
+
         beam0 = slitImage[self.beamEdges[0, 0]:self.beamEdges[0, 1], self.slitEdges[0]:self.slitEdges[1]]
         beam1 = np.flip(
             scind.shift(
@@ -1919,38 +1938,14 @@ class SpinorCal:
         )
         dualBeams = np.stack([beam0, beam1], axis=0)
         deskewedDualBeams = dualBeams.copy()
-        deskewHairline = self.hairlines[0, 0]
-        hairlineMinimum = int(deskewHairline - 14)
-        hairlineDelta = 28
-        hairlineMaximum = int(deskewHairline + 14)
-        if hairlineMinimum < 0:
-            hairlineMinimum = 0
-            hairlineDelta = int(2*deskewHairline)
-            hairlineMaximum = hairlineDelta
-        elif hairlineMaximum >= dualBeams.shape[1]:
-            hairlineMaximum = int(dualBeams.shape[1] - 1)
-            hairlineDelta = int(2 * (hairlineMaximum - deskewHairline))
-            hairlineMinimum = hairlineMaximum - hairlineDelta
-
-        hairlinePositions = dualBeams[:, hairlineMinimum:hairlineMaximum, :].mean(axis=-1).argmin(axis=1)
-        hairlineMinimum = (hairlinePositions - 6).astype(int)
-        hairlineMaximum = (hairlinePositions + 7).astype(int)
-        if (hairlinePositions <= 0).any():
-            hairlinePositions[:] = hairlinePositions.max()
-            hairlineMinimum[:] = hairlineMinimum.max()
-            hairlineMaximum[:] = hairlineMaximum.max()
-        elif (hairlinePositions >= dualBeams.shape[1]).any():
-            hairlinePositions[:] = hairlinePositions.min()
-            hairlineMinimum[:] = hairlineMinimum.min()
-            hairlineMaximum[:] = hairlineMaximum.min()
+        hairlineMinimum = hairCenters - 4
+        hairlineMaximum = hairCenters + 4
         if (hairlineMinimum <= 0).any():
-            hairlineMinimum[:] = 0
-            hairlineDelta = (2*hairlinePositions).astype(int)
-            hairlineMaximum = hairlineDelta
-        elif (hairlineMaximum >= dualBeams.shape[1]).any():
-            hairlineMaximum[:] = int(dualBeams.shape[1] - 1)
-            hairlineDelta = 2 * (hairlineMaximum - hairlinePositions)
-            hairlineMinimum = hairlineMaximum - hairlineDelta
+            hairlineMinimum = 0
+            hairlineMaximum = (2*hairCenters).astype(int)
+        if (hairlineMaximum >= dualBeams.shape[1]).any():
+            hairlineMaximum[:] = dualBeams.shape[1]
+            hairlineMinimum[:] = hairlineMaximum - 2 * (hairlineMaximum - hairCenters)
 
         hairlineSkews = np.zeros((2, dualBeams.shape[2]))
         for i in range(dualBeams.shape[0]):
