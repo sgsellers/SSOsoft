@@ -1714,7 +1714,7 @@ class SpinorCal:
                         for hairProf in range(scienceBeams.shape[3]):
                             scienceBeams[beam, :, :, hairProf] = scind.shift(
                                 scienceBeams[beam, :, :, hairProf],
-                                (0, -hairlineSkews[beam, hairProf]),
+                                (0, hairlineSkews[beam, hairProf]),
                                 mode='nearest'
                             )
                     # Perform bulk hairline alignment on deskewed beams
@@ -1932,27 +1932,39 @@ class SpinorCal:
             hairlineDelta = int(2 * (hairlineMaximum - deskewHairline))
             hairlineMinimum = hairlineMaximum - hairlineDelta
 
-        medfiltHairlineImage = scind.median_filter(
-            dualBeams[:, int(hairlineMinimum):int(hairlineMaximum), :],
-            size=(1, 2, 25)
-        )
-        hairlineSkews = np.zeros((2, medfiltHairlineImage.shape[2]))
+        hairlinePositions = dualBeams[:, hairlineMinimum:hairlineMaximum, :].mean(axis=-1).argmin(axis=1)
+        hairlineMinimum = (hairlinePositions - 7).astype(int)
+        hairlineMaximum = (hairlinePositions + 8).astype(int)
+        if (hairlineMinimum < 0).any():
+            hairlineMinimum[:] = 0
+            hairlineDelta = (2*hairlinePositions).astype(int)
+            hairlineMaximum = hairlineDelta
+        elif (hairlineMaximum >= dualBeams.shape[1]).any():
+            hairlineMaximum[:] = int(dualBeams.shape[1] - 1)
+            hairlineDelta = 2 * (hairlineMaximum - hairlinePositions)
+            hairlineMinimum = hairlineMaximum - hairlineDelta
+
+        hairlineSkews = np.zeros((2, dualBeams.shape[2]))
         for i in range(dualBeams.shape[0]):
+            medfiltHairlineImage = scind.median_filter(
+                dualBeams[i, hairlineMinimum[i]:hairlineMaximum[i], :],
+                size=(2, 25)
+            )
             hairlineSkews[i, :] = spex.spectral_skew(
                 np.rot90(medfiltHairlineImage[i, :, :]), order=1, slit_reference=0.5
             )
             for j in range(hairlineSkews.shape[1]):
                 deskewedDualBeams[i, :, j] = scind.shift(
-                    dualBeams[i, :, j], -hairlineSkews[i, j],
+                    dualBeams[i, :, j], hairlineSkews[i, j],
                     mode='nearest'
                 )
         # Find bulk hairline center for full alignment
         hairlineCenter = (
             spex.find_line_core(
-                np.nanmedian(deskewedDualBeams[0, hairlineMinimum:hairlineMaximum, :], axis=1)
+                np.nanmedian(deskewedDualBeams[0, hairlineMinimum[0]:hairlineMaximum[1], :], axis=1)
             ) + hairlineMinimum,
             spex.find_line_core(
-                np.nanmedian(deskewedDualBeams[1, hairlineMinimum:hairlineMaximum, :], axis=1)
+                np.nanmedian(deskewedDualBeams[1, hairlineMinimum[0]:hairlineMaximum[1], :], axis=1)
             ) + hairlineMinimum
         )
 
