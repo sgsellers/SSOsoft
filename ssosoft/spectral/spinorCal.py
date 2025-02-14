@@ -1933,11 +1933,11 @@ class SpinorCal:
             hairlineMinimum = hairlineMaximum - hairlineDelta
 
         hairlinePositions = dualBeams[:, hairlineMinimum:hairlineMaximum, :].mean(axis=-1).argmin(axis=1)
-        hairlineMinimum = (hairlinePositions - 7).astype(int)
-        hairlineMaximum = (hairlinePositions + 8).astype(int)
-        if (hairlineMinimum < 0).any():
+        hairlineMinimum = (hairlinePositions - 6).astype(int)
+        hairlineMaximum = (hairlinePositions + 7).astype(int)
+        if (hairlineMinimum <= 0).any():
             hairlineMinimum[:] = 0
-            hairlineDelta = (2*hairlinePositions).astype(int)
+            hairlineDelta[:] = int(2*hairlinePositions.max())
             hairlineMaximum = hairlineDelta
         elif (hairlineMaximum >= dualBeams.shape[1]).any():
             hairlineMaximum[:] = int(dualBeams.shape[1] - 1)
