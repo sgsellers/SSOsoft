@@ -1951,7 +1951,7 @@ class SpinorCal:
                 size=(2, 25)
             )
             hairlineSkews[i, :] = spex.spectral_skew(
-                np.rot90(medfiltHairlineImage[i, :, :]), order=1, slit_reference=0.5
+                np.rot90(medfiltHairlineImage), order=1, slit_reference=0.5
             )
             for j in range(hairlineSkews.shape[1]):
                 deskewedDualBeams[i, :, j] = scind.shift(
