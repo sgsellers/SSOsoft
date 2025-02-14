@@ -1705,7 +1705,7 @@ class SpinorCal:
                     # Reference beam for hairline/spectral line deskew shouldn't have full gain
                     # correction done, due to hairline residuals. It *should* be safe to use the
                     # lamp gain, as the hairlines in that should've been cleaned up.
-                    alignmentBeam = (np.mean(science_hdu[i].data, axis=0) - self.solarDark)/self.lampGain
+                    alignmentBeam = (np.mean(science_hdu[i].data, axis=0) - self.solarDark)#/self.lampGain
                     hairlineSkews, hairlineCenters = self.subpixel_hairline_align(
                         alignmentBeam
                     )
