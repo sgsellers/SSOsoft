@@ -1928,6 +1928,7 @@ class SpinorCal:
                 expected_hairlines=self.nhair, expected_slits=1, expected_beams=2, fallback=True # Just in case
             )
             hairCenters = tmpHairlines.reshape(2, int(self.nhair / 2))
+            hairCenters[1, :] = hairCenters[1, :][::-1]
             hairCenters = np.array(
                 (hairCenters[0, 0] - self.beamEdges[0, 0],
                  hairCenters[1, 0] - self.beamEdges[1, 0] + self.beam1Yshift)
