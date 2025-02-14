@@ -1969,11 +1969,11 @@ class SpinorCal:
         # Find bulk hairline center for full alignment
         hairlineCenter = (
             spex.find_line_core(
-                np.nanmedian(deskewedDualBeams[0, hairlineMinimum[0]:hairlineMaximum[1], :], axis=1)
-            ) + hairlineMinimum,
+                np.nanmedian(deskewedDualBeams[0, hairlineMinimum[0]:hairlineMaximum[0], :], axis=1)
+            ) + hairlineMinimum[0],
             spex.find_line_core(
-                np.nanmedian(deskewedDualBeams[1, hairlineMinimum[0]:hairlineMaximum[1], :], axis=1)
-            ) + hairlineMinimum
+                np.nanmedian(deskewedDualBeams[1, hairlineMinimum[1]:hairlineMaximum[1], :], axis=1)
+            ) + hairlineMinimum[1]
         )
 
         return hairlineSkews, hairlineCenter
