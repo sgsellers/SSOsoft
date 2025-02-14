@@ -1707,7 +1707,7 @@ class SpinorCal:
                     # lamp gain, as the hairlines in that should've been cleaned up.
                     alignmentBeam = (np.mean(science_hdu[i].data, axis=0) - self.solarDark)/self.lampGain
                     if stepIndex == 0:
-                        alignmentBeam, hairlineCenters = self.subpixel_hairline_align(
+                        hairlineSkews, hairlineCenters = self.subpixel_hairline_align(
                             alignmentBeam, hairCenters=None
                         )
                         masterHairlineCenters = hairlineCenters
@@ -1922,8 +1922,9 @@ class SpinorCal:
         """
         if hairCenters is None:
             spex.detect_beams_hairlines.num_calls = 0
+            # Undo the lamp gain for a second to get the intensity jumps in the right direction
             _, _, tmpHairlines = spex.detect_beams_hairlines(
-                slitImage, threshold=self.beamThreshold, hairline_width=self.hairlineWidth,
+                slitImage * self.lampGain, threshold=self.beamThreshold, hairline_width=self.hairlineWidth,
                 expected_hairlines=self.nhair, expected_slits=1, expected_beams=2, fallback=True # Just in case
             )
             hairCenters = tmpHairlines.reshape(2, int(self.nhair / 2))
