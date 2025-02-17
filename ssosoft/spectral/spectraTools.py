@@ -1,4 +1,4 @@
-import FTS_atlas
+from . import FTS_atlas
 import matplotlib
 import tqdm
 
@@ -332,18 +332,18 @@ def fts_window(wavemin, wavemax, atlas='FTS', norm=True, lines=False):
 
     if atlas.lower() == 'wallace':
         if (wavemax <= 5000.) or (wavemin <= 5000.):
-            atlas_angstroms = read_data('FTS_atlas', 'Wallace2011_290-1000nm_Wavelengths.npy')
-            atlas_spectrum = read_data('FTS_atlas', 'Wallace2011_290-1000nm_Observed.npy')
+            atlas_angstroms = read_data('ssosoft.spectral.FTS_atlas', 'Wallace2011_290-1000nm_Wavelengths.npy')
+            atlas_spectrum = read_data('ssosoft.spectral.FTS_atlas', 'Wallace2011_290-1000nm_Observed.npy')
         else:
-            atlas_angstroms = read_data('FTS_atlas', 'Wallace2011_500-1000nm_Wavelengths.npy')
-            atlas_spectrum = read_data('FTS_atlas', 'Wallace2011_500-1000nm_Corrected.npy')
+            atlas_angstroms = read_data('ssosoft.spectral.FTS_atlas', 'Wallace2011_500-1000nm_Wavelengths.npy')
+            atlas_spectrum = read_data('ssosoft.spectral.FTS_atlas', 'Wallace2011_500-1000nm_Corrected.npy')
     else:
-        atlas_angstroms = read_data('FTS_atlas', 'FTS1984_296-1300nm_Wavelengths.npy')
+        atlas_angstroms = read_data('ssosoft.spectral.FTS_atlas', 'FTS1984_296-1300nm_Wavelengths.npy')
         if norm:
-            atlas_spectrum = read_data('FTS_atlas', 'FTS1984_296-1300nm_Atlas.npy')
+            atlas_spectrum = read_data('ssosoft.spectral.FTS_atlas', 'FTS1984_296-1300nm_Atlas.npy')
         else:
             warnings.warn("Using solar irradiance (i.e., not normalized)")
-            atlas_spectrum = read_data('FTS_atlas', 'FTS1984_296.-1300nm_Irradiance.npy')
+            atlas_spectrum = read_data('ssosoft.spectral.FTS_atlas', 'FTS1984_296.-1300nm_Irradiance.npy')
 
     idx_lo = find_nearest(atlas_angstroms, wavemin) - 5
     idx_hi = find_nearest(atlas_angstroms, wavemax) + 5

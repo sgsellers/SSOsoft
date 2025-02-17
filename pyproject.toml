@@ -4,7 +4,7 @@ build-backend = 'setuptools.build_meta'
 
 [project]
 name = "SSOsoft-sellers"
-dynamic = ['version']
+version = "3.0.250217"
 dependencies = [
     'numpy',
     'astropy',
@@ -29,3 +29,8 @@ license = {text = "MIT License"}
 [project.urls]
 homepage = "http://ssoc.nmsu.edu"
 repository = "https://github.com/sgsellers/SSOsoft"
+
+[tool.setuptools]
+include-package-data = true
+[tool.setuptools.packages.find]
+where = ["ssosoft"]
