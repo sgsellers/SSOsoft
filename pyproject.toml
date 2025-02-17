@@ -30,7 +30,5 @@ license = {text = "MIT License"}
 homepage = "http://ssoc.nmsu.edu"
 repository = "https://github.com/sgsellers/SSOsoft"
 
-[tool.setuptools]
-include-package-data = true
-[tool.setuptools.packages.find]
-where = ["ssosoft"]
+[tool.setuptools.package-data]
+"ssosoft.spectral.FTS_atlas" = ["**"]
