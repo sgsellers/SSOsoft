@@ -1747,14 +1747,14 @@ class SpinorCal:
                     if stepIndex == 0:
                         masterSpectralLineCenters = spectralCenters
                     # Perform master registration to 0th slit image.
-                    # scienceBeams = scind.shift(
-                    #     scienceBeams, (
-                    #         0, 0,
-                    #         -(hairlineCenters[0] - masterHairlineCenters[0]),
-                    #         (spectralCenters[0] - masterSpectralLineCenters[0])
-                    #     ),
-                    #     mode='nearest'
-                    # )
+                    scienceBeams = scind.shift(
+                        scienceBeams, (
+                            0, 0,
+                            -(hairlineCenters[0] - masterHairlineCenters[0]), 0
+                            # (spectralCenters[0] - masterSpectralLineCenters[0])
+                        ),
+                        mode='nearest'
+                    )
 
                     combined_beams = np.zeros(scienceBeams.shape[1:])
                     combined_beams[0] = np.nanmean(scienceBeams[:, 0, :, :], axis=0)
