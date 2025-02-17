@@ -1875,7 +1875,7 @@ class SpinorCal:
         # Swap axes to make X/Y contigent with data X/Y
         reducedData = np.swapaxes(reducedData, 0, 2)
 
-        reduced_filename = self.package_scan(reducedData, approxWavelengthArray)
+        reduced_filename = self.package_scan(reducedData, approxWavelengthArray, masterHairlineCenters)
         crosstalk_filename = self.package_crosstalks(completeI2QUVCrosstalk, completeInternalCrosstalks, index)
         parameter_maps, referenceWavelengths, tweakedIndices, meanProfile, wavelengthArray = self.spinor_analysis(
             reducedData, mapIndices
@@ -2535,7 +2535,7 @@ class SpinorCal:
         return
 
 
-    def package_scan(self, datacube: np.ndarray, wavelength_array: np.ndarray) -> str:
+    def package_scan(self, datacube: np.ndarray, wavelength_array: np.ndarray, hairline_centers: tuple) -> str:
         """
         Packages reduced scan into FITS HDUList. HDUList has 7 extensions:
             1.) Empty data attr with top-level header info
@@ -2549,6 +2549,8 @@ class SpinorCal:
             4D reduced stokes data in shape ny, 4, nx, nlambda
         wavelength_array : numpy.ndarray
             1D array containing the wavelengths corrsponding to nlambda in datacube
+        hairline_centers : tuple
+            Tuple containing the subpixel center of the hairline(s) used in registering the slit images
 
         EDIT 2025-01-27: Found out that maps are often split across multiple files. Rewrote code to take list of maps.
         As a result, have to iterate over self.scienceFiles for necessary header information...
@@ -2716,6 +2718,8 @@ class SpinorCal:
             round(np.nanmean(wavelength_array) / (0.001 * float(grating_params['Spectrograph_Resolution'])), 0),
             "Maximum Resolving Power of Spectrograph"
         )
+        for h in range(len(hairline_centers)):
+            ext0.header['HAIRLIN{0}'.format(h)] = (round(hairline_centers[h], 3), "Center of registration hairline")
 
         ext0.header['RSUN_ARC'] = rsun
         ext0.header['XCEN'] = (round(centerX, 2), "[arcsec], Solar-X of Map Center")
@@ -2770,6 +2774,8 @@ class SpinorCal:
             ext.header['CRPIX2'] = np.mean(np.arange(datacube.shape[2])) + 1
             ext.header['CRPIX3'] = 1
             ext.header['CROTA2'] = (rotan, "degrees")
+            for h in range(len(hairline_centers)):
+                ext.header['HAIRLIN{0}'.format(h)] = (round(hairline_centers[h], 3), "Center of registration hairline")
             fitsHDUs.append(ext)
 
         extWvl = fits.ImageHDU(wavelength_array)
