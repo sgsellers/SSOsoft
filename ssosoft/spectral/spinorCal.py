@@ -735,8 +735,8 @@ class SpinorCal:
         # Reset recursive counter since we'll need to use the function again later
         spex.detect_beams_hairlines.num_calls=0
         for line in hairlines:
-            # range + 1 to compensate for casting a float to an int
-            lampFlatImage[int(line - self.hairlineWidth):int(line + self.hairlineWidth + 1), :] = np.nan
+            # range + 1 to compensate for casting a float to an int, plus an extra 2-wide pad for edge effects
+            lampFlatImage[int(line - self.hairlineWidth - 2):int(line + self.hairlineWidth + 3), :] = np.nan
         x = np.arange(0, lampFlatImage.shape[1])
         y = np.arange(0, lampFlatImage.shape[0])
         maskedLampFlat = np.ma.masked_invalid(lampFlatImage)
@@ -917,8 +917,12 @@ class SpinorCal:
             self.beam1Yshift = 0
             self.beamEdges[1] += -yshift
 
-        # Redefine beam1 with new edges. Do not flip, otherwise, everything has to flip
-        beam1 = self.solarFlat[self.beamEdges[1, 0]: self.beamEdges[1, 1], self.slitEdges[0]:self.slitEdges[1]]
+        # Clean the hairlines out of the solar flat:
+        cleanedSolarFlat = self.clean_lamp_flat(self.solarFlat.copy()) # We'll use this going forward
+
+        # Redefine beams with new edges. Do not flip beam1, otherwise, everything has to flip
+        beam0 = cleanedSolarFlat[self.beamEdges[0, 0]:self.beamEdges[0, 1], self.slitEdges[0]:self.slitEdges[1]]
+        beam1 = cleanedSolarFlat[self.beamEdges[1, 0]: self.beamEdges[1, 1], self.slitEdges[0]:self.slitEdges[1]]
 
         # Now we need to grab the spectral line we'll be using for the gain table
         # Since this will require popping up a widget, we might as well fine-tune
@@ -971,16 +975,16 @@ class SpinorCal:
 
         beam0GainTable, beam0CoarseGainTable, beam0Skews = spex.create_gaintables(
             beam0LampGainCorrected,
-            [self.spinorLineCores[0] - 5, self.spinorLineCores[0] + 7],
-            hairline_positions=self.hairlines[0] - self.beamEdges[0, 0],
+            [self.spinorLineCores[0] - 7, self.spinorLineCores[0] + 9],
+            # hairline_positions=self.hairlines[0] - self.beamEdges[0, 0],
             neighborhood=12,
             hairline_width=self.hairlineWidth / 2
         )
 
         beam1GainTable, beam1CoarseGainTable, beam1Skews = spex.create_gaintables(
             beam1LampGainCorrected,
-            [self.spinorLineCores[0] - 5 - self.beam1Xshift, self.spinorLineCores[0] + 7 - self.beam1Xshift],
-            hairline_positions=self.hairlines[1] - self.beamEdges[1, 0],
+            [self.spinorLineCores[0]-7-self.beam1Xshift, self.spinorLineCores[0]+9-self.beam1Xshift],
+            # hairline_positions=self.hairlines[1] - self.beamEdges[1, 0],
             neighborhood=12,
             hairline_width=self.hairlineWidth / 2
         )
