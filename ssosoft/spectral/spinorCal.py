@@ -3001,6 +3001,11 @@ class SpinorCal:
             for j in range(analysis_maps.shape[1]):
                 ext = fits.ImageHDU(analysis_maps[i, j, :, :])
                 ext.header = hdr1.copy()
+                ext.header['DATE-OBS'] = ext0.header['STARTOBS']
+                ext.header['DATE-END'] = ext0.header['ENDOBS']
+                dt = (np.datetime64(ext0.header['ENDOBS']) - np.datetime64(ext0.header['STARTOBS']))/2
+                date_avg = (np.datetime64(ext0.header['STARTOBS']) + dt).astype(str)
+                ext.header['DATE-AVG'] = (date_avg, "UTC, time at map midpoint")
                 ext.header['EXTNAME'] = extnames[j]
                 ext.header["METHOD"] = (methods[j], method_comments[j])
                 fitsHDUs.append(ext)

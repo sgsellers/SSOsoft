@@ -434,7 +434,8 @@ def select_lines_singlepanel(array, nselections, figName="Popup Figure"):
     return xvals
 
 
-def select_lines_singlepanel_unbound_xarr(array, xarr=None):
+def select_lines_singlepanel_unbound_xarr(array, xarr=None,
+                                          figName="Popup Figure!", nSelections=None, vlines=None):
     """
     Matplotlib-based function to select an x-value, or series of x-values
     From the plot of a 1D array.
@@ -443,16 +444,25 @@ def select_lines_singlepanel_unbound_xarr(array, xarr=None):
         Array to plot and select from
     :param array: array-like
         Optional x array to plot against.
+    :param figName: str
+        Name of the figure window
+    :param nSelections: None or int, optional
+        If set, closes figure after nSelections are made
+    :param vlines: None or array-like, optional
+        If set, draws axvlines at all specified positions
     :return xvals: array-like
         Array of selected x-values with length nselections
     """
 
-    fig = plt.figure()
+    fig = plt.figure(figName)
     ax = fig.add_subplot(111)
     ax.set_title("Select Positions, then close window")
     if xarr is None:
         xarr = np.arange(len(array))
     spectrum, = ax.plot(xarr, array)
+    if vlines is not None:
+        for line in vlines:
+            ax.axvline(line, linestyle=":", c='C0')
 
     xvals = []
 
@@ -462,6 +472,9 @@ def select_lines_singlepanel_unbound_xarr(array, xarr=None):
         fig.canvas.draw()
         xvals.append(find_nearest(xarr, xcd))
         print("Selected: " + str(xcd))
+        if (nSelections is not None) and (len(xvals) >= nSelections):
+            fig.canvas.mpl_disconnect(conn)
+            plt.close(fig)
 
     conn = fig.canvas.mpl_connect('button_press_event', onselect)
     plt.show()
@@ -469,7 +482,7 @@ def select_lines_singlepanel_unbound_xarr(array, xarr=None):
     return xvals
 
 
-def select_spans_singlepanel(array, xarr=None, figName="Popup Figure!"):
+def select_spans_singlepanel(array, xarr=None, figName="Popup Figure!", nSelections=None):
     """
     Matplotlib-based function to select x range from the plot of a 1D array.
 
@@ -478,6 +491,8 @@ def select_spans_singlepanel(array, xarr=None, figName="Popup Figure!"):
     :param xarr: array-like
         Optional x array to plot against.
     :param figName:
+    :param nSelections: None, int, optional
+        If provided, closes figure after nSelections are made
     :return xvals: numpy.ndarray
         Array of selected x-spans with shape (2, nselections)
     """
@@ -502,6 +517,10 @@ def select_spans_singlepanel(array, xarr=None, figName="Popup Figure!"):
             n += 1
         fig.canvas.draw()
         print("Selected: " + str(xcd))
+
+        if (nSelections is not None) and (n >= int(nSelections)):
+            fig.canvas.mpl_disconnect(conn)
+            plt.close(fig)
 
     conn = fig.canvas.mpl_connect('button_press_event', onselect)
     plt.show(block=True)
