@@ -1952,7 +1952,7 @@ class SpinorCal:
         hairlineMinimum = hairCenters - 4
         hairlineMaximum = hairCenters + 4
         if (hairlineMinimum <= 0).any():
-            hairlineMinimum = 0
+            hairlineMinimum = np.array([0, 0])
             hairlineMaximum = (2*hairCenters).astype(int)
         if (hairlineMaximum >= dualBeams.shape[1]).any():
             hairlineMaximum[:] = dualBeams.shape[1]
