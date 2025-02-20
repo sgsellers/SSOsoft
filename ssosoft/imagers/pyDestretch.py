@@ -51,7 +51,7 @@ def _image_align(image, reference, tolerance=None, trim=50):
     x0_ref = reference.shape[1] / 2.
 
     shifts = np.empty(2)
-    aligned_image = np.zeros(image.shape)
+    aligned_image = np.zeros(originalImage.shape)
 
     img = image - np.nanmean(image)
     ref = reference - np.nanmean(reference)
