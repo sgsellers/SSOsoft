@@ -76,7 +76,7 @@ def _image_align(image, reference, tolerance=None, trim=50):
             if (shifts[0] > tolerance[0]) or (shifts[1] > tolerance[1]):
                 raise ToleranceException(tolerance)
 
-    scindi.shift(image, shifts, output=aligned_image, mode='constant', cval=image[0, 0])
+    scindi.shift(originalImage, shifts, output=aligned_image, mode='constant', cval=image[0, 0])
 
     return aligned_image, shifts
 
