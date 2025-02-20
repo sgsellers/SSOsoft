@@ -1714,7 +1714,11 @@ class SpinorCal:
                         hairlineSkews, hairlineCenters = self.subpixel_hairline_align(
                             alignmentBeam, hairCenters=None
                         )
-                        masterHairlineCenters = hairlineCenters
+                        if self.nhair == 2:
+                            masterHairlineCenters = (hairlineCenters[0])
+                        else:
+                            masterHairlineCenters = (hairlineCenters[0],
+                                                     hairlineCenters[0] + np.diff(self.hairlines, axis=1)[0])
 
                     else:
                         hairlineSkews, hairlineCenters = self.subpixel_hairline_align(
@@ -1867,7 +1871,7 @@ class SpinorCal:
         # Save final plots if applicable
         if self.plot & self.saveFigs:
             for fig in range(len(plot_params[0])):
-                filename = os.path.join(self.finalDir, "field_image_{0}.png".format(fig))
+                filename = os.path.join(self.finalDir, "field_image_map{0}_line{0}.png".format(index, fig))
                 plot_params[0][fig].savefig(filename, bbox_inches="tight")
 
         mean_profile = np.nanmean(reducedData[:, 0, :, :], axis=(0, 1))
