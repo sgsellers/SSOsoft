@@ -1715,7 +1715,7 @@ class SpinorCal:
                             alignmentBeam, hairCenters=None
                         )
                         if self.nhair == 2:
-                            masterHairlineCenters = (hairlineCenters[0])
+                            masterHairlineCenters = tuple(hairlineCenters[0])
                         else:
                             masterHairlineCenters = (hairlineCenters[0],
                                                      hairlineCenters[0] + np.diff(self.hairlines, axis=1)[0])
