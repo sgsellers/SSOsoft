@@ -18,7 +18,7 @@ class ToleranceException(Exception):
         super().__init__(self.message, self.tolerance)
 
 
-def _image_align(image, reference, tolerance=None):
+def _image_align(image, reference, tolerance=None, trim=50):
     """
     Wraps Scipy's fftconvolve function to return an aligned image to a given reference.
     If the tolerance values are exceeded, attempt instead to align on the inverse image and reference.
@@ -31,12 +31,18 @@ def _image_align(image, reference, tolerance=None):
     reference : array-like
         2D reference image to align to
     tolerance : None or 2-tuple with (ytolerance,xtolerance).
+        Maximum allowable shift before an error is thrown
+    trim : int
+        Trims edges of image and reference by the given amount.
 
     Returns:
     --------
     aligned_image : array-like
         Aligned image
     """
+    originalImage = image.copy()
+    image = image[trim:-trim, trim:-trim]
+    reference = reference[trim:-trim, trim:-trim]
 
     y0 = image.shape[0] / 2.
     x0 = image.shape[0] / 2.
