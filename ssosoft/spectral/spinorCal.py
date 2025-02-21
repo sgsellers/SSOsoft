@@ -1871,7 +1871,7 @@ class SpinorCal:
         # Save final plots if applicable
         if self.plot & self.saveFigs:
             for fig in range(len(plot_params[0])):
-                filename = os.path.join(self.finalDir, "field_image_map{0}_line{0}.png".format(index, fig))
+                filename = os.path.join(self.finalDir, "field_image_map{0}_line{1}.png".format(index, fig))
                 plot_params[0][fig].savefig(filename, bbox_inches="tight")
 
         mean_profile = np.nanmean(reducedData[:, 0, :, :], axis=(0, 1))
