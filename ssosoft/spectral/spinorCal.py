@@ -1,24 +1,24 @@
-import astropy.io.fits as fits
-import astropy.units as u
 import configparser
 import glob
-import matplotlib.pyplot as plt
-import matplotlib
-import numpy as np
 import os
-import scipy.ndimage as scind
-import scipy.interpolate as scinterp
-import scipy.integrate as scinteg
-import scipy.io as scio
-import scipy.optimize as scopt
-import tqdm
-from astropy.constants import c
 import warnings
 
-c_kms = c.value / 1e3
+import astropy.io.fits as fits
+import astropy.units as u
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import scipy.integrate as scinteg
+import scipy.interpolate as scinterp
+import scipy.io as scio
+import scipy.ndimage as scind
+import scipy.optimize as scopt
+import tqdm
+
 from astropy.coordinates import SkyCoord
 from sunpy.coordinates import frames
 from . import spectraTools as spex
+
 
 class SpinorCal:
     """
@@ -54,7 +54,7 @@ class SpinorCal:
             -FLIR1
             -FLIR2
             -SISJI
-    configFile : str
+    config_file : str
         Path to the configuration file
 
     To my knowledge, a complete calibration should perform the following steps:
@@ -99,138 +99,135 @@ class SpinorCal:
             slit position and hairlines marked for ease of alignment.
     """
 
-    def __init__(self, camera: str, configFile: str) -> None:
+    def __init__(self, camera: str, config_file: str) -> None:
         """
 
         Parameters
         ----------
         camera : str
             String containing camera name
-        configFile : str
+        config_file : str
             Path to configuration file
         """
 
         try:
-            f = open(configFile, 'r')
+            f = open(config_file, 'r')
             f.close()
         except Exception as err:
             print("Exception: {0}".format(err))
             raise
 
-        self.configFile = configFile
+        self.config_file = config_file
         self.camera = camera.upper()
 
-        self.solarDark = None
-        self.solarFlat = None
-        self.lampGain = None
-        self.combinedGainTable = None
-        self.combinedCoarseGainTable = None
-        self.polcalVecs = None
-        self.tMatrix = None
-        self.flipWave = False
+        self.solar_dark = None
+        self.solar_flat = None
+        self.lamp_gain = None
+        self.combined_gain_table = None
+        self.combined_coarse_gain_table = None
+        self.polcal_vecs = None
+        self.t_matrix = None
+        self.flip_wave = False
 
         # Locations
         self.indir = ""
-        self.finalDir=""
-        self.reducedFilePattern = None
-        self.parameterMapPattern = None
-        self.polcalFile = None
-        self.solarFlatFileList = []
-        self.solarFlatFile = None
-        self.lampFlatFile = None
-        self.scienceFileList = []
+        self.final_dir = ""
+        self.reduced_file_pattern = None
+        self.parameter_map_pattern = None
+        self.polcal_file = None
+        self.solar_flat_file_list = []
+        self.solar_flat_file = None
+        self.lamp_flat_file = None
+        self.science_file_list = []
         # Need to re-combine longer map series that were split by SPINOR FITS daemons
-        self.scienceMapFileList = []
-        self.scienceFiles = None
-        self.tMatrixFile = None
+        self.science_map_file_list = []
+        self.science_files = None
+        self.t_matrix_file = None
 
-        self.lineGridFile = None
-        self.targetFile = None
+        self.line_grid_file = None
+        self.target_file = None
 
         # For saving the reduced calibration files:
-        self.solarGainReduced = None # we'll include dark currents in these files
-        self.lampGainReduced = ""
-        self.txMatrixReduced = ""
+        self.solar_gain_reduced = None  # we'll include dark currents in these files
+        self.lamp_gain_reduced = ""
+        self.tx_matrix_reduced = ""
 
         # Setting up variables to be filled:
-        self.beamEdges = None
-        self.slitEdges = None
+        self.beam_edges = None
+        self.slit_edges = None
         self.hairlines = None
-        self.beam1Xshift = None
-        self.beam1Yshift = None
-        self.spinorLineCores = None
-        self.ftsLineCores = None
-        self.flipWaveIdx = 1
+        self.beam1_xshift = None
+        self.beam1_yshift = None
+        self.spinor_line_cores = None
+        self.fts_line_cores = None
+        self.flip_wave_idx = 1
 
         # Polcal-specific variables
-        self.polcalProcessing = True
+        self.polcal_processing = True
         self.calcurves = None
         self.txmat = None
-        self.inputStokes = None
+        self.input_stokes = None
         self.txchi = None
         self.txmat00 = None
         self.txmatinv = None
 
-
         # Some default vaules
         self.nhair = 4
-        self.beamThreshold = 0.5
-        self.hairlineWidth = 3
-        self.grating_rules = 308.57 # lpmm
+        self.beam_threshold = 0.5
+        self.hairline_width = 3
+        self.grating_rules = 308.57  # lpmm
         self.blaze_angle = 52
-        self.nSubSlits = 10
+        self.n_subslits = 10
         self.verbose = False
         self.v2q = True
         self.v2u = True
         self.u2v = True
         self.despike = False
-        self.despikeFootprint = (1, 5, 1)
+        self.despike_footprint = (1, 5, 1)
         self.plot = False
-        self.saveFigs = False
-        self.crosstalkContinuum = None
+        self.save_figs = False
+        self.crosstalk_continuum = None
 
         # Can be pulled from header:
         self.grating_angle = None
         self.slit_width = None
 
         # Must be set in config file, or surmised from config file
-        self.pixel_size = None # 16 um for Sarnoffs, 25 um for Flirs
-        self.centralWavelength = None # Should identify a spectral line, i.e., 6302, 8542
-        self.spectral_order = None # To-do, solve the most likely spectral order from the grating info. Function exists.
-
+        self.pixel_size = None  # 16 um for Sarnoffs, 25 um for Flirs
+        self.central_wavelength = None  # Should identify a spectral line, i.e., 6302, 8542
+        self.spectral_order = None  # To-do, solve the most likely spectral order from the grating info. Function exists.
 
         # Default polarization modulation from new modulator (2024-09)
         # I: ++++++++
         # Q: --++--++
         # U: +--++--+
         # V: +----+++
-        self.polDemod = np.array([
+        self.pol_demod = np.array([
             [1, 1, 1, 1, 1, 1, 1, 1],
             [-1, -1, 1, 1, -1, -1, 1, 1],
             [1, -1, -1, 1, 1, -1, -1, 1],
             [1, -1, -1, -1, -1, 1, 1, 1]
         ], dtype=int)
 
-        self.DSTLatitude = 32.786
+        self.site_latitude = 32.786
 
         # Expressed as a fraction of mean(I). For polcals
         self.ilimit = [0.5, 1.5]
         # It's about a quarter-wave plate.
-        self.calRetardance = 90
+        self.cal_retardance = 90
 
         # Basic SPINOR Feed Optics
-        self.slitCameraLens = 780 # mm, f.l. of usual HSG feed lens
-        self.dstPlateScale = 3.76 # asec/mm
-        self.dstCollimator = 1559 # mm, f.l., of DST Port 4 Collimator mirror
-        self.spectrographCollimator = 3040 # mm, f.l., of the SPINOR/HSG post-slit collimator
-        self.cameraLens = 1700 # mm, f.l., of the SPINOR final camera lenses
+        self.slit_camera_lens = 780  # mm, f.l. of usual HSG feed lens
+        self.telescope_plate_scale = 3.76  # asec/mm
+        self.dst_collimator = 1559  # mm, f.l., of DST Port 4 Collimator mirror
+        self.spectrograph_collimator = 3040  # mm, f.l., of the SPINOR/HSG post-slit collimator
+        self.camera_lens = 1700  # mm, f.l., of the SPINOR final camera lenses
 
         return
 
-
-    def spinor_assert_file_list(self, flist: list) -> None:
+    @staticmethod
+    def spinor_assert_file_list(flist: list) -> None:
         assert (len(flist) != 0), "List contains no matches."
-
 
     def spinor_run_calibration(self) -> None:
         """Main SPINOR calibration module"""
@@ -238,46 +235,45 @@ class SpinorCal:
         self.spinor_configure_run()
         if self.verbose:
             print("Found {0} science map files in base directory:\n{1}\nReduced files will be saved to:\n{2}".format(
-                len(self.scienceFileList), self.indir, self.finalDir
+                len(self.science_file_list), self.indir, self.final_dir
             ))
-        for index in range(len(self.scienceMapFileList)):
+        for index in range(len(self.science_map_file_list)):
             if self.verbose:
-                for subindex in range(len(self.scienceMapFileList[index])):
+                for subindex in range(len(self.science_map_file_list[index])):
                     if subindex == 0:
                         print(
                             "Proceeding with calibration of: {0}".format(
-                                os.path.split(self.scienceMapFileList[index][subindex])[1]
+                                os.path.split(self.science_map_file_list[index][subindex])[1]
                             )
                         )
                     else:
                         print(
                             "                                {0}".format(
-                                os.path.split(self.scienceMapFileList[index][subindex])[1]
+                                os.path.split(self.science_map_file_list[index][subindex])[1]
                             )
                         )
-                print("Using Solar Flat File: {0}".format(os.path.split(self.solarFlatFileList[index])[1]))
-                if self.lampFlatFile is not None:
-                    print("Using Lamp Flat File: {0}".format(os.path.split(self.lampFlatFile)[1]))
+                print("Using Solar Flat File: {0}".format(os.path.split(self.solar_flat_file_list[index])[1]))
+                if self.lamp_flat_file is not None:
+                    print("Using Lamp Flat File: {0}".format(os.path.split(self.lamp_flat_file)[1]))
                 else:
                     print("No Lamp Flat File")
-                print("Using Polcal File: {0}".format(os.path.split(self.polcalFile)[1]))
+                print("Using Polcal File: {0}".format(os.path.split(self.polcal_file)[1]))
                 if self.plot:
                     print("Plotting is currently ON.")
-                    if self.saveFigs:
-                        print("Plots will be saved at:\n{0}".format(self.finalDir))
+                    if self.save_figs:
+                        print("Plots will be saved at:\n{0}".format(self.final_dir))
                     else:
                         print("Plots will NOT be saved.")
                 print("===========================\n\n")
-            self.__init__(self.camera, self.configFile)
+            self.__init__(self.camera, self.config_file)
             self.spinor_configure_run()
             self.spinor_get_cal_images(index)
             if self.plot:
                 plt.pause(2)
                 plt.close("all")
-            self.scienceFiles = self.scienceMapFileList[index]
+            self.science_files = self.science_map_file_list[index]
             self.reduce_spinor_maps(index)
         return
-
 
     def spinor_configure_run(self) -> None:
         """Reads configuration file and sets up parameters for calibration sequence"""
@@ -298,7 +294,6 @@ class SpinorCal:
 
         return
 
-
     def spinor_get_cal_images(self, index: int) -> None:
         """
         Loads or creates flat, dark, lamp & solar gain, polcal arrays
@@ -310,51 +305,50 @@ class SpinorCal:
 
         return
 
-
     def spinor_parse_configfile(self) -> None:
         """
         Parses configureation file and sets up the class structure for reductions
         """
         config = configparser.ConfigParser()
-        config.read(self.configFile)
+        config.read(self.config_file)
 
         # Locations [Required]
         self.indir = config[self.camera]["rawFileDirectory"]
-        self.finalDir = config[self.camera]["reducedFileDirectory"]
-        self.reducedFilePattern = config[self.camera]["reducedFilePattern"]
-        self.parameterMapPattern = config[self.camera]["reducedParameterMapPattern"]
+        self.final_dir = config[self.camera]["reducedFileDirectory"]
+        self.reduced_file_pattern = config[self.camera]["reducedFilePattern"]
+        self.parameter_map_pattern = config[self.camera]["reducedParameterMapPattern"]
 
         # Optional calibration file definitions. If these are left undefined, the directory parser below
         # sets these, however, it may be desirable to specify a flat file under certain circumstances.
 
         # [Optional] entry
-        self.polcalFile = config[self.camera]["polcalFile"] if (
-            "polcalfile" in config[self.camera].keys()
+        self.polcal_file = config[self.camera]["polcalFile"] if (
+                "polcalfile" in config[self.camera].keys()
         ) else None
         # Reset to None for case where the key is present with an empty string
-        self.polcalFile = None if self.polcalFile == "" else self.polcalFile
-        self.solarFlatFile = config[self.camera]["solarFlatFile"] if (
-            "solarflatfile" in config[self.camera].keys()
+        self.polcal_file = None if self.polcal_file == "" else self.polcal_file
+        self.solar_flat_file = config[self.camera]["solarFlatFile"] if (
+                "solarflatfile" in config[self.camera].keys()
         ) else None
-        self.solarFlatFile = None if self.solarFlatFile == "" else self.solarFlatFile
-        self.lampFlatFile = config[self.camera]["lampFlatFile"] if (
-            "lampflatfile" in config[self.camera].keys()
+        self.solar_flat_file = None if self.solar_flat_file == "" else self.solar_flat_file
+        self.lamp_flat_file = config[self.camera]["lampFlatFile"] if (
+                "lampflatfile" in config[self.camera].keys()
         ) else None
-        self.lampFlatFile = None if self.lampFlatFile == "" else self.lampFlatFile
-        self.scienceFiles = [config[self.camera]["scienceFile"]] if (
-            "sciencefile" in config[self.camera].keys()
+        self.lamp_flat_file = None if self.lamp_flat_file == "" else self.lamp_flat_file
+        self.science_files = [config[self.camera]["scienceFile"]] if (
+                "sciencefile" in config[self.camera].keys()
         ) else None
-        self.scienceFiles = None if self.scienceFiles == "" else self.scienceFiles
+        self.science_files = None if self.science_files == "" else self.science_files
 
         # Required channel-specific params
         self.pixel_size = 16 if "sarnoff" in self.camera.lower() else 25
-        self.centralWavelength = float(config[self.camera]["centralWavelength"])
+        self.central_wavelength = float(config[self.camera]["centralWavelength"])
         self.spectral_order = int(config[self.camera]["spectralOrder"])
 
         # Overrides for some channel-specific default vaules
-        self.nSubSlits = int(config[self.camera]["slitDivisions"]) if (
-            "slitdivisions" in config[self.camera].keys()
-        ) else self.nSubSlits
+        self.n_subslits = int(config[self.camera]["slitDivisions"]) if (
+                "slitdivisions" in config[self.camera].keys()
+        ) else self.n_subslits
         self.verbose = config[self.camera]["verbose"] if "verbose" in config[self.camera].keys() else "False"
         if "t" in self.verbose.lower():
             self.verbose = True
@@ -380,11 +374,11 @@ class SpinorCal:
             self.plot = True
         else:
             self.plot = False
-        self.saveFigs = config[self.camera]["savePlot"] if "saveplot" in config[self.camera].keys() else "False"
-        if "t" in self.saveFigs.lower():
-            self.saveFigs = True
+        self.save_figs = config[self.camera]["savePlot"] if "saveplot" in config[self.camera].keys() else "False"
+        if "t" in self.save_figs.lower():
+            self.save_figs = True
         else:
-            self.saveFigs = False
+            self.save_figs = False
         self.despike = config[self.camera]['despike'] if "despike" in config[self.camera].keys() else "False"
         if "t" in self.despike.lower():
             self.despike = True
@@ -392,62 +386,62 @@ class SpinorCal:
             self.despike = False
 
         self.nhair = int(config[self.camera]["totalHairlines"]) if (
-            "totalhairlines" in config[self.camera].keys()
+                "totalhairlines" in config[self.camera].keys()
         ) else self.nhair
-        self.beamThreshold = float(config[self.camera]["intensityThreshold"]) if (
-            "intensitythreshold" in config[self.camera].keys()
-        ) else self.beamThreshold
-        self.hairlineWidth = float(config[self.camera]["hairlineWidth"]) if (
-            "hairlinewidth" in config[self.camera].keys()
-        ) else self.hairlineWidth
-        self.calRetardance = float(config[self.camera]["calRetardance"]) if (
-            "calretardance" in config[self.camera].keys()
-        ) else self.calRetardance
-        self.cameraLens = float(config[self.camera]["cameraLens"]) if (
-            "cameralens" in config[self.camera].keys()
-        ) else self.cameraLens
+        self.beam_threshold = float(config[self.camera]["intensityThreshold"]) if (
+                "intensitythreshold" in config[self.camera].keys()
+        ) else self.beam_threshold
+        self.hairline_width = float(config[self.camera]["hairlineWidth"]) if (
+                "hairlinewidth" in config[self.camera].keys()
+        ) else self.hairline_width
+        self.cal_retardance = float(config[self.camera]["calRetardance"]) if (
+                "calretardance" in config[self.camera].keys()
+        ) else self.cal_retardance
+        self.camera_lens = float(config[self.camera]["cameraLens"]) if (
+                "cameralens" in config[self.camera].keys()
+        ) else self.camera_lens
         if "polcalclipthreshold" in config[self.camera].keys():
             if config[self.camera]['polcalClipThreshold'] != "":
                 self.ilimit = [float(frac) for frac in config[self.camera]["polcalClipThresold"].split(",")]
-        self.polcalProcessing = config[self.camera]["polcalProcessing"] if (
-            "polcalProcessing" in config[self.camera].keys()
+        self.polcal_processing = config[self.camera]["polcalProcessing"] if (
+                "polcalProcessing" in config[self.camera].keys()
         ) else "True"
-        if "t" in self.polcalProcessing.lower():
-            self.polcalProcessing = True
+        if "t" in self.polcal_processing.lower():
+            self.polcal_processing = True
         else:
-            self.polcalProcessing = False
+            self.polcal_processing = False
 
         # Case where someone wants the old crosstalk determination, and has defined it themselves
         if "crosstalkcontinuum" in config[self.camera].keys():
             if config[self.camera]['crosstalkContinuum'] != "":
-                self.crosstalkContinuum = [int(idx) for idx in config[self.camera]['crosstalkContinuum'].split(",")]
+                self.crosstalk_continuum = [int(idx) for idx in config[self.camera]['crosstalkContinuum'].split(",")]
 
         # Required global values
-        self.tMatrixFile = config["SHARED"]["tMatrixFile"]
+        self.t_matrix_file = config["SHARED"]["tMatrixFile"]
 
         # Overrides for Global defaults
         self.grating_rules = float(config["SHARED"]["gratingRules"]) if (
-            "gratingrules" in config["SHARED"].keys()
+                "gratingrules" in config["SHARED"].keys()
         ) else self.grating_rules
         self.blaze_angle = float(config["SHARED"]["blazeAngle"]) if (
-            "blazeangle" in config["SHARED"].keys()
+                "blazeangle" in config["SHARED"].keys()
         ) else self.blaze_angle
 
-        self.DSTLatitude = float(config["SHARED"]["telescopeLatitude"]) if (
-            "telescopelatitude" in config["SHARED"].keys()
-        ) else self.DSTLatitude
-        self.slitCameraLens = float(config["SHARED"]["slitCameraLens"]) if (
-            "slitcameralens" in config["SHARED"].keys()
-        ) else self.slitCameraLens
-        self.dstPlateScale = float(config["SHARED"]["basePlateScale"]) if (
-            "baseplatescale" in config["SHARED"].keys()
-        ) else self.dstPlateScale
-        self.dstCollimator = float(config["SHARED"]["telescopeCollimator"]) if (
-            "telescopecollimator" in config["SHARED"].keys()
-        ) else self.dstCollimator
-        self.spectrographCollimator = float(config["SHARED"]["spectrographCollimator"]) if (
-            "spectrographcollimator" in config["SHARED"].keys()
-        ) else self.spectrographCollimator
+        self.site_latitude = float(config["SHARED"]["telescopeLatitude"]) if (
+                "telescopelatitude" in config["SHARED"].keys()
+        ) else self.site_latitude
+        self.slit_camera_lens = float(config["SHARED"]["slitCameraLens"]) if (
+                "slitcameralens" in config["SHARED"].keys()
+        ) else self.slit_camera_lens
+        self.telescope_plate_scale = float(config["SHARED"]["basePlateScale"]) if (
+                "baseplatescale" in config["SHARED"].keys()
+        ) else self.telescope_plate_scale
+        self.dst_collimator = float(config["SHARED"]["telescopeCollimator"]) if (
+                "telescopecollimator" in config["SHARED"].keys()
+        ) else self.dst_collimator
+        self.spectrograph_collimator = float(config["SHARED"]["spectrographCollimator"]) if (
+                "spectrographcollimator" in config["SHARED"].keys()
+        ) else self.spectrograph_collimator
 
         # Allow the user to define alternate QUV modulation pattern IFF
         # All of QUV modulation patterns are given.
@@ -459,7 +453,7 @@ class SpinorCal:
             qmod = [int(mod) for mod in config["SHARED"]["qModulationPattern"].split(",")]
             umod = [int(mod) for mod in config["SHARED"]["uModulationPattern"].split(",")]
             vmod = [int(mod) for mod in config["SHARED"]["vModulationPattern"].split(",")]
-            self.polDemod = np.array([
+            self.pol_demod = np.array([
                 [1, 1, 1, 1, 1, 1, 1, 1],
                 qmod,
                 umod,
@@ -484,43 +478,43 @@ class SpinorCal:
                 )
             )
         )
-        scienceFiles = []
-        solarFlats = []
-        lampFlats = []
-        polcalFiles = []
-        lineGrids = []
-        targetFiles = []
+        science_files = []
+        solar_flats = []
+        lamp_flats = []
+        polcal_files = []
+        line_grids = []
+        target_files = []
 
         for file in filelist:
             with fits.open(file) as hdul:
                 if ("USER1" in hdul[1].header['PT4_FS']) & ("map" in file):
-                    scienceFiles.append(file)
+                    science_files.append(file)
                 elif ("USER2" in hdul[1].header['PT4_FS']) & ("map" in file):
-                    lineGrids.append(file)
+                    line_grids.append(file)
                 elif ("TARGET" in hdul[1].header['PT4_FS']) & ("map" in file):
-                    targetFiles.append(file)
+                    target_files.append(file)
                 elif ("sun.flat" in file) & (len(hdul) >= 16):
-                    solarFlats.append(file)
+                    solar_flats.append(file)
                 elif ("lamp.flat" in file) & (len(hdul) >= 16):
-                    lampFlats.append(file)
+                    lamp_flats.append(file)
                 elif ("cal" in file) & (len(hdul) >= 16):
-                    polcalFiles.append(file)
+                    polcal_files.append(file)
         # Select polcal, linegrid, and target files by total filesize
-        if self.polcalFile is None:
-            polcalFilesizes = np.array([os.path.getsize(pf) for pf in polcalFiles])
-            self.polcalFile = polcalFiles[polcalFilesizes.argmax()] if len(polcalFilesizes) != 0 else None
+        if self.polcal_file is None:
+            polcal_filesizes = np.array([os.path.getsize(pf) for pf in polcal_files])
+            self.polcal_file = polcal_files[polcal_filesizes.argmax()] if len(polcal_filesizes) != 0 else None
         else:
-            self.polcalFile = os.path.join(self.indir, self.polcalFile)
-        lineGridFilesizes = np.array([os.path.getsize(lg) for lg in lineGrids])
-        self.lineGridFile = lineGrids[lineGridFilesizes.argmax()] if len(lineGridFilesizes) != 0 else None
-        targetFilesizes = np.array([os.path.getsize(tg) for tg in targetFiles])
-        self.targetFile = targetFiles[targetFilesizes.argmax()] if len(targetFilesizes) != 0 else None
+            self.polcal_file = os.path.join(self.indir, self.polcal_file)
+        line_grid_filesizes = np.array([os.path.getsize(lg) for lg in line_grids])
+        self.line_grid_file = line_grids[line_grid_filesizes.argmax()] if len(line_grid_filesizes) != 0 else None
+        target_filesizes = np.array([os.path.getsize(tg) for tg in target_files])
+        self.target_file = target_files[target_filesizes.argmax()] if len(target_filesizes) != 0 else None
 
         # Case where a science file is defined, rather than allowing the code to run cals on the full day
-        if self.scienceFiles is not None:
-            self.scienceFileList = [os.path.join(self.indir, self.scienceFiles)]
+        if self.science_files is not None:
+            self.science_file_list = [os.path.join(self.indir, self.science_files)]
         else:
-            self.scienceFileList = scienceFiles
+            self.science_file_list = science_files
 
         # 2025-01-27: Slight problem. SPINOR won't put more than 252 steps in a single file. Longer maps are split
         # across multiple files. It would be good to have these combined into a single file during reductions.
@@ -529,58 +523,57 @@ class SpinorCal:
         # YYMMDD.HHMMSS.0.cccXX.c-hrt.map.NNNN.fits
         # NNNN is the same for different halves of the map in the same series....
         # Get the map number...
-        mapList = [x.split("c-hrt")[1] for x in self.scienceFileList]
+        map_list = [x.split("c-hrt")[1] for x in self.science_file_list]
         # Deduplicate
-        mapList = sorted(list(set(mapList)))
-        self.scienceMapFileList = [sorted(glob.glob(os.path.join(self.indir, "*"+x))) for x in mapList]
-        scienceStartTimes = np.array(
+        map_list = sorted(list(set(map_list)))
+        self.science_map_file_list = [sorted(glob.glob(os.path.join(self.indir, "*" + x))) for x in map_list]
+        science_start_times = np.array(
             [
-                fits.open(x[0])[1].header['DATE-OBS'] for x in self.scienceMapFileList
+                fits.open(x[0])[1].header['DATE-OBS'] for x in self.science_map_file_list
             ],
             dtype='datetime64[ms]'
         )
 
         # Allow user to override and choose flat files to use
-        if self.solarFlatFile is not None:
-            self.solarFlatFileList = [os.path.join(self.indir, self.solarFlatFile)] * len(self.scienceMapFileList)
-            self.solarGainReduced = [os.path.join(
-                self.finalDir, "{0}_{1}_SOLARGAIN.fits"
-            ).format(self.camera, 0)] * len(self.scienceMapFileList)
+        if self.solar_flat_file is not None:
+            self.solar_flat_file_list = [os.path.join(self.indir, self.solar_flat_file)] * len(self.science_map_file_list)
+            self.solar_gain_reduced = [os.path.join(
+                self.final_dir, "{0}_{1}_SOLARGAIN.fits"
+            ).format(self.camera, 0)] * len(self.science_map_file_list)
         else:
-            solarFlatStartTimes = np.array(
+            solar_flat_start_times = np.array(
                 [
-                    fits.open(x)[1].header['DATE-OBS'] for x in solarFlats
+                    fits.open(x)[1].header['DATE-OBS'] for x in solar_flats
                 ],
                 dtype='datetime64[ms]'
             )
-            self.solarFlatFileList = [
-                solarFlats[spex.find_nearest(solarFlatStartTimes, x)] for x in scienceStartTimes
+            self.solar_flat_file_list = [
+                solar_flats[spex.find_nearest(solar_flat_start_times, x)] for x in science_start_times
             ]
-            self.solarGainReduced = [
+            self.solar_gain_reduced = [
                 os.path.join(
-                    self.finalDir,
+                    self.final_dir,
                     "{0}_{1}_SOLARGAIN.fits"
-                ).format(self.camera, spex.find_nearest(solarFlatStartTimes, x)) for x in scienceStartTimes
+                ).format(self.camera, spex.find_nearest(solar_flat_start_times, x)) for x in science_start_times
             ]
-        if self.lampFlatFile is None:
-            lampFlatFilesizes = np.array([os.path.getsize(lf) for lf in lampFlats])
-            self.lampFlatFile = lampFlats[lampFlatFilesizes.argmax()] if len(lampFlatFilesizes) != 0 else None
+        if self.lamp_flat_file is None:
+            lamp_flat_filesizes = np.array([os.path.getsize(lf) for lf in lamp_flats])
+            self.lamp_flat_file = lamp_flats[lamp_flat_filesizes.argmax()] if len(lamp_flat_filesizes) != 0 else None
         else:
-            self.lampFlatFile = os.path.join(self.indir, self.lampFlatFile)
+            self.lamp_flat_file = os.path.join(self.indir, self.lamp_flat_file)
 
         # Set up the list of reduced dark/gain/lamp/polcal files, so we can save out or restore previous calibrations
 
-        self.lampGainReduced = os.path.join(
-            self.finalDir,
+        self.lamp_gain_reduced = os.path.join(
+            self.final_dir,
             "{0}_LAMPGAIN.fits"
         ).format(self.camera)
-        self.txMatrixReduced = os.path.join(
-            self.finalDir,
+        self.tx_matrix_reduced = os.path.join(
+            self.final_dir,
             "{0}_POLCAL.fits"
         ).format(self.camera)
 
         return
-
 
     def spinor_average_dark_from_hdul(self, hdulist: fits.HDUList) -> np.ndarray:
         """Computes an average dark image from a SPINOR fits file HDUList.
@@ -595,26 +588,25 @@ class SpinorCal:
 
         Returns:
         --------
-        averageDark : numpy.ndarray
+        average_dark : numpy.ndarray
             2D numpy array with the average dark current per pixel.
         """
         # hdulist might have leading empty extension.
         # Each extension has shape (8, ny, nx)
         # One image per mod state
-        averageDark = np.zeros((hdulist[-1].data.shape[1], hdulist[-1].data.shape[2]))
+        average_dark = np.zeros((hdulist[-1].data.shape[1], hdulist[-1].data.shape[2]))
         darkctr = 0
         for hdu in hdulist:
             if "PT4_FS" in hdu.header.keys():
                 if "DARK" in hdu.header['PT4_FS']:
                     if self.despike:
-                        data = self.despike_image(hdu.data, footprint=self.despikeFootprint)
-                        averageDark += np.nanmean(data, axis=0)
+                        data = self.despike_image(hdu.data, footprint=self.despike_footprint)
+                        average_dark += np.nanmean(data, axis=0)
                     else:
-                        averageDark += np.nanmean(hdu.data, axis=0)
+                        average_dark += np.nanmean(hdu.data, axis=0)
                     darkctr += 1
-        averageDark /= darkctr
-        return averageDark
-
+        average_dark /= darkctr
+        return average_dark
 
     def spinor_average_flat_from_hdul(self, hdulist: fits.HDUList) -> np.ndarray:
         """Computes an average flat image from a SPINOR fits file HDUList.
@@ -628,26 +620,25 @@ class SpinorCal:
 
         Returns:
         --------
-        averageFlat : numpy.ndarray
+        average_flat : numpy.ndarray
             Averaged flat field
         """
         # hdulist might have leading empty extension.
         # Each extension has shape (8, ny, nx)
         # One image per mod state
-        averageFlat = np.zeros((hdulist[-1].data.shape[1], hdulist[-1].data.shape[2]))
+        average_flat = np.zeros((hdulist[-1].data.shape[1], hdulist[-1].data.shape[2]))
         flatctr = 0
         for hdu in hdulist:
             if "PT4_FS" in hdu.header.keys():
                 if "DARK" not in hdu.header['PT4_FS']:
                     if self.despike:
-                        data = self.despike_image(hdu.data, footprint=self.despikeFootprint)
-                        averageFlat += np.nanmean(data, axis=0)
+                        data = self.despike_image(hdu.data, footprint=self.despike_footprint)
+                        average_flat += np.nanmean(data, axis=0)
                     else:
-                        averageFlat += np.nanmean(hdu.data, axis=0)
+                        average_flat += np.nanmean(hdu.data, axis=0)
                     flatctr += 1
-        averageFlat /= flatctr
-        return averageFlat
-
+        average_flat /= flatctr
+        return average_flat
 
     def demodulate_spinor(self, poldata: np.ndarray) -> np.ndarray:
         """
@@ -665,12 +656,11 @@ class SpinorCal:
 
         stokes = np.zeros((4, *poldata.shape[1:]))
         if self.despike:
-            poldata = self.despike_image(poldata, footprint=self.despikeFootprint)
+            poldata = self.despike_image(poldata, footprint=self.despike_footprint)
         for i in range(stokes.shape[0]):
             for j in range(poldata.shape[0]):
-                stokes[i] += self.polDemod[i, j] * poldata[j, :, :]
+                stokes[i] += self.pol_demod[i, j] * poldata[j, :, :]
         return stokes
-
 
     def spinor_get_lamp_gain(self) -> None:
         """
@@ -682,29 +672,28 @@ class SpinorCal:
         -------
         """
         # Restore previously-created lamp gain
-        if os.path.exists(self.lampGainReduced):
-            with fits.open(self.lampGainReduced) as hdu:
-                self.lampGain = hdu[0].data
+        if os.path.exists(self.lamp_gain_reduced):
+            with fits.open(self.lamp_gain_reduced) as hdu:
+                self.lamp_gain = hdu[0].data
         # Create new lamp gain and save to file
-        elif self.lampFlatFile is not None:
-            with fits.open(self.lampFlatFile) as lhdul:
-                lampDark = self.spinor_average_dark_from_hdul(lhdul)
-                lampFlat = self.spinor_average_flat_from_hdul(lhdul)
-            cleanedLampFlat = self.clean_lamp_flat(lampFlat - lampDark)
-            self.lampGain = cleanedLampFlat / np.nanmedian(cleanedLampFlat)
-            hdu = fits.PrimaryHDU(self.lampGain)
+        elif self.lamp_flat_file is not None:
+            with fits.open(self.lamp_flat_file) as lhdul:
+                lamp_dark = self.spinor_average_dark_from_hdul(lhdul)
+                lamp_flat = self.spinor_average_flat_from_hdul(lhdul)
+            cleaned_lamp_flat = self.clean_lamp_flat(lamp_flat - lamp_dark)
+            self.lamp_gain = cleaned_lamp_flat / np.nanmedian(cleaned_lamp_flat)
+            hdu = fits.PrimaryHDU(self.lamp_gain)
             hdu.header["DATE"] = np.datetime64("now").astype(str)
-            hdu.header["COMMENT"] = "Created from file {0}".format(self.lampFlatFile)
-            fits.HDUList([hdu]).writeto(self.lampGainReduced, overwrite=True)
+            hdu.header["COMMENT"] = "Created from file {0}".format(self.lamp_flat_file)
+            fits.HDUList([hdu]).writeto(self.lamp_gain_reduced, overwrite=True)
         # No lamp gain available for the day. Creates an array of ones to mimic a lamp gain
         else:
-            self.lampGain = np.ones(self.solarDark.shape)
+            self.lamp_gain = np.ones(self.solar_dark.shape)
             warnings.warn("No lamp flat available. Reduced data may show strong internal fringes.")
 
         return
 
-
-    def clean_lamp_flat(self, lampFlatImage: np.ndarray) -> np.ndarray:
+    def clean_lamp_flat(self, lamp_flat_image: np.ndarray) -> np.ndarray:
         """
         Cleans lamp flat image by finding hairlines and removing them via scipy.interpolate.griddata
         Uses spectraTools.detect_beams_hairlines to get hairlines, replace them with NaNs and interpolate
@@ -716,43 +705,42 @@ class SpinorCal:
 
         Parameters
         ----------
-        lampFlatImage : numpy.ndarray
+        lamp_flat_image : numpy.ndarray
             Dark-subtracted lamp flat image
 
         Returns
         -------
-        cleanedLampFlatImage : numpy.ndarray
+        cleaned_lamp_flat_image : numpy.ndarray
             Lamp flat with hairlines removed
 
         """
 
         _, _, hairlines = spex.detect_beams_hairlines(
-            lampFlatImage,
-            threshold=self.beamThreshold, hairline_width=self.hairlineWidth,
+            lamp_flat_image,
+            threshold=self.beam_threshold, hairline_width=self.hairline_width,
             expected_hairlines=self.nhair, expected_beams=2,
-            fallback=True # Hate relying on it, but safer for now
+            fallback=True  # Hate relying on it, but safer for now
         )
         # Reset recursive counter since we'll need to use the function again later
-        spex.detect_beams_hairlines.num_calls=0
+        spex.detect_beams_hairlines.num_calls = 0
         for line in hairlines:
             # range + 1 to compensate for casting a float to an int, plus an extra 2-wide pad for edge effects
-            lampFlatImage[int(line - self.hairlineWidth - 2):int(line + self.hairlineWidth + 3), :] = np.nan
-        x = np.arange(0, lampFlatImage.shape[1])
-        y = np.arange(0, lampFlatImage.shape[0])
-        maskedLampFlat = np.ma.masked_invalid(lampFlatImage)
+            lamp_flat_image[int(line - self.hairline_width - 2):int(line + self.hairline_width + 3), :] = np.nan
+        x = np.arange(0, lamp_flat_image.shape[1])
+        y = np.arange(0, lamp_flat_image.shape[0])
+        masked_lamp_flat = np.ma.masked_invalid(lamp_flat_image)
         xx, yy = np.meshgrid(x, y)
-        x1 = xx[~maskedLampFlat.mask]
-        y1 = yy[~maskedLampFlat.mask]
-        newFlat = maskedLampFlat[~maskedLampFlat.mask]
-        cleanedLampFlatImage = scinterp.griddata(
+        x1 = xx[~masked_lamp_flat.mask]
+        y1 = yy[~masked_lamp_flat.mask]
+        new_flat = masked_lamp_flat[~masked_lamp_flat.mask]
+        cleaned_lamp_flat_image = scinterp.griddata(
             (x1, y1),
-            newFlat.ravel(),
+            new_flat.ravel(),
             (xx, yy),
             method='nearest',
-            fill_value=np.nanmedian(lampFlatImage)
+            fill_value=np.nanmedian(lamp_flat_image)
         )
-        return cleanedLampFlatImage
-
+        return cleaned_lamp_flat_image
 
     def spinor_get_solar_gain(self, index: int) -> None:
         """
@@ -768,20 +756,20 @@ class SpinorCal:
 
         """
         # Restore previously-created solar gain
-        if os.path.exists(self.solarGainReduced[index]):
-            with fits.open(self.solarGainReduced[index]) as hdu:
-                self.combinedCoarseGainTable = hdu["COARSE-GAIN"].data
-                self.combinedGainTable = hdu["GAIN"].data
-                self.beamEdges = hdu["BEAM-EDGES"].data
+        if os.path.exists(self.solar_gain_reduced[index]):
+            with fits.open(self.solar_gain_reduced[index]) as hdu:
+                self.combined_coarse_gain_table = hdu["COARSE-GAIN"].data
+                self.combined_gain_table = hdu["GAIN"].data
+                self.beam_edges = hdu["BEAM-EDGES"].data
                 self.hairlines = hdu["HAIRLINES"].data
-                self.slitEdges = hdu["SLIT-EDGES"].data
-                self.beam1Yshift = hdu["BEAM1-SHIFTS"].data[0]
-                self.beam1Xshift = hdu["BEAM1-SHIFTS"].data[1]
-                self.spinorLineCores = [hdu[0].header['LC1'], hdu[0].header['LC2']]
-                self.ftsLineCores = [hdu[0].header['FTSLC1'], hdu[0].header["FTSLC2"]]
-                self.flipWaveIdx = hdu[0].header["SPFLIP"]
-                if self.flipWaveIdx == -1:
-                    self.flipWave = True
+                self.slit_edges = hdu["SLIT-EDGES"].data
+                self.beam1_yshift = hdu["BEAM1-SHIFTS"].data[0]
+                self.beam1_xshift = hdu["BEAM1-SHIFTS"].data[1]
+                self.spinor_line_cores = [hdu[0].header['LC1'], hdu[0].header['LC2']]
+                self.fts_line_cores = [hdu[0].header['FTSLC1'], hdu[0].header["FTSLC2"]]
+                self.flip_wave_idx = hdu[0].header["SPFLIP"]
+                if self.flip_wave_idx == -1:
+                    self.flip_wave = True
         else:
             self.spinor_create_solar_gain()
             self.spinor_save_gaintables(index)
@@ -802,17 +790,17 @@ class SpinorCal:
         -------
 
         """
-        if os.path.exists(self.solarGainReduced[index]):
-            with fits.open(self.solarGainReduced[index]) as hdu:
-                self.solarFlat = hdu["SOLAR-FLAT"].data
-                self.solarDark = hdu["SOLAR-DARK"].data
+        if os.path.exists(self.solar_gain_reduced[index]):
+            with fits.open(self.solar_gain_reduced[index]) as hdu:
+                self.solar_flat = hdu["SOLAR-FLAT"].data
+                self.solar_dark = hdu["SOLAR-DARK"].data
                 self.slit_width = hdu[0].header["HSG_SLW"]
                 self.grating_angle = hdu[0].header["HSG_GRAT"]
         else:
-            self.solarFlatFile = self.solarFlatFileList[index]
-            with fits.open(self.solarFlatFile) as fhdul:
-                self.solarDark = self.spinor_average_dark_from_hdul(fhdul)
-                self.solarFlat = self.spinor_average_flat_from_hdul(fhdul)
+            self.solar_flat_file = self.solar_flat_file_list[index]
+            with fits.open(self.solar_flat_file) as fhdul:
+                self.solar_dark = self.spinor_average_dark_from_hdul(fhdul)
+                self.solar_flat = self.spinor_average_flat_from_hdul(fhdul)
                 self.slit_width = fhdul[1].header["HSG_SLW"]
                 self.grating_angle = fhdul[1].header["HSG_GRAT"]
         return
@@ -828,63 +816,63 @@ class SpinorCal:
 
         """
 
-        self.beamEdges, self.slitEdges, self.hairlines = spex.detect_beams_hairlines(
-            self.solarFlat - self.solarDark,
-            threshold=self.beamThreshold,
-            hairline_width=self.hairlineWidth,
+        self.beam_edges, self.slit_edges, self.hairlines = spex.detect_beams_hairlines(
+            self.solar_flat - self.solar_dark,
+            threshold=self.beam_threshold,
+            hairline_width=self.hairline_width,
             expected_hairlines=self.nhair,  # Possible that FLIR cams only have one hairline
             expected_beams=2,  # If there's only one beam, use hsgCal
-            expected_slits=1, # ...we're not getting a multislit unit for SPINOR.
-            fallback=True # FLIR cameras in particular have difficulties with the automated detection
+            expected_slits=1,  # ...we're not getting a multislit unit for SPINOR.
+            fallback=True  # FLIR cameras in particular have difficulties with the automated detection
         )
-        self.slitEdges = self.slitEdges[0]
+        self.slit_edges = self.slit_edges[0]
         if self.verbose:
-            print("Lower Beam Edges in Y: ", self.beamEdges[0])
-            print("Upper Beam Edges in Y: ", self.beamEdges[1])
-            print("Shared X-range: ", self.slitEdges)
+            print("Lower Beam Edges in Y: ", self.beam_edges[0])
+            print("Upper Beam Edges in Y: ", self.beam_edges[1])
+            print("Shared X-range: ", self.slit_edges)
             print("There are {0} hairlines at ".format(self.nhair), self.hairlines)
             print("===========================\n\n")
 
         # Determine which beam is smaller, clip larger to same size
-        smaller_beam = np.argmin(np.diff(self.beamEdges, axis=1))
-        larger_beam = np.argmax(np.diff(self.beamEdges, axis=1))
+        smaller_beam = np.argmin(np.diff(self.beam_edges, axis=1))
+        larger_beam = np.argmax(np.diff(self.beam_edges, axis=1))
         # If 4 hairlines are detected, clip the beams by the hairline positions.
         # This avoids overclipping the beam, and makes the beam alignment easier.
         # And if the beams are the same size, we can skip this next step.
         if (len(self.hairlines) == 4) and (smaller_beam != larger_beam):
             # It does matter which beam is smaller. Must pair inner & outer hairlines.
             if smaller_beam == 0:
-                self.beamEdges[larger_beam, 0] = int(round(
-                    self.hairlines[2] - (self.beamEdges[smaller_beam, 1] - self.hairlines[1]), 0
+                self.beam_edges[larger_beam, 0] = int(round(
+                    self.hairlines[2] - (self.beam_edges[smaller_beam, 1] - self.hairlines[1]), 0
                 ))
-                self.beamEdges[larger_beam, 1] = int(round(
-                    self.hairlines[3] + (self.hairlines[0] - self.beamEdges[smaller_beam, 0]), 0
+                self.beam_edges[larger_beam, 1] = int(round(
+                    self.hairlines[3] + (self.hairlines[0] - self.beam_edges[smaller_beam, 0]), 0
                 ))
             else:
-                self.beamEdges[larger_beam, 0] = int(round(
-                    self.hairlines[0] - (self.beamEdges[smaller_beam, 1] - self.hairlines[3]), 0
+                self.beam_edges[larger_beam, 0] = int(round(
+                    self.hairlines[0] - (self.beam_edges[smaller_beam, 1] - self.hairlines[3]), 0
                 ))
-                self.beamEdges[larger_beam, 1] = int(round(
-                    self.hairlines[1] + (self.hairlines[2] - self.beamEdges[smaller_beam, 0]), 0
+                self.beam_edges[larger_beam, 1] = int(round(
+                    self.hairlines[1] + (self.hairlines[2] - self.beam_edges[smaller_beam, 0]), 0
                 ))
         # Mainly for FLIR where one of the hairlines might be clipped by the chip's edge
         elif (len(self.hairlines) != 4) and (smaller_beam != larger_beam):
-            self.beamEdges[larger_beam, 0] = int(
-                np.nanmean(self.beamEdges[larger_beam, :]) - np.diff(self.beamEdges[smaller_beam, :]) / 2
+            self.beam_edges[larger_beam, 0] = int(
+                np.nanmean(self.beam_edges[larger_beam, :]) - np.diff(self.beam_edges[smaller_beam, :]) / 2
             )
-            self.beamEdges[larger_beam, 1] = int(
-                np.nanmean(self.beamEdges[larger_beam, :]) + np.diff(self.beamEdges[smaller_beam, :]) / 2
+            self.beam_edges[larger_beam, 1] = int(
+                np.nanmean(self.beam_edges[larger_beam, :]) + np.diff(self.beam_edges[smaller_beam, :]) / 2
             )
 
         # Might still be off by up to 2 in size due to errors in casting float to int
-        diff = int(np.diff(np.diff(self.beamEdges, axis=1).flatten(), axis=0)[0])
-        self.beamEdges[0, 1] += diff
+        diff = int(np.diff(np.diff(self.beam_edges, axis=1).flatten(), axis=0)[0])
+        self.beam_edges[0, 1] += diff
 
         self.hairlines = self.hairlines.reshape(2, int(self.nhair / 2))
 
-        beam0 = self.solarFlat[self.beamEdges[0, 0]:self.beamEdges[0, 1], self.slitEdges[0]:self.slitEdges[1]]
+        beam0 = self.solar_flat[self.beam_edges[0, 0]:self.beam_edges[0, 1], self.slit_edges[0]:self.slit_edges[1]]
         beam1 = np.flipud(
-            self.solarFlat[self.beamEdges[1, 0]: self.beamEdges[1, 1], self.slitEdges[0]:self.slitEdges[1]]
+            self.solar_flat[self.beam_edges[1, 0]: self.beam_edges[1, 1], self.slit_edges[0]:self.slit_edges[1]]
         )
         # Aligning the beams is tough with the type of mostly-1D structure in these spectral images
         # Rather than doing a 2D cross-correlation, we should average in both directions and do two 1D
@@ -899,30 +887,30 @@ class SpinorCal:
         beam1meanprof = np.nanmean(beam1[int(beam1.shape[0] / 2 - 50):int(beam1.shape[0] / 2 + 50), 50:-50], axis=0)
         beam0meanprof -= beam0meanprof.mean()
         beam1meanprof -= beam1meanprof.mean()
-        self.beam1Xshift = np.correlate(
+        self.beam1_xshift = np.correlate(
             beam0meanprof, beam1meanprof, mode='full'
         ).argmax() - beam0meanprof.shape[0]
 
         # Rather than doing a scipy.ndimage.shift, the better way to do it would
         # be to shift the self.beamEdges for beam 1.
         # Need to be mindful of shifts that would move beamEdges out of frame.
-        excess_shift = self.beamEdges[1, 1] - yshift - self.solarFlat.shape[0]
+        excess_shift = self.beam_edges[1, 1] - yshift - self.solar_flat.shape[0]
         if excess_shift > 0:
             # Y-Shift takes beam out of bounds. Update beamEdges to be at the edge of frame,
             # Store the excess shift for scipy.ndimage.shift at a later date.
-            self.beam1Yshift = -excess_shift
-            self.beamEdges[1] += -yshift - excess_shift
+            self.beam1_yshift = -excess_shift
+            self.beam_edges[1] += -yshift - excess_shift
         else:
             # Y-shift does not take beam out of bound. Update beamEdges, and move on.
-            self.beam1Yshift = 0
-            self.beamEdges[1] += -yshift
+            self.beam1_yshift = 0
+            self.beam_edges[1] += -yshift
 
         # Clean the hairlines out of the solar flat:
-        cleanedSolarFlat = self.clean_lamp_flat(self.solarFlat.copy()) # We'll use this going forward
+        cleaned_solar_flat = self.clean_lamp_flat(self.solar_flat.copy())  # We'll use this going forward
 
         # Redefine beams with new edges. Do not flip beam1, otherwise, everything has to flip
-        beam0 = cleanedSolarFlat[self.beamEdges[0, 0]:self.beamEdges[0, 1], self.slitEdges[0]:self.slitEdges[1]]
-        beam1 = cleanedSolarFlat[self.beamEdges[1, 0]: self.beamEdges[1, 1], self.slitEdges[0]:self.slitEdges[1]]
+        beam0 = cleaned_solar_flat[self.beam_edges[0, 0]:self.beam_edges[0, 1], self.slit_edges[0]:self.slit_edges[1]]
+        beam1 = cleaned_solar_flat[self.beam_edges[1, 0]: self.beam_edges[1, 1], self.slit_edges[0]:self.slit_edges[1]]
 
         # Now we need to grab the spectral line we'll be using for the gain table
         # Since this will require popping up a widget, we might as well fine-tune
@@ -934,80 +922,79 @@ class SpinorCal:
 
         grating_params = spex.grating_calculations(
             self.grating_rules, self.blaze_angle, self.grating_angle,
-            self.pixel_size, self.centralWavelength, self.spectral_order,
-            collimator=self.spectrographCollimator, camera=self.cameraLens, slit_width=self.slit_width,
+            self.pixel_size, self.central_wavelength, self.spectral_order,
+            collimator=self.spectrograph_collimator, camera=self.camera_lens, slit_width=self.slit_width,
         )
 
-        beam0LampGainCorrected = (
-            beam0 - self.solarDark[self.beamEdges[0, 0]:self.beamEdges[0, 1],
-                    self.slitEdges[0]:self.slitEdges[1]]
-        ) / self.lampGain[self.beamEdges[0, 0]:self.beamEdges[0, 1],
-            self.slitEdges[0]:self.slitEdges[1]]
+        beam0_lamp_gain_corrected = (
+                                            beam0 - self.solar_dark[self.beam_edges[0, 0]:self.beam_edges[0, 1],
+                                                    self.slit_edges[0]:self.slit_edges[1]]
+                                    ) / self.lamp_gain[self.beam_edges[0, 0]:self.beam_edges[0, 1],
+                                        self.slit_edges[0]:self.slit_edges[1]]
 
-        beam1LampGainCorrected = (
-             beam1 - self.solarDark[self.beamEdges[1, 0]:self.beamEdges[1, 1],
-                     self.slitEdges[0]:self.slitEdges[1]]
-        ) / self.lampGain[self.beamEdges[1, 0]:self.beamEdges[1, 1],
-            self.slitEdges[0]:self.slitEdges[1]]
+        beam1_lamp_gain_corrected = (
+                                            beam1 - self.solar_dark[self.beam_edges[1, 0]:self.beam_edges[1, 1],
+                                                    self.slit_edges[0]:self.slit_edges[1]]
+                                    ) / self.lamp_gain[self.beam_edges[1, 0]:self.beam_edges[1, 1],
+                                        self.slit_edges[0]:self.slit_edges[1]]
 
         avg_profile = np.nanmedian(
-            beam0LampGainCorrected[
-            int(beam0LampGainCorrected.shape[0] / 2 - 30):int(beam0LampGainCorrected.shape[0] / 2 + 30), :
+            beam0_lamp_gain_corrected[
+            int(beam0_lamp_gain_corrected.shape[0] / 2 - 30):int(beam0_lamp_gain_corrected.shape[0] / 2 + 30), :
             ],
             axis=0
         )
 
-        self.spinorLineCores, self.ftsLineCores, self.flipWave = self.spinor_fts_line_select(
+        self.spinor_line_cores, self.fts_line_cores, self.flip_wave = self.spinor_fts_line_select(
             grating_params, avg_profile
         )
-        if self.verbose & self.flipWave:
+        if self.verbose & self.flip_wave:
             print("Spectrum flipped along the wavelength axis... Correcting.")
-        if self.verbose and not self.flipWave:
+        if self.verbose and not self.flip_wave:
             print("Spectrum is not flipped, no correction necessary.")
 
         # Rather than building in logic every time we need to flip/not flip a spectrum,
         # We'll define a flip index, and slice by it every time. So if we flip, we'll be
         # indexing [::-1]. Otherwise, we'll index [::1], i.e., doing nothing to the array
-        if self.flipWave:
-            self.flipWaveIdx = -1
+        if self.flip_wave:
+            self.flip_wave_idx = -1
         else:
-            self.flipWaveIdx = 1
+            self.flip_wave_idx = 1
 
-        beam0GainTable, beam0CoarseGainTable, beam0Skews = spex.create_gaintables(
-            beam0LampGainCorrected,
-            [self.spinorLineCores[0] - 7, self.spinorLineCores[0] + 9],
+        beam0_gain_table, beam0_coarse_gain_table, beam0_skews = spex.create_gaintables(
+            beam0_lamp_gain_corrected,
+            [self.spinor_line_cores[0] - 7, self.spinor_line_cores[0] + 9],
             # hairline_positions=self.hairlines[0] - self.beamEdges[0, 0],
             neighborhood=12,
-            hairline_width=self.hairlineWidth / 2
+            hairline_width=self.hairline_width / 2
         )
 
-        beam1GainTable, beam1CoarseGainTable, beam1Skews = spex.create_gaintables(
-            beam1LampGainCorrected,
-            [self.spinorLineCores[0]-7-self.beam1Xshift, self.spinorLineCores[0]+9-self.beam1Xshift],
+        beam1_gain_table, beam1_coarse_gain_table, beam1_skews = spex.create_gaintables(
+            beam1_lamp_gain_corrected,
+            [self.spinor_line_cores[0] - 7 - self.beam1_xshift, self.spinor_line_cores[0] + 9 - self.beam1_xshift],
             # hairline_positions=self.hairlines[1] - self.beamEdges[1, 0],
             neighborhood=12,
-            hairline_width=self.hairlineWidth / 2
+            hairline_width=self.hairline_width / 2
         )
 
-        self.combinedGainTable = np.ones(self.solarFlat.shape)
-        self.combinedCoarseGainTable = np.ones(self.solarFlat.shape)
+        self.combined_gain_table = np.ones(self.solar_flat.shape)
+        self.combined_coarse_gain_table = np.ones(self.solar_flat.shape)
 
-        self.combinedGainTable[
-            self.beamEdges[0, 0]:self.beamEdges[0, 1], self.slitEdges[0]:self.slitEdges[1]
-        ] = beam0GainTable
-        self.combinedGainTable[
-            self.beamEdges[1, 0]:self.beamEdges[1, 1], self.slitEdges[0]:self.slitEdges[1]
-        ] = beam1GainTable
+        self.combined_gain_table[
+        self.beam_edges[0, 0]:self.beam_edges[0, 1], self.slit_edges[0]:self.slit_edges[1]
+        ] = beam0_gain_table
+        self.combined_gain_table[
+        self.beam_edges[1, 0]:self.beam_edges[1, 1], self.slit_edges[0]:self.slit_edges[1]
+        ] = beam1_gain_table
 
-        self.combinedCoarseGainTable[
-            self.beamEdges[0, 0]:self.beamEdges[0, 1], self.slitEdges[0]:self.slitEdges[1]
-        ] = beam0CoarseGainTable
-        self.combinedCoarseGainTable[
-            self.beamEdges[1, 0]:self.beamEdges[1, 1], self.slitEdges[0]:self.slitEdges[1]
-        ] = beam1CoarseGainTable
+        self.combined_coarse_gain_table[
+        self.beam_edges[0, 0]:self.beam_edges[0, 1], self.slit_edges[0]:self.slit_edges[1]
+        ] = beam0_coarse_gain_table
+        self.combined_coarse_gain_table[
+        self.beam_edges[1, 0]:self.beam_edges[1, 1], self.slit_edges[0]:self.slit_edges[1]
+        ] = beam1_coarse_gain_table
 
         return
-
 
     def spinor_plot_gaintables(self, index: int) -> None:
         """
@@ -1015,29 +1002,29 @@ class SpinorCal:
             A.) Deal with just... so many popups
             B.) Check on the quality of the corrections as they go
         """
-        aspect_ratio = self.solarFlat.shape[1] / self.solarFlat.shape[0]
-        gainFig = plt.figure("SPINOR Gain Tables", figsize=(4*2.5, 2.5/aspect_ratio))
-        ax_lamp = gainFig.add_subplot(141)
-        ax_flat = gainFig.add_subplot(142)
-        ax_coarse = gainFig.add_subplot(143)
-        ax_fine = gainFig.add_subplot(144)
+        aspect_ratio = self.solar_flat.shape[1] / self.solar_flat.shape[0]
+        gain_fig = plt.figure("SPINOR Gain Tables", figsize=(4 * 2.5, 2.5 / aspect_ratio))
+        ax_lamp = gain_fig.add_subplot(141)
+        ax_flat = gain_fig.add_subplot(142)
+        ax_coarse = gain_fig.add_subplot(143)
+        ax_fine = gain_fig.add_subplot(144)
         ax_lamp.imshow(
-            self.lampGain, origin='lower', cmap='gray', vmin=0.5, vmax=2.5
+            self.lamp_gain, origin='lower', cmap='gray', vmin=0.5, vmax=2.5
         )
         ax_flat.imshow(
-            (self.solarFlat - self.solarDark)/self.lampGain, origin='lower', cmap='gray'
+            (self.solar_flat - self.solar_dark) / self.lamp_gain, origin='lower', cmap='gray'
         )
         ax_coarse.imshow(
-            self.combinedCoarseGainTable, origin='lower', cmap='gray', vmin=0.5, vmax=2.5
+            self.combined_coarse_gain_table, origin='lower', cmap='gray', vmin=0.5, vmax=2.5
         )
         ax_fine.imshow(
-            self.combinedGainTable, origin='lower', cmap='gray', vmin=0.5, vmax=2.5
+            self.combined_gain_table, origin='lower', cmap='gray', vmin=0.5, vmax=2.5
         )
         ax_lamp.set_title("LAMP GAIN")
         ax_flat.set_title("SOLAR FLAT")
         ax_coarse.set_title("COARSE GAIN")
         ax_fine.set_title("FINE GAIN")
-        for beam in self.beamEdges.flatten():
+        for beam in self.beam_edges.flatten():
             ax_lamp.axhline(beam, c="C1", linewidth=1)
             ax_flat.axhline(beam, c="C1", linewidth=1)
             ax_coarse.axhline(beam, c="C1", linewidth=1)
@@ -1047,21 +1034,20 @@ class SpinorCal:
             ax_flat.axhline(hair, c="C2", linewidth=1)
             ax_coarse.axhline(hair, c="C2", linewidth=1)
             ax_fine.axhline(hair, c="C2", linewidth=1)
-        for edge in self.slitEdges:
+        for edge in self.slit_edges:
             ax_lamp.axvline(edge, c="C1", linewidth=1)
             ax_flat.axvline(edge, c="C1", linewidth=1)
             ax_coarse.axvline(edge, c="C1", linewidth=1)
             ax_fine.axvline(edge, c="C1", linewidth=1)
-        gainFig.tight_layout()
-        if self.saveFigs:
-            filename = os.path.join(self.finalDir, "gain_tables_{0}.png".format(index))
-            gainFig.savefig(filename, bbox_inches="tight")
+        gain_fig.tight_layout()
+        if self.save_figs:
+            filename = os.path.join(self.final_dir, "gain_tables_{0}.png".format(index))
+            gain_fig.savefig(filename, bbox_inches="tight")
 
         plt.show(block=False)
         plt.pause(0.1)
 
         return
-
 
     def spinor_save_gaintables(self, index: int) -> None:
         """
@@ -1077,53 +1063,52 @@ class SpinorCal:
 
         """
         # Only write if the file doesn't already exist.
-        if os.path.exists(self.solarGainReduced[index]):
+        if os.path.exists(self.solar_gain_reduced[index]):
             if self.verbose:
-                print("File exists: {0}\nSkipping file write.".format(self.solarGainReduced[index]))
+                print("File exists: {0}\nSkipping file write.".format(self.solar_gain_reduced[index]))
             return
 
         phdu = fits.PrimaryHDU()
         phdu.header["DATE"] = np.datetime64("now").astype(str)
-        phdu.header["LC1"] = self.spinorLineCores[0]
-        phdu.header["LC2"] = self.spinorLineCores[1]
-        phdu.header["FTSLC1"] = self.ftsLineCores[0]
-        phdu.header["FTSLC2"] = self.ftsLineCores[1]
-        phdu.header["SPFLIP"] = self.flipWaveIdx
+        phdu.header["LC1"] = self.spinor_line_cores[0]
+        phdu.header["LC2"] = self.spinor_line_cores[1]
+        phdu.header["FTSLC1"] = self.fts_line_cores[0]
+        phdu.header["FTSLC2"] = self.fts_line_cores[1]
+        phdu.header["SPFLIP"] = self.flip_wave_idx
         phdu.header["HSG_SLW"] = self.slit_width
         phdu.header["HSG_GRAT"] = self.grating_angle
 
-        flat = fits.ImageHDU(self.solarFlat)
+        flat = fits.ImageHDU(self.solar_flat)
         flat.header["EXTNAME"] = "SOLAR-FLAT"
-        dark = fits.ImageHDU(self.solarDark)
+        dark = fits.ImageHDU(self.solar_dark)
         dark.header["EXTNAME"] = "SOLAR-DARK"
-        cgain = fits.ImageHDU(self.combinedCoarseGainTable)
+        cgain = fits.ImageHDU(self.combined_coarse_gain_table)
         cgain.header["EXTNAME"] = "COARSE-GAIN"
-        fgain = fits.ImageHDU(self.combinedGainTable)
+        fgain = fits.ImageHDU(self.combined_gain_table)
         fgain.header["EXTNAME"] = "GAIN"
-        bedge = fits.ImageHDU(self.beamEdges)
+        bedge = fits.ImageHDU(self.beam_edges)
         bedge.header["EXTNAME"] = "BEAM-EDGES"
         hairs = fits.ImageHDU(self.hairlines)
         hairs.header["EXTNAME"] = "HAIRLINES"
-        slits = fits.ImageHDU(self.slitEdges)
+        slits = fits.ImageHDU(self.slit_edges)
         slits.header["EXTNAME"] = "SLIT-EDGES"
-        shifts = fits.ImageHDU(np.array([self.beam1Yshift, self.beam1Xshift]))
+        shifts = fits.ImageHDU(np.array([self.beam1_yshift, self.beam1_xshift]))
         shifts.header["EXTNAME"] = "BEAM1-SHIFTS"
 
         hdul = fits.HDUList([phdu, flat, dark, cgain, fgain, bedge, hairs, slits, shifts])
-        hdul.writeto(self.solarGainReduced[index], overwrite=True)
+        hdul.writeto(self.solar_gain_reduced[index], overwrite=True)
 
         return
 
-
     def spinor_fts_line_select(
-            self, gratingParams: np.rec.recarray, averageProfile: np.ndarray
+            self, grating_params: np.rec.recarray, average_profile: np.ndarray
     ) -> tuple[list, list, bool]:
         """
         Pops up the line selection widget for gain table creation and wavelength determination
         Parameters
         ----------
-        averageProfile
-        gratingParams : numpy.records.recarray
+        average_profile
+        grating_params : numpy.records.recarray
             From spectraTools.grating_calculations
 
         Returns
@@ -1131,35 +1116,34 @@ class SpinorCal:
 
         """
         # Getting Min/Max Wavelength for FTS comparison; padding by 30 pixels on either side
-        apxWavemin = self.centralWavelength - np.nanmean(self.slitEdges) * gratingParams['Spectral_Pixel'] / 1000
-        apxWavemax = self.centralWavelength + np.nanmean(self.slitEdges) * gratingParams['Spectral_Pixel'] / 1000
-        apxWavemin -= 30 * gratingParams['Spectral_Pixel'] / 1000
-        apxWavemax += 30 * gratingParams['Spectral_Pixel'] / 1000
-        fts_wave, fts_spec = spex.fts_window(apxWavemin, apxWavemax)
+        apx_wavemin = self.central_wavelength - np.nanmean(self.slit_edges) * grating_params['Spectral_Pixel'] / 1000
+        apx_wavemax = self.central_wavelength + np.nanmean(self.slit_edges) * grating_params['Spectral_Pixel'] / 1000
+        apx_wavemin -= 30 * grating_params['Spectral_Pixel'] / 1000
+        apx_wavemax += 30 * grating_params['Spectral_Pixel'] / 1000
+        fts_wave, fts_spec = spex.fts_window(apx_wavemin, apx_wavemax)
 
         print("Top: SPINOR Spectrum (uncorrected). Bottom: FTS Reference Spectrum")
         print("Select the same two spectral lines on each plot.")
-        spinorLines, ftsLines = spex.select_lines_doublepanel(
-            averageProfile,
+        spinor_lines, fts_lines = spex.select_lines_doublepanel(
+            average_profile,
             fts_spec,
             4
         )
-        spinorLineCores = [
-            int(spex.find_line_core(averageProfile[x - 5:x + 5]) + x - 5) for x in spinorLines
+        spinor_line_cores = [
+            int(spex.find_line_core(average_profile[x - 5:x + 5]) + x - 5) for x in spinor_lines
         ]
-        ftsLineCores = [
-            spex.find_line_core(fts_spec[x - 20:x + 9]) + x - 20 for x in ftsLines
+        fts_line_cores = [
+            spex.find_line_core(fts_spec[x - 20:x + 9]) + x - 20 for x in fts_lines
         ]
 
-        spinorPixPerFTSPix = np.abs(np.diff(spinorLineCores)) / np.abs(np.diff(ftsLineCores))
+        spinor_pix_per_fts_pix = np.abs(np.diff(spinor_line_cores)) / np.abs(np.diff(fts_line_cores))
 
-        flipWave = self.determine_spectrum_flip(
-            fts_spec, averageProfile, spinorPixPerFTSPix,
-            spinorLineCores, ftsLineCores
+        flip_wave = self.determine_spectrum_flip(
+            fts_spec, average_profile, spinor_pix_per_fts_pix,
+            spinor_line_cores, fts_line_cores
         )
 
-        return spinorLineCores, ftsLineCores, flipWave
-
+        return spinor_line_cores, fts_line_cores, flip_wave
 
     def spinor_get_polcal(self) -> None:
         """
@@ -1169,9 +1153,9 @@ class SpinorCal:
         -------
 
         """
-        if os.path.exists(self.txMatrixReduced):
-            with fits.open(self.txMatrixReduced) as hdul:
-                self.inputStokes = hdul["STOKES-IN"].data
+        if os.path.exists(self.tx_matrix_reduced):
+            with fits.open(self.tx_matrix_reduced) as hdul:
+                self.input_stokes = hdul["STOKES-IN"].data
                 self.calcurves = hdul["CALCURVES"].data
                 self.txmat = hdul["TXMAT"].data
                 self.txchi = hdul["TXCHI"].data
@@ -1194,18 +1178,18 @@ class SpinorCal:
 
         """
         # Only write if the file doesn't already exist.
-        if os.path.exists(self.txMatrixReduced):
+        if os.path.exists(self.tx_matrix_reduced):
             if self.verbose:
-                print("File exists: {0}\nSkipping file write.".format(self.txMatrixReduced))
+                print("File exists: {0}\nSkipping file write.".format(self.tx_matrix_reduced))
             return
 
         phdu = fits.PrimaryHDU()
         phdu.header["DATE"] = np.datetime64("now").astype(str)
 
-        inStoke = fits.ImageHDU(self.inputStokes)
-        inStoke.header["EXTNAME"] = "STOKES-IN"
-        outStoke = fits.ImageHDU(self.calcurves)
-        outStoke.header["EXTNAME"] = "CALCURVES"
+        in_stoke = fits.ImageHDU(self.input_stokes)
+        in_stoke.header["EXTNAME"] = "STOKES-IN"
+        out_stoke = fits.ImageHDU(self.calcurves)
+        out_stoke.header["EXTNAME"] = "CALCURVES"
 
         txmat = fits.ImageHDU(self.txmat)
         txmat.header["EXTNAME"] = "TXMAT"
@@ -1216,8 +1200,8 @@ class SpinorCal:
         txinv = fits.ImageHDU(self.txmatinv)
         txinv.header["EXTNAME"] = "TXMATINV"
 
-        hdul = fits.HDUList([phdu, inStoke, outStoke, txmat, txchi, tx00, txinv])
-        hdul.writeto(self.txMatrixReduced, overwrite=True)
+        hdul = fits.HDUList([phdu, in_stoke, out_stoke, txmat, txchi, tx00, txinv])
+        hdul.writeto(self.tx_matrix_reduced, overwrite=True)
 
         return
 
@@ -1231,79 +1215,80 @@ class SpinorCal:
         """
 
         # Get obsdate of science files to determine whether gain correction can be safely applied
-        if os.path.exists(self.scienceFileList[0]):
-            with fits.open(self.scienceFileList[0]) as hdul:
-                baseObsdate = np.datetime64(hdul[1].header["DATE-OBS"], "D")
+        if os.path.exists(self.science_file_list[0]):
+            with fits.open(self.science_file_list[0]) as hdul:
+                base_obsdate = np.datetime64(hdul[1].header["DATE-OBS"], "D")
         else:
-            baseObsdate = None
+            base_obsdate = None
 
-        polfile = fits.open(self.polcalFile)
-        polfileObsdate = np.datetime64(polfile[1].header["DATE-OBS"], "D")
+        polfile = fits.open(self.polcal_file)
+        polfile_obsdate = np.datetime64(polfile[1].header["DATE-OBS"], "D")
 
-        polcalDarkCurrent = self.spinor_average_dark_from_hdul(polfile)
+        polcal_dark_current = self.spinor_average_dark_from_hdul(polfile)
 
-        fieldStops = [i.header['PT4_FS'] for i in polfile if "PT4_FS" in i.header.keys()]
+        field_stops = [i.header['PT4_FS'] for i in polfile if "PT4_FS" in i.header.keys()]
 
-        openFieldStops = [i for i in fieldStops if "DARK" not in i]
+        open_field_stops = [i for i in field_stops if "DARK" not in i]
 
         # Grab the ICU parameters for every non-dark frame
-        polarizerStaged = np.array([
+        polarizer_staged = np.array([
             1 if "IN" in i.header['PT4_PSTG'] else 0 for i in polfile[1:] if "DARK" not in i.header['PT4_FS']
         ])
-        retarderStaged = np.array([
+        retarder_staged = np.array([
             1 if "IN" in i.header['PT4_RSTG'] else 0 for i in polfile[1:] if "DARK" not in i.header['PT4_FS']
         ])
-        polarizerAngle = np.array([
+        polarizer_angle = np.array([
             i.header['PT4_POL'] for i in polfile[1:] if "DARK" not in i.header['PT4_FS']
         ])
-        retarderAngle = np.array([
+        retarder_angle = np.array([
             i.header['PT4_RET'] for i in polfile[1:] if "DARK" not in i.header['PT4_FS']
         ])
-        llvlPol = np.array([
+        llvl_pol = np.array([
             i.header['DST_LLVL'] for i in polfile[1:] if "DARK" not in i.header['PT4_FS']
         ])
-        azPol = np.array([
+        az_pol = np.array([
             i.header['DST_AZ'] for i in polfile[1:] if "DARK" not in i.header['PT4_FS']
         ])
-        elPol = np.array([
+        el_pol = np.array([
             i.header['DST_EL'] for i in polfile[1:] if "DARK" not in i.header['PT4_FS']
         ])
-        taPol = np.array([
+        ta_pol = np.array([
             i.header['DST_TBL'] for i in polfile[1:] if "DARK" not in i.header['PT4_FS']
         ])
 
-        polcalStokesBeams = np.zeros(
-            (len(openFieldStops),
+        polcal_stokes_beams = np.zeros(
+            (len(open_field_stops),
              2,
              4,
-             self.beamEdges[0, 1] - self.beamEdges[0, 0],
-             self.slitEdges[1] - self.slitEdges[0])
+             self.beam_edges[0, 1] - self.beam_edges[0, 0],
+             self.slit_edges[1] - self.slit_edges[0])
         )
-        shift = self.beam1Yshift if self.beam1Yshift else 0
-        xshift = self.beam1Xshift
+        shift = self.beam1_yshift if self.beam1_yshift else 0
+        xshift = self.beam1_xshift
         ctr = 0
         for hdu in polfile[1:]:
             if "DARK" not in hdu.header['PT4_FS']:
                 # If the polcal was completed on the same date as the gain tables,
                 # we can clean the polcals up with the gain to get a better estimate across the slit
                 # If the polcals are from a different date, we should be content with dark-subtraction
-                if (baseObsdate == polfileObsdate) & self.polcalProcessing:
+                if (base_obsdate == polfile_obsdate) & self.polcal_processing:
                     data = self.demodulate_spinor(
-                        (hdu.data - polcalDarkCurrent)/self.lampGain/self.combinedGainTable
+                        (hdu.data - polcal_dark_current) / self.lamp_gain / self.combined_gain_table
                     )
                 else:
                     data = self.demodulate_spinor(
-                        (hdu.data - polcalDarkCurrent)
+                        (hdu.data - polcal_dark_current)
                     )
 
                 # Cut out beams, flip n shift the upper beam
-                polcalStokesBeams[ctr, 0, :, :, :] = data[
-                    :, self.beamEdges[0, 0]:self.beamEdges[0, 1], self.slitEdges[0]:self.slitEdges[1]
-                ]
-                polcalStokesBeams[ctr, 1, :, :, :] = np.flip(
+                polcal_stokes_beams[ctr, 0, :, :, :] = data[
+                                                       :, self.beam_edges[0, 0]:self.beam_edges[0, 1],
+                                                       self.slit_edges[0]:self.slit_edges[1]
+                                                       ]
+                polcal_stokes_beams[ctr, 1, :, :, :] = np.flip(
                     scind.shift(
                         data[
-                            :, self.beamEdges[1, 0]:self.beamEdges[1, 1], self.slitEdges[0]:self.slitEdges[1]
+                        :, self.beam_edges[1, 0]:self.beam_edges[1, 1], self.slit_edges[0]:self.slit_edges[1]
                         ], (0, shift, -xshift)
                     ),
                     axis=1
@@ -1314,13 +1299,13 @@ class SpinorCal:
         polfile.close()
 
         merged_beams = np.zeros((
-            polcalStokesBeams.shape[0],
-            polcalStokesBeams.shape[2],
-            polcalStokesBeams.shape[3],
-            polcalStokesBeams.shape[4]
+            polcal_stokes_beams.shape[0],
+            polcal_stokes_beams.shape[2],
+            polcal_stokes_beams.shape[3],
+            polcal_stokes_beams.shape[4]
         ))
-        merged_beams[:, 0, :, :] = np.nanmean(polcalStokesBeams[:, :, 0, :, :], axis=1)
-        merged_beams[:, 1:, :, :] = (polcalStokesBeams[:, 0, 1:, :, :] - polcalStokesBeams[:, 1, 1:, :, :])/2.
+        merged_beams[:, 0, :, :] = np.nanmean(polcal_stokes_beams[:, :, 0, :, :], axis=1)
+        merged_beams[:, 1:, :, :] = (polcal_stokes_beams[:, 0, 1:, :, :] - polcal_stokes_beams[:, 1, 1:, :, :]) / 2.
         # Additional step: mask values outside ilimit*mean(I).
         # Original spinor_cal.pro used [0.5, 1.5]
         # That's probably fine to first order.
@@ -1334,24 +1319,24 @@ class SpinorCal:
         )
         self.calcurves = np.zeros(
             (
-                polcalStokesBeams.shape[0],
-                polcalStokesBeams.shape[2],
-                self.nSubSlits
+                polcal_stokes_beams.shape[0],
+                polcal_stokes_beams.shape[2],
+                self.n_subslits
             )
         )
-        subarrays = np.array_split(merged_beams, self.nSubSlits, axis=2)
-        submasks = np.array_split(merged_beam_mask, self.nSubSlits, axis=2)
+        subarrays = np.array_split(merged_beams, self.n_subslits, axis=2)
+        submasks = np.array_split(merged_beam_mask, self.n_subslits, axis=2)
 
-        for i in range(self.nSubSlits):
+        for i in range(self.n_subslits):
             # Replace values outside ilimit with nans
             # That way, nanmean gets rid of them while preserving the array shape
             masked_subarray = subarrays[i]
             masked_subarray[~submasks[i]] = np.nan
             # Normalize QUV curve by I
-            self.calcurves[:, 0, i] = np.nanmean(masked_subarray[:, 0, :, :], axis=(-2,-1))
+            self.calcurves[:, 0, i] = np.nanmean(masked_subarray[:, 0, :, :], axis=(-2, -1))
             for j in range(1, 4):
                 self.calcurves[:, j, i] = np.nanmean(
-                    masked_subarray[:, j, :, :]/masked_subarray[:, 0, :, :], axis=(-2,-1)
+                    masked_subarray[:, j, :, :] / masked_subarray[:, 0, :, :], axis=(-2, -1)
                 )
 
         # SPINOR IDL polcal takes measurements with LP+RET in beam,
@@ -1363,145 +1348,145 @@ class SpinorCal:
         # To do this, we'll need the 17th I measurements.
         # Or just grab the frames with PSTG and RSTG clear. Right.
 
-        for i in range(self.nSubSlits):
-            clearISelection = ~polarizerStaged.astype(bool) & ~retarderStaged.astype(bool)
-            clearI = self.calcurves[:, 0, i][clearISelection]
+        for i in range(self.n_subslits):
+            clear_i_selection = ~polarizer_staged.astype(bool) & ~retarder_staged.astype(bool)
+            clear_i = self.calcurves[:, 0, i][clear_i_selection]
             # Need an x-range that lines up with cal meas.
-            clearIXrun = np.arange(self.calcurves.shape[0])[clearISelection]
-            polyfitClear = np.polyfit(clearIXrun, clearI, 1)
+            clear_i_xrun = np.arange(self.calcurves.shape[0])[clear_i_selection]
+            polyfit_clear = np.polyfit(clear_i_xrun, clear_i, 1)
             self.calcurves[:, 0, i][
-                clearISelection
-            ] = self.calcurves[:, 0, i][clearISelection] / (
-                    np.arange(self.calcurves.shape[0]) * polyfitClear[0] + polyfitClear[1]
-            )[clearISelection]
+                clear_i_selection
+            ] = self.calcurves[:, 0, i][clear_i_selection] / (
+                    np.arange(self.calcurves.shape[0]) * polyfit_clear[0] + polyfit_clear[1]
+            )[clear_i_selection]
 
-            retOnlySelection = ~polarizerStaged.astype(bool) & retarderStaged.astype(bool)
-            retOnly = self.calcurves[:, 0, i][retOnlySelection]
-            retOnlyXrun = np.arange(self.calcurves.shape[0])[retOnlySelection]
-            polyfitRet = np.polyfit(retOnlyXrun, retOnly, 1)
-            self.calcurves[:, 0, i][retOnlySelection] = self.calcurves[:, 0, i][retOnlySelection] / (
-                np.arange(self.calcurves.shape[0]) * polyfitRet[0] + polyfitRet[1]
-            )[retOnlySelection]
+            ret_only_selection = ~polarizer_staged.astype(bool) & retarder_staged.astype(bool)
+            ret_only = self.calcurves[:, 0, i][ret_only_selection]
+            ret_only_xrun = np.arange(self.calcurves.shape[0])[ret_only_selection]
+            polyfit_ret = np.polyfit(ret_only_xrun, ret_only, 1)
+            self.calcurves[:, 0, i][ret_only_selection] = self.calcurves[:, 0, i][ret_only_selection] / (
+                    np.arange(self.calcurves.shape[0]) * polyfit_ret[0] + polyfit_ret[1]
+            )[ret_only_selection]
 
-            lpretSelection = polarizerStaged.astype(bool) & retarderStaged.astype(bool)
-            lpret = self.calcurves[:, 0, i][lpretSelection]
-            lpretXrun = np.arange(self.calcurves.shape[0])[lpretSelection]
-            polyfitLpRet = np.polyfit(lpretXrun, lpret, 1)
-            self.calcurves[:, 0, i][lpretSelection] = self.calcurves[:, 0, i][lpretSelection] / (
-                    np.arange(self.calcurves.shape[0]) * polyfitLpRet[0] + polyfitLpRet[1]
-            )[lpretSelection]
+            lpret_selection = polarizer_staged.astype(bool) & retarder_staged.astype(bool)
+            lpret = self.calcurves[:, 0, i][lpret_selection]
+            lpret_xrun = np.arange(self.calcurves.shape[0])[lpret_selection]
+            polyfit_lp_ret = np.polyfit(lpret_xrun, lpret, 1)
+            self.calcurves[:, 0, i][lpret_selection] = self.calcurves[:, 0, i][lpret_selection] / (
+                    np.arange(self.calcurves.shape[0]) * polyfit_lp_ret[0] + polyfit_lp_ret[1]
+            )[lpret_selection]
 
-            lpOnlySelection = polarizerStaged.astype(bool) & ~retarderStaged.astype(bool)
-            lpOnly = self.calcurves[:, 0, i][lpOnlySelection]
-            lpOnlyXrun = np.arange(self.calcurves.shape[0])[lpOnlySelection]
-            polyfitLP = np.polyfit(lpOnlyXrun, lpOnly, 1)
-            self.calcurves[:, 0, i][lpOnlySelection] = self.calcurves[:, 0, i][lpOnlySelection] / (
-                    np.arange(self.calcurves.shape[0]) * polyfitLP[0] + polyfitLP[1]
-            )[lpOnlySelection]
+            lp_only_selection = polarizer_staged.astype(bool) & ~retarder_staged.astype(bool)
+            lp_only = self.calcurves[:, 0, i][lp_only_selection]
+            lp_only_xrun = np.arange(self.calcurves.shape[0])[lp_only_selection]
+            polyfit_lp = np.polyfit(lp_only_xrun, lp_only, 1)
+            self.calcurves[:, 0, i][lp_only_selection] = self.calcurves[:, 0, i][lp_only_selection] / (
+                    np.arange(self.calcurves.shape[0]) * polyfit_lp[0] + polyfit_lp[1]
+            )[lp_only_selection]
 
         self.calcurves = np.nan_to_num(self.calcurves)
 
         # Now create the input Stokes Vectors using the Telescope Matrix, plus cal unit parameters.
         # The cal train is Sky -> Telescope -> Polarizer -> Retarder -> Spectrograph
-        inputStokes = np.zeros((self.calcurves.shape[0], 4))
+        input_stokes = np.zeros((self.calcurves.shape[0], 4))
         for i in range(self.calcurves.shape[0]):
-            initStokes = np.array([1, 0, 0, 0])
-            tmtx = self.get_telescope_matrix([azPol[i], elPol[i], taPol[i]])
-            initStokes = tmtx @ initStokes
-            if bool(polarizerStaged[i]):
+            init_stokes = np.array([1, 0, 0, 0])
+            tmtx = self.get_telescope_matrix([az_pol[i], el_pol[i], ta_pol[i]])
+            init_stokes = tmtx @ init_stokes
+            if bool(polarizer_staged[i]):
                 # Mult by 2 since we normalized our intensities earlier...
-                initStokes = 2*spex.linearAnalyzerPolarizer(
-                    polarizerAngle[i] * np.pi/180,
+                init_stokes = 2 * spex.linear_analyzer_polarizer(
+                    polarizer_angle[i] * np.pi / 180,
                     px=1,
-                    py=0.005 # Estimate...
-                ) @ initStokes
-            if bool(retarderStaged[i]):
-                initStokes = spex.linearRetarder(
-                    retarderAngle[i] * np.pi/180,
-                    self.calRetardance * np.pi/180
-                ) @ initStokes
-            inputStokes[i, :] = initStokes
+                    py=0.005  # Estimate...
+                ) @ init_stokes
+            if bool(retarder_staged[i]):
+                init_stokes = spex.linear_retarder(
+                    retarder_angle[i] * np.pi / 180,
+                    self.cal_retardance * np.pi / 180
+                ) @ init_stokes
+            input_stokes[i, :] = init_stokes
 
-        self.inputStokes = np.nan_to_num(inputStokes)
-        self.txmat = np.zeros((self.nSubSlits, 4, 4))
-        self.txchi = np.zeros(self.nSubSlits)
-        self.txmat00 = np.zeros(self.nSubSlits)
-        self.txmatinv = np.zeros((self.nSubSlits, 4, 4))
+        self.input_stokes = np.nan_to_num(input_stokes)
+        self.txmat = np.zeros((self.n_subslits, 4, 4))
+        self.txchi = np.zeros(self.n_subslits)
+        self.txmat00 = np.zeros(self.n_subslits)
+        self.txmatinv = np.zeros((self.n_subslits, 4, 4))
 
-        for i in range(self.nSubSlits):
+        for i in range(self.n_subslits):
             errors, xmat = spex.matrix_inversion(
-                inputStokes,
+                input_stokes,
                 self.calcurves[:, :, i]
             )
             self.txmat00[i] = xmat[0, 0]
             xmat /= xmat[0, 0]
             self.txmat[i] = xmat
             self.txmatinv[i] = np.linalg.inv(xmat)
-            efficiencies = np.sqrt(np.sum(xmat**2, axis=1))
-        #
-        #     # Measurement of retardance from +-QU measurements
-        #     # +Q
-            lpPosQSelection = (
-                (polarizerStaged.astype(bool) &
-                 ~retarderStaged.astype(bool)) &
-                ((np.abs(polarizerAngle) < 1) |
-                 (np.abs(polarizerAngle - 180) < 1))
+            efficiencies = np.sqrt(np.sum(xmat ** 2, axis=1))
+            #
+            #     # Measurement of retardance from +-QU measurements
+            #     # +Q
+            lp_pos_q_selection = (
+                    (polarizer_staged.astype(bool) &
+                     ~retarder_staged.astype(bool)) &
+                    ((np.abs(polarizer_angle) < 1) |
+                     (np.abs(polarizer_angle - 180) < 1))
             )
-            posQVec = self.calcurves[:, :, i][np.repeat(lpPosQSelection[:, np.newaxis], 4, axis=1)]
-            posQVec = np.nanmean(
-                posQVec.reshape(int(posQVec.shape[0]/4), 4),
+            pos_q_vec = self.calcurves[:, :, i][np.repeat(lp_pos_q_selection[:, np.newaxis], 4, axis=1)]
+            pos_q_vec = np.nanmean(
+                pos_q_vec.reshape(int(pos_q_vec.shape[0] / 4), 4),
                 axis=0
             )
-            stokesPosQ = self.txmatinv[i] @ posQVec
-            stokesPosQ = stokesPosQ / stokesPosQ[0]
-            posQsqdiff = np.sum((stokesPosQ - np.array([1, 1, 0, 0]))**2)
-        #     # -Q
-            lpNegQSelection = (
-                (polarizerStaged.astype(bool) &
-                 ~retarderStaged.astype(bool)) &
-                ((np.abs(polarizerAngle - 90) < 1) |
-                 (np.abs(polarizerAngle - 270) < 1))
+            stokes_pos_q = self.txmatinv[i] @ pos_q_vec
+            stokes_pos_q = stokes_pos_q / stokes_pos_q[0]
+            pos_qsqdiff = np.sum((stokes_pos_q - np.array([1, 1, 0, 0])) ** 2)
+            #     # -Q
+            lp_neg_q_selection = (
+                    (polarizer_staged.astype(bool) &
+                     ~retarder_staged.astype(bool)) &
+                    ((np.abs(polarizer_angle - 90) < 1) |
+                     (np.abs(polarizer_angle - 270) < 1))
             )
-            negQVec = self.calcurves[:, :, i][np.repeat(lpNegQSelection[:, np.newaxis], 4, axis=1)]
-            negQVec = np.nanmean(
-                negQVec.reshape(int(negQVec.shape[0] / 4), 4),
+            neg_q_vec = self.calcurves[:, :, i][np.repeat(lp_neg_q_selection[:, np.newaxis], 4, axis=1)]
+            neg_q_vec = np.nanmean(
+                neg_q_vec.reshape(int(neg_q_vec.shape[0] / 4), 4),
                 axis=0
             )
-            stokesNegQ = self.txmatinv[i] @ negQVec
-            stokesNegQ = stokesNegQ / stokesNegQ[0]
-            negQsqdiff = np.sum((stokesNegQ - np.array([1, -1, 0, 0])) ** 2)
-        #     # +U
-            lpPosUSelection = (
-                (polarizerStaged.astype(bool) &
-                 ~retarderStaged.astype(bool)) &
-                ((np.abs(polarizerAngle - 45) < 1) |
-                 (np.abs(polarizerAngle - 225) < 1))
+            stokes_neg_q = self.txmatinv[i] @ neg_q_vec
+            stokes_neg_q = stokes_neg_q / stokes_neg_q[0]
+            neg_qsqdiff = np.sum((stokes_neg_q - np.array([1, -1, 0, 0])) ** 2)
+            #     # +U
+            lp_pos_u_selection = (
+                    (polarizer_staged.astype(bool) &
+                     ~retarder_staged.astype(bool)) &
+                    ((np.abs(polarizer_angle - 45) < 1) |
+                     (np.abs(polarizer_angle - 225) < 1))
             )
-            posUVec = self.calcurves[:, :, i][np.repeat(lpPosUSelection[:, np.newaxis], 4, axis=1)]
-            posUVec = np.nanmean(
-                posUVec.reshape(int(posUVec.shape[0] / 4), 4),
+            pos_u_vec = self.calcurves[:, :, i][np.repeat(lp_pos_u_selection[:, np.newaxis], 4, axis=1)]
+            pos_u_vec = np.nanmean(
+                pos_u_vec.reshape(int(pos_u_vec.shape[0] / 4), 4),
                 axis=0
             )
-            stokesPosU = self.txmatinv[i] @ posUVec
-            stokesPosU = stokesPosU / stokesPosU[0]
-            posUsqdiff = np.sum((stokesPosU - np.array([1, 0, 1, 0])) ** 2)
-        #     # -U
-            lpNegUSelection = (
-                (polarizerStaged.astype(bool) &
-                 ~retarderStaged.astype(bool)) &
-                ((np.abs(polarizerAngle - 135) < 1) |
-                 (np.abs(polarizerAngle - 315) < 1))
+            stokes_pos_u = self.txmatinv[i] @ pos_u_vec
+            stokes_pos_u = stokes_pos_u / stokes_pos_u[0]
+            pos_usqdiff = np.sum((stokes_pos_u - np.array([1, 0, 1, 0])) ** 2)
+            #     # -U
+            lp_neg_u_selection = (
+                    (polarizer_staged.astype(bool) &
+                     ~retarder_staged.astype(bool)) &
+                    ((np.abs(polarizer_angle - 135) < 1) |
+                     (np.abs(polarizer_angle - 315) < 1))
             )
-            negUVec = self.calcurves[:, :, i][np.repeat(lpNegUSelection[:, np.newaxis], 4, axis=1)]
-            negUVec = np.nanmean(
-                negUVec.reshape(int(negUVec.shape[0] / 4), 4),
+            neg_u_vec = self.calcurves[:, :, i][np.repeat(lp_neg_u_selection[:, np.newaxis], 4, axis=1)]
+            neg_u_vec = np.nanmean(
+                neg_u_vec.reshape(int(neg_u_vec.shape[0] / 4), 4),
                 axis=0
             )
-            stokesNegU = self.txmatinv[i] @ negUVec
-            stokesNegU = stokesNegU / stokesNegU[0]
-            negUsqdiff = np.sum((stokesNegU - np.array([1, 0, -1, 0])) ** 2)
+            stokes_neg_u = self.txmatinv[i] @ neg_u_vec
+            stokes_neg_u = stokes_neg_u / stokes_neg_u[0]
+            neg_usqdiff = np.sum((stokes_neg_u - np.array([1, 0, -1, 0])) ** 2)
 
-            self.txchi[i] = posQsqdiff + negQsqdiff + posUsqdiff + negUsqdiff
+            self.txchi[i] = pos_qsqdiff + neg_qsqdiff + pos_usqdiff + neg_usqdiff
 
             if self.verbose:
                 print("TX Matrix:")
@@ -1510,33 +1495,32 @@ class SpinorCal:
                 print(self.txmatinv[i])
                 print("Efficiencies:")
                 print(
-                    "Q: "+str(round(efficiencies[1], 4)),
-                    "U: "+str(round(efficiencies[2], 4)),
-                    "V: "+str(round(efficiencies[3], 4))
+                    "Q: " + str(round(efficiencies[1], 4)),
+                    "U: " + str(round(efficiencies[2], 4)),
+                    "V: " + str(round(efficiencies[3], 4))
                 )
-                print("Average Deviation of cal vectors: ", np.sqrt(self.txchi[i])/4)
+                print("Average Deviation of cal vectors: ", np.sqrt(self.txchi[i]) / 4)
                 print("===========================\n\n")
 
             # Check physicality & Efficiencies:
             if np.nanmax(efficiencies[1:]) > 0.866:
-                name = ['Q ','U ','V ']
+                name = ['Q ', 'U ', 'V ']
                 warnings.warn(
                     str(name[efficiencies[1:].argmax()]) +
                     "is likely too high with a value of " +
                     str(efficiencies[1:].max())
                 )
-            muellerCheck = spex.check_mueller_physicality(xmat)
-            if not muellerCheck[0]:
+            mueller_check = spex.check_mueller_physicality(xmat)
+            if not mueller_check[0]:
                 print(
                     ("WARNING: TX Matrix for section {0} of {1}\nIs an unphysical " +
-                    "Mueller matrix with output minimum I:\n{2},\n" +
-                    "and output minimum I^2 - (Q^2 + U^2 + V^2):\n{3}").format(
-                        i, self.nSubSlits, muellerCheck[1], muellerCheck[2]
+                     "Mueller matrix with output minimum I:\n{2},\n" +
+                     "and output minimum I^2 - (Q^2 + U^2 + V^2):\n{3}").format(
+                        i, self.n_subslits, mueller_check[1], mueller_check[2]
                     )
                 )
 
         return
-
 
     def spinor_plot_polcal(self) -> None:
         """
@@ -1548,39 +1532,39 @@ class SpinorCal:
         """
 
         # Do plotting
-        polcalFig = plt.figure("Polcal Results", figsize=(8, 4))
+        polcal_fig = plt.figure("Polcal Results", figsize=(8, 4))
         # Create 3 columns, 4 rows.
         # Column 1: Calcurves IQUV
         # Column 2: Input Stokes Vectors IQUV
         # Column 3: Output Stokes Vectors IQUV
-        gs = polcalFig.add_gridspec(ncols=3, nrows=4)
+        gs = polcal_fig.add_gridspec(ncols=3, nrows=4)
 
-        outStokes = np.array([self.txmat @ self.inputStokes[j, :] for j in range(self.inputStokes.shape[0])])
+        out_stokes = np.array([self.txmat @ self.input_stokes[j, :] for j in range(self.input_stokes.shape[0])])
         names = ['I', 'Q', 'U', 'V']
         for i in range(4):
-            ax_ccurve = polcalFig.add_subplot(gs[i, 0])
-            ax_incurve = polcalFig.add_subplot(gs[i, 1])
-            ax_outcurve = polcalFig.add_subplot(gs[i, 2])
+            ax_ccurve = polcal_fig.add_subplot(gs[i, 0])
+            ax_incurve = polcal_fig.add_subplot(gs[i, 1])
+            ax_outcurve = polcal_fig.add_subplot(gs[i, 2])
             # Column Titles
             if i == 0:
                 ax_ccurve.set_title("POLCAL CURVES")
                 ax_incurve.set_title("INPUT VECTORS")
                 ax_outcurve.set_title("FIT VECTORS")
             # Plot statements. Default is fine.
-            for j in range(self.nSubSlits):
+            for j in range(self.n_subslits):
                 ax_ccurve.plot(self.calcurves[:, i, j])
-                ax_outcurve.plot(outStokes[:, j, i])
-            ax_incurve.plot(self.inputStokes[:, i])
+                ax_outcurve.plot(out_stokes[:, j, i])
+            ax_incurve.plot(self.input_stokes[:, i])
             # Clip to x range of [0, end]
             ax_ccurve.set_xlim(0, self.calcurves.shape[0])
             ax_incurve.set_xlim(0, self.calcurves.shape[0])
             ax_outcurve.set_xlim(0, self.calcurves.shape[0])
             # Clip to common y range defined by max/min of all 3 columns
             ymax = np.array(
-                [self.calcurves[:, i, :].max(), outStokes[:, :, i].max(), self.inputStokes[:, i].max()]
+                [self.calcurves[:, i, :].max(), out_stokes[:, :, i].max(), self.input_stokes[:, i].max()]
             ).max()
             ymin = np.array(
-                [self.calcurves[:, i, :].min(), outStokes[:, :, i].min(), self.inputStokes[:, i].min()]
+                [self.calcurves[:, i, :].min(), out_stokes[:, :, i].min(), self.input_stokes[:, i].min()]
             ).min()
             ax_ccurve.set_ylim(ymin, ymax)
             ax_incurve.set_ylim(ymin, ymax)
@@ -1597,17 +1581,16 @@ class SpinorCal:
                 ax_ccurve.set_xticklabels([])
                 ax_incurve.set_xticklabels([])
                 ax_outcurve.set_xticklabels([])
-        polcalFig.tight_layout()
-        if self.saveFigs:
-            filename = os.path.join(self.finalDir, "polcal_curves.png")
-            polcalFig.savefig(filename, bbox_inches="tight")
+        polcal_fig.tight_layout()
+        if self.save_figs:
+            filename = os.path.join(self.final_dir, "polcal_curves.png")
+            polcal_fig.savefig(filename, bbox_inches="tight")
         plt.show(block=False)
         plt.pause(0.1)
 
         return
 
-
-    def reduce_spinor_maps(self, index: str) -> None:
+    def reduce_spinor_maps(self, index: int) -> None:
         """
         Performs reduction of SPINOR science data maps.
         Applies Dark Current, Lamp Gain, Solar Gain Corrections
@@ -1625,146 +1608,146 @@ class SpinorCal:
 
         """
         total_slit_positions = 0
-        for i in range(len(self.scienceFiles)):
-            with fits.open(self.scienceFiles[i]) as hdul:
+        for i in range(len(self.science_files)):
+            with fits.open(self.science_files[i]) as hdul:
                 total_slit_positions += len(hdul) - 1
         if self.verbose:
             print("{0} Slit Positions Observed in Sequence".format(total_slit_positions))
         # Check for existence of output file:
-        with fits.open(self.scienceFiles[0]) as hdul:
+        with fits.open(self.science_files[0]) as hdul:
             date, time = hdul[1].header['DATE-OBS'].split("T")
             date = date.replace("-", "")
             time = str(round(float(time.replace(":", "")), 0)).split(".")[0]
-            outname = self.reducedFilePattern.format(
+            outname = self.reduced_file_pattern.format(
                 date,
                 time,
                 total_slit_positions
             )
-            outfile = os.path.join(self.finalDir, outname)
+            outfile = os.path.join(self.final_dir, outname)
             if os.path.exists(outfile):
-                remakeFile = input("File: {0}\nExists. (R)emake or (C)ontinue?  ".format(outname))
-                if ("c" in remakeFile.lower()) or (remakeFile.lower() == ""):
+                remake_file = input("File: {0}\nExists. (R)emake or (C)ontinue?  ".format(outname))
+                if ("c" in remake_file.lower()) or (remake_file.lower() == ""):
                     plt.pause(2)
                     plt.close("all")
                     return
-                elif ("r" in remakeFile.lower()) and self.verbose:
+                elif ("r" in remake_file.lower()) and self.verbose:
                     print("Remaking file with user-specified corrections. This may take some time.")
 
-        reducedData = np.zeros((
+        reduced_data = np.zeros((
             total_slit_positions,
             4,
-            self.beamEdges[0, 1] - self.beamEdges[0, 0],
-            self.slitEdges[1] - self.slitEdges[0]
+            self.beam_edges[0, 1] - self.beam_edges[0, 0],
+            self.slit_edges[1] - self.slit_edges[0]
         ))
-        completeI2QUVCrosstalk = np.zeros((
+        complete_i2_quv_crosstalk = np.zeros((
             total_slit_positions,
-            3, 2, self.beamEdges[0, 1] - self.beamEdges[0, 0]
+            3, 2, self.beam_edges[0, 1] - self.beam_edges[0, 0]
         ))
-        completeInternalCrosstalks = np.zeros((
+        complete_internal_crosstalks = np.zeros((
             total_slit_positions,
             3,
-            self.beamEdges[0, 1] - self.beamEdges[0, 0]
+            self.beam_edges[0, 1] - self.beam_edges[0, 0]
         ))
-        shift = self.beam1Yshift if self.beam1Yshift else 0
+        shift = self.beam1_yshift if self.beam1_yshift else 0
 
         # Interpolate telescope inverse matrix to entire slit from nsubslits
-        xinvInterp = scinterp.CubicSpline(
-            np.linspace(0, self.beamEdges[0, 1]-self.beamEdges[0, 0], self.nSubSlits),
+        xinv_interp = scinterp.CubicSpline(
+            np.linspace(0, self.beam_edges[0, 1] - self.beam_edges[0, 0], self.n_subslits),
             self.txmatinv,
             axis=0,
-        )(np.arange(0, self.beamEdges[0, 1]-self.beamEdges[0, 0]))
+        )(np.arange(0, self.beam_edges[0, 1] - self.beam_edges[0, 0]))
 
-        stepIndex = 0
+        step_index = 0
         # Setting these up for later
-        masterHairlineCenters = (0, 0)
-        masterSpectralLineCenters = (0, 0)
+        master_hairline_centers = (0, 0)
+        master_spectral_line_centers = (0, 0)
         with tqdm.tqdm(
-            total=total_slit_positions,
-            desc="Reducing Science Map"
+                total=total_slit_positions,
+                desc="Reducing Science Map"
         ) as pbar:
-            for file in self.scienceFiles:
+            for file in self.science_files:
                 science_hdu = fits.open(file)
                 for i in range(1, len(science_hdu)):
                     iquv = self.demodulate_spinor(
-                        (science_hdu[i].data - self.solarDark)/self.lampGain/self.combinedGainTable
+                        (science_hdu[i].data - self.solar_dark) / self.lamp_gain / self.combined_gain_table
                     )
-                    scienceBeams = np.zeros(
-                        (2, 4, self.beamEdges[0, 1] - self.beamEdges[0, 0], self.slitEdges[1] - self.slitEdges[0])
+                    science_beams = np.zeros(
+                        (2, 4, self.beam_edges[0, 1] - self.beam_edges[0, 0], self.slit_edges[1] - self.slit_edges[0])
                     )
-                    scienceBeams[0, :, :, :] = iquv[
-                        :,
-                        self.beamEdges[0, 0]:self.beamEdges[0, 1],
-                        self.slitEdges[0]:self.slitEdges[1]
-                    ]
-                    scienceBeams[1, :, :, :] = np.flip(
+                    science_beams[0, :, :, :] = iquv[
+                                               :,
+                                                self.beam_edges[0, 0]:self.beam_edges[0, 1],
+                                                self.slit_edges[0]:self.slit_edges[1]
+                                               ]
+                    science_beams[1, :, :, :] = np.flip(
                         scind.shift(
                             iquv[
-                                :,
-                                self.beamEdges[1, 0]:self.beamEdges[1, 1],
-                                self.slitEdges[0]:self.slitEdges[1]
-                            ], (0, shift, self.beam1Xshift)
+                            :,
+                            self.beam_edges[1, 0]:self.beam_edges[1, 1],
+                            self.slit_edges[0]:self.slit_edges[1]
+                            ], (0, shift, self.beam1_xshift)
                         ), axis=1
                     )
 
                     # Reference beam for hairline/spectral line deskew shouldn't have full gain
                     # correction done, due to hairline residuals. It *should* be safe to use the
                     # lamp gain, as the hairlines in that should've been cleaned up.
-                    alignmentBeam = (np.mean(science_hdu[i].data, axis=0) - self.solarDark)/self.lampGain
-                    if stepIndex == 0:
-                        hairlineSkews, hairlineCenters = self.subpixel_hairline_align(
-                            alignmentBeam, hairCenters=None
+                    alignment_beam = (np.mean(science_hdu[i].data, axis=0) - self.solar_dark) / self.lamp_gain
+                    if step_index == 0:
+                        hairline_skews, hairline_centers = self.subpixel_hairline_align(
+                            alignment_beam, hair_centers=None
                         )
                         if self.nhair == 2:
-                            masterHairlineCenters = tuple(hairlineCenters)
+                            master_hairline_centers = tuple(hairline_centers)
                         else:
-                            masterHairlineCenters = (hairlineCenters[0],
-                                                     hairlineCenters[0] + np.diff(self.hairlines, axis=1)[0])
+                            master_hairline_centers = (hairline_centers[0],
+                                                     hairline_centers[0] + np.diff(self.hairlines, axis=1)[0])
 
                     else:
-                        hairlineSkews, hairlineCenters = self.subpixel_hairline_align(
-                            alignmentBeam, hairCenters=np.array(hairlineCenters)
+                        hairline_skews, hairline_centers = self.subpixel_hairline_align(
+                            alignment_beam, hair_centers=np.array(hairline_centers)
                         )
                     # Perform hairline deskew
-                    for beam in range(scienceBeams.shape[0]):
-                        for hairProf in range(scienceBeams.shape[3]):
-                            scienceBeams[beam, :, :, hairProf] = scind.shift(
-                                scienceBeams[beam, :, :, hairProf],
-                                (0, hairlineSkews[beam, hairProf]),
+                    for beam in range(science_beams.shape[0]):
+                        for hairProf in range(science_beams.shape[3]):
+                            science_beams[beam, :, :, hairProf] = scind.shift(
+                                science_beams[beam, :, :, hairProf],
+                                (0, hairline_skews[beam, hairProf]),
                                 mode='nearest'
                             )
                     # Perform bulk hairline alignment on deskewed beams
-                    scienceBeams[1] = scind.shift(
-                        scienceBeams[1], (0, -np.diff(hairlineCenters)[0], 0),
+                    science_beams[1] = scind.shift(
+                        science_beams[1], (0, -np.diff(hairline_centers)[0], 0),
                         mode='nearest'
                     )
 
                     # Perform spectral deskew
-                    scienceBeams, spectralCenters = self.subpixel_spectral_align(scienceBeams, hairlineCenters)
+                    science_beams, spectral_centers = self.subpixel_spectral_align(science_beams, hairline_centers)
 
                     # Perform bulk spectral alignment on deskewed beams
-                    scienceBeams[1] = scind.shift(
-                        scienceBeams[1], (0, 0, -np.diff(spectralCenters)[0]),
+                    science_beams[1] = scind.shift(
+                        science_beams[1], (0, 0, -np.diff(spectral_centers)[0]),
                         mode='nearest'
                     )
 
                     # Common positions to register observation to.
-                    if stepIndex == 0:
-                        masterSpectralLineCenters = spectralCenters
+                    if step_index == 0:
+                        master_spectral_line_centers = spectral_centers
                     # Perform master registration to 0th slit image.
-                    scienceBeams = scind.shift(
-                        scienceBeams, (
+                    science_beams = scind.shift(
+                        science_beams, (
                             0, 0,
-                            -(hairlineCenters[0] - masterHairlineCenters[0]), 0
-                            # (spectralCenters[0] - masterSpectralLineCenters[0])
+                            -(hairline_centers[0] - master_hairline_centers[0]), 0
+                            # (spectral_centers[0] - master_spectral_line_centers[0])
                         ),
                         mode='nearest'
                     )
 
-                    combined_beams = np.zeros(scienceBeams.shape[1:])
-                    combined_beams[0] = np.nanmean(scienceBeams[:, 0, :, :], axis=0)
+                    combined_beams = np.zeros(science_beams.shape[1:])
+                    combined_beams[0] = np.nanmean(science_beams[:, 0, :, :], axis=0)
                     combined_beams[1:] = (
-                        scienceBeams[0, 1:, :, :] - scienceBeams[1, 1:, :, :]
-                    )/2
+                                                 science_beams[0, 1:, :, :] - science_beams[1, 1:, :, :]
+                                         ) / 2
                     tmtx = self.get_telescope_matrix(
                         [science_hdu[i].header['DST_AZ'],
                          science_hdu[i].header['DST_EL'],
@@ -1772,61 +1755,61 @@ class SpinorCal:
                     )
                     inv_tmtx = np.linalg.inv(tmtx)
                     for j in range(combined_beams.shape[1]):
-                        combined_beams[:, j, :] = inv_tmtx @ xinvInterp[j, :, :] @ combined_beams[:, j, :]
+                        combined_beams[:, j, :] = inv_tmtx @ xinv_interp[j, :, :] @ combined_beams[:, j, :]
 
                     # Get parallactic angle for QU rotation correction
                     angular_geometry = self.spherical_coordinate_transform(
                         [science_hdu[i].header['DST_AZ'], science_hdu[i].header['DST_EL']]
                     )
                     # Sub off P0 angle
-                    rotation = np.pi + angular_geometry[2] - science_hdu[i].header['DST_PEE'] * np.pi/180
-                    crot = np.cos(-2*rotation)
-                    srot = np.sin(-2*rotation)
+                    rotation = np.pi + angular_geometry[2] - science_hdu[i].header['DST_PEE'] * np.pi / 180
+                    crot = np.cos(-2 * rotation)
+                    srot = np.sin(-2 * rotation)
 
                     # Make a copy, as the Q/U components are transformed from the originals.
                     qtmp = combined_beams[1, :, :].copy()
                     utmp = combined_beams[2, :, :].copy()
-                    combined_beams[1, :, :] = crot*qtmp + srot*utmp
-                    combined_beams[2, :, :] = -srot*qtmp + crot*utmp
+                    combined_beams[1, :, :] = crot * qtmp + srot * utmp
+                    combined_beams[2, :, :] = -srot * qtmp + crot * utmp
 
-                    combined_beams, i2quvCrosstalk, internal_crosstalks = self.solve_spinor_crosstalks(
+                    combined_beams, i2quv_crosstalk, internal_crosstalks = self.solve_spinor_crosstalks(
                         combined_beams
                     )
 
                     # Reverse the wavelength axis if required.
-                    combined_beams = combined_beams[:, :, ::self.flipWaveIdx]
+                    combined_beams = combined_beams[:, :, ::self.flip_wave_idx]
 
-                    reducedData[stepIndex] = combined_beams
-                    completeI2QUVCrosstalk[stepIndex] = i2quvCrosstalk
-                    completeInternalCrosstalks[stepIndex] = internal_crosstalks
+                    reduced_data[step_index] = combined_beams
+                    complete_i2_quv_crosstalk[step_index] = i2quv_crosstalk
+                    complete_internal_crosstalks[step_index] = internal_crosstalks
 
                     # Choose lines for analysis. Use same method of choice as hsgCal, where user sets
                     # approx. min/max, the code changes the bounds, and
-                    if stepIndex == 0:
+                    if step_index == 0:
                         mean_profile = np.nanmean(combined_beams[0], axis=0)
-                        approxWavelengthArray = self.tweak_wavelength_calibration(mean_profile)
+                        approx_wavelength_array = self.tweak_wavelength_calibration(mean_profile)
                         print("Select spectral ranges (xmin, xmax) for overview maps. Close window when done.")
                         # Approximate indices of line cores
-                        coarseIndices = spex.select_spans_singlepanel(
-                            mean_profile, xarr=approxWavelengthArray, figName="Select Lines for Analysis"
+                        coarse_indices = spex.select_spans_singlepanel(
+                            mean_profile, xarr=approx_wavelength_array, fig_name="Select Lines for Analysis"
                         )
                         # Location of minimum in the range
-                        minIndices = [
+                        min_indices = [
                             spex.find_nearest(
-                                mean_profile[coarseIndices[x][0]:coarseIndices[x][1]],
-                                mean_profile[coarseIndices[x][0]:coarseIndices[x][1]].min()
-                            ) + coarseIndices[x][0] for x in range(coarseIndices.shape[0])
+                                mean_profile[coarse_indices[x][0]:coarse_indices[x][1]],
+                                mean_profile[coarse_indices[x][0]:coarse_indices[x][1]].min()
+                            ) + coarse_indices[x][0] for x in range(coarse_indices.shape[0])
                         ]
                         # Location of exact line core
-                        lineCores = [
-                            spex.find_line_core(mean_profile[x-5:x+7]) + x - 5 for x in minIndices
+                        line_cores = [
+                            spex.find_line_core(mean_profile[x - 5:x + 7]) + x - 5 for x in min_indices
                         ]
                         # Find start and end indices that put line cores at the center of the window.
-                        mapIndices = np.zeros(coarseIndices.shape)
-                        for j in range(coarseIndices.shape[0]):
-                            averageDelta = np.mean(np.abs(coarseIndices[j, :] - lineCores[j]))
-                            mapIndices[j, 0] = int(round(lineCores[j] - averageDelta, 0))
-                            mapIndices[j, 1] = int(round(lineCores[j] + averageDelta, 0) + 1)
+                        map_indices = np.zeros(coarse_indices.shape)
+                        for j in range(coarse_indices.shape[0]):
+                            average_delta = np.mean(np.abs(coarse_indices[j, :] - line_cores[j]))
+                            map_indices[j, 0] = int(round(line_cores[j] - average_delta, 0))
+                            map_indices[j, 1] = int(round(line_cores[j] + average_delta, 0) + 1)
 
                     if self.plot:
                         plt.ion()
@@ -1834,62 +1817,61 @@ class SpinorCal:
                         # Need maps for the slit images (IQUV) that are replaced at each step,
                         # As well as IQUV maps of the full field for each line selected.
                         # These latter will be filled as the map is processed.
-                        if stepIndex == 0:
-                            fieldImages = np.zeros((
-                                len(lineCores),  # Number of lines
+                        if step_index == 0:
+                            field_images = np.zeros((
+                                len(line_cores),  # Number of lines
                                 4,  # Stokes-IQUV values
                                 combined_beams.shape[1],
                                 total_slit_positions
                             ))
-                        for j in range(len(lineCores)):
-                            fieldImages[j, 0, :, stepIndex] = combined_beams[0, :, int(round(lineCores[j], 0))]
+                        for j in range(len(line_cores)):
+                            field_images[j, 0, :, step_index] = combined_beams[0, :, int(round(line_cores[j], 0))]
                             for k in range(1, 4):
-                                fieldImages[j, k, :, stepIndex] = scinteg.trapezoid(
+                                field_images[j, k, :, step_index] = scinteg.trapezoid(
                                     np.nan_to_num(
-                                        combined_beams[k, :, int(mapIndices[j, 0]):int(mapIndices[j, 1])]/
-                                        combined_beams[0, :, int(mapIndices[j, 0]):int(mapIndices[j, 1])]
+                                        combined_beams[k, :, int(map_indices[j, 0]):int(map_indices[j, 1])] /
+                                        combined_beams[0, :, int(map_indices[j, 0]):int(map_indices[j, 1])]
                                     ),
                                     axis=-1
                                 )
-                        if stepIndex == 0:
-                            slit_plate_scale = self.dstPlateScale * self.dstCollimator / self.slitCameraLens
-                            camera_dy = slit_plate_scale * (self.spectrographCollimator / self.cameraLens) * (
-                                        self.pixel_size / 1000)
+                        if step_index == 0:
+                            slit_plate_scale = self.telescope_plate_scale * self.dst_collimator / self.slit_camera_lens
+                            camera_dy = slit_plate_scale * (self.spectrograph_collimator / self.camera_lens) * (
+                                    self.pixel_size / 1000)
                             map_dx = science_hdu[1].header['HSG_STEP']
 
-
                             plot_params = self.set_up_live_plot(
-                                fieldImages, combined_beams, internal_crosstalks, camera_dy, map_dx
+                                field_images, combined_beams, internal_crosstalks, camera_dy, map_dx
                             )
                         self.update_live_plot(
-                            *plot_params, fieldImages, combined_beams, internal_crosstalks, stepIndex
+                            *plot_params, field_images, combined_beams, internal_crosstalks, step_index
                         )
-                    stepIndex += 1
+                    step_index += 1
                     pbar.update(1)
                 science_hdu.close()
 
         # Save final plots if applicable
-        if self.plot & self.saveFigs:
+        if self.plot & self.save_figs:
             for fig in range(len(plot_params[0])):
-                filename = os.path.join(self.finalDir, "field_image_map{0}_line{1}.png".format(index, fig))
+                filename = os.path.join(self.final_dir, "field_image_map{0}_line{1}.png".format(index, fig))
                 plot_params[0][fig].savefig(filename, bbox_inches="tight")
 
-        mean_profile = np.nanmean(reducedData[:, 0, :, :], axis=(0, 1))
-        approxWavelengthArray = self.tweak_wavelength_calibration(mean_profile)
+        mean_profile = np.nanmean(reduced_data[:, 0, :, :], axis=(0, 1))
+        approx_wavelength_array = self.tweak_wavelength_calibration(mean_profile)
         # Swap axes to make X/Y contigent with data X/Y
-        reducedData = np.swapaxes(reducedData, 0, 2)
+        reduced_data = np.swapaxes(reduced_data, 0, 2)
 
-        reduced_filename = self.package_scan(reducedData, approxWavelengthArray, masterHairlineCenters)
-        crosstalk_filename = self.package_crosstalks(completeI2QUVCrosstalk, completeInternalCrosstalks, index)
-        parameter_maps, referenceWavelengths, tweakedIndices, meanProfile, wavelengthArray = self.spinor_analysis(
-            reducedData, mapIndices
+        reduced_filename = self.package_scan(reduced_data, approx_wavelength_array, master_hairline_centers)
+        crosstalk_filename = self.package_crosstalks(complete_i2_quv_crosstalk, complete_internal_crosstalks, index)
+        parameter_maps, reference_wavelengths, tweaked_indices, mean_profile, wavelength_array = self.spinor_analysis(
+            reduced_data, map_indices
         )
         param_filename = self.package_analysis(
             parameter_maps,
-            referenceWavelengths,
-            tweakedIndices,
-            meanProfile,
-            wavelengthArray,
+            reference_wavelengths,
+            tweaked_indices,
+            mean_profile,
+            wavelength_array,
             reduced_filename
         )
 
@@ -1906,99 +1888,98 @@ class SpinorCal:
 
         return
 
-
-    def subpixel_hairline_align(self, slitImage: np.ndarray, hairCenters=None) -> tuple[np.ndarray, tuple]:
+    def subpixel_hairline_align(self, slit_image: np.ndarray, hair_centers=None) -> tuple[np.ndarray, tuple]:
         """
         Performs subpixel hairline alignment of two beams into a single image and returns the necessary translations.
         Returns shift map for hairline alignment.
 
         Parameters
         ----------
-        slitImage : numpy.ndarray
+        slit_image : numpy.ndarray
             Minimally-processed image of the spectrum. Beams will be cut out and aligned from this. Shape (ny, nx)
-        hairCenters : numpy.ndarray or None
+        hair_centers : numpy.ndarray or None
             If None, calls ssosoft.spectraTools.detect_beams_hairlines to get a guess of hairline position
             that's a bit more robust than what we can fit in this function.
             If given as a tuple, takes that as the centers of the hairlines to deskew
 
         Returns
         -------
-        hairlineSkews : numpy.ndarray
+        hairline_skews : numpy.ndarray
             Array of shape (2, nx) containing subpixel shifts for hairline registration
-        hairlineCenter : tuple
+        hairline_center : tuple
             Centers of the registered hairline. Should assist in getting an evenly-registered image across all slit pos.
         """
-        if hairCenters is None:
+        if hair_centers is None:
             spex.detect_beams_hairlines.num_calls = 0
             # Undo the lamp gain for a second to get the intensity jumps in the right direction
-            _, _, tmpHairlines = spex.detect_beams_hairlines(
-                slitImage * self.lampGain, threshold=self.beamThreshold, hairline_width=self.hairlineWidth,
-                expected_hairlines=self.nhair, expected_slits=1, expected_beams=2, fallback=True # Just in case
+            _, _, tmp_hairlines = spex.detect_beams_hairlines(
+                slit_image * self.lamp_gain, threshold=self.beam_threshold, hairline_width=self.hairline_width,
+                expected_hairlines=self.nhair, expected_slits=1, expected_beams=2, fallback=True  # Just in case
             )
-            hairCenters = tmpHairlines.reshape(2, int(self.nhair / 2))
-            hairCenters[0] -= self.beamEdges[0, 0]
+            hair_centers = tmp_hairlines.reshape(2, int(self.nhair / 2))
+            hair_centers[0] -= self.beam_edges[0, 0]
             # Have to flip hairlines and index to beam edge
-            hairCenters[1] = np.abs(hairCenters[1] - self.beamEdges[1, 0] - np.diff(self.beamEdges[0]))[::-1]
-            hairCenters = np.array(
-                (hairCenters[0, 0],
-                 hairCenters[1, 0] + self.beam1Yshift)
+            hair_centers[1] = np.abs(hair_centers[1] - self.beam_edges[1, 0] - np.diff(self.beam_edges[0]))[::-1]
+            hair_centers = np.array(
+                (hair_centers[0, 0],
+                 hair_centers[1, 0] + self.beam1_yshift)
             )
 
-        beam0 = slitImage[self.beamEdges[0, 0]:self.beamEdges[0, 1], self.slitEdges[0]:self.slitEdges[1]]
+        beam0 = slit_image[self.beam_edges[0, 0]:self.beam_edges[0, 1], self.slit_edges[0]:self.slit_edges[1]]
         beam1 = np.flip(
             scind.shift(
-                slitImage[self.beamEdges[1, 0]:self.beamEdges[1, 1], self.slitEdges[0]:self.slitEdges[1]],
-                (self.beam1Yshift, self.beam1Xshift)
+                slit_image[self.beam_edges[1, 0]:self.beam_edges[1, 1], self.slit_edges[0]:self.slit_edges[1]],
+                (self.beam1_yshift, self.beam1_xshift)
             ), axis=0
         )
-        dualBeams = np.stack([beam0, beam1], axis=0)
-        deskewedDualBeams = dualBeams.copy()
-        hairlineMinimum = hairCenters - 4
-        hairlineMaximum = hairCenters + 4
-        if (hairlineMinimum <= 0).any():
-            hairlineMinimum = np.array([0, 0])
-            hairlineMaximum = (2*hairCenters).astype(int)
-        if (hairlineMaximum >= dualBeams.shape[1]).any():
-            hairlineMaximum[:] = dualBeams.shape[1]
-            hairlineMinimum[:] = hairlineMaximum - 2 * (hairlineMaximum - hairCenters)
-        hairlineMinimum = hairlineMinimum.astype(int)
-        hairlineMaximum = hairlineMaximum.astype(int)
+        dual_beams = np.stack([beam0, beam1], axis=0)
+        deskewed_dual_beams = dual_beams.copy()
+        hairline_minimum = hair_centers - 4
+        hairline_maximum = hair_centers + 4
+        if (hairline_minimum <= 0).any():
+            hairline_minimum = np.array([0, 0])
+            hairline_maximum = (2 * hair_centers).astype(int)
+        if (hairline_maximum >= dual_beams.shape[1]).any():
+            hairline_maximum[:] = dual_beams.shape[1]
+            hairline_minimum[:] = hairline_maximum - 2 * (hairline_maximum - hair_centers)
+        hairline_minimum = hairline_minimum.astype(int)
+        hairline_maximum = hairline_maximum.astype(int)
 
-        hairlineSkews = np.zeros((2, dualBeams.shape[2]))
-        for i in range(dualBeams.shape[0]):
-            medfiltHairlineImage = scind.median_filter(
-                dualBeams[i, hairlineMinimum[i]:hairlineMaximum[i], :],
+        hairline_skews = np.zeros((2, dual_beams.shape[2]))
+        for i in range(dual_beams.shape[0]):
+            medfilt_hairline_image = scind.median_filter(
+                dual_beams[i, hairline_minimum[i]:hairline_maximum[i], :],
                 size=(2, 25)
             )
-            hairlineSkews[i, :] = spex.spectral_skew(
-                np.rot90(medfiltHairlineImage), order=1, slit_reference=0.5
+            hairline_skews[i, :] = spex.spectral_skew(
+                np.rot90(medfilt_hairline_image), order=1, slit_reference=0.5
             )
-            for j in range(hairlineSkews.shape[1]):
-                deskewedDualBeams[i, :, j] = scind.shift(
-                    dualBeams[i, :, j], hairlineSkews[i, j],
+            for j in range(hairline_skews.shape[1]):
+                deskewed_dual_beams[i, :, j] = scind.shift(
+                    dual_beams[i, :, j], hairline_skews[i, j],
                     mode='nearest'
                 )
         # Find bulk hairline center for full alignment
-        hairlineCenter = (
+        hairline_center = (
             spex.find_line_core(
-                np.nanmedian(deskewedDualBeams[0, hairlineMinimum[0]:hairlineMaximum[0], :], axis=1)
-            ) + hairlineMinimum[0],
+                np.nanmedian(deskewed_dual_beams[0, hairline_minimum[0]:hairline_maximum[0], :], axis=1)
+            ) + hairline_minimum[0],
             spex.find_line_core(
-                np.nanmedian(deskewedDualBeams[1, hairlineMinimum[1]:hairlineMaximum[1], :], axis=1)
-            ) + hairlineMinimum[1]
+                np.nanmedian(deskewed_dual_beams[1, hairline_minimum[1]:hairline_maximum[1], :], axis=1)
+            ) + hairline_minimum[1]
         )
 
-        return hairlineSkews, hairlineCenter
+        return hairline_skews, hairline_center
 
-    def subpixel_spectral_align(self, cutoutBeams: np.ndarray, hairlineCenter: tuple) -> tuple[np.ndarray, float]:
+    def subpixel_spectral_align(self, cutout_beams: np.ndarray, hairline_center: tuple) -> tuple[np.ndarray, float]:
         """
         Performs iterative deskew and align along the spectral axis.
         Returns the aligned beam and spectral line center of the aligned beam.
         Parameters
         ----------
-        cutoutBeams : numpy.ndarray
+        cutout_beams : numpy.ndarray
             Cut-out and vertically-aligned
-        hairlineCenter : tuple
+        hairline_center : tuple
             Position of hairline in each beam for masking
 
         Returns
@@ -2012,61 +1993,59 @@ class SpinorCal:
         # From initial spacing between upper/lower hairline pairs.
         # FLIR may not have another set of hairlines.
         if self.hairlines.shape[1] > 1:
-            upperHairlineCenter = (
-                hairlineCenter[0] + np.diff(self.hairlines, axis=1)[0],
-                hairlineCenter[1] + np.diff(self.hairlines, axis=1)[1]
+            upper_hairline_center = (
+                hairline_center[0] + np.diff(self.hairlines, axis=1)[0],
+                hairline_center[1] + np.diff(self.hairlines, axis=1)[1]
             )
         x1, x2 = 20, 21
         for spiter in range(5):
-            order = 2  if spiter < 2 else 2
+            order = 2 if spiter < 2 else 2
             for beam in range(2):
-                spectralImage = cutoutBeams[
-                    beam, 0, :, int(self.spinorLineCores[0] - x1):int(self.spinorLineCores[0] + x2)
-                ].copy()
+                spectral_image = cutout_beams[
+                                beam, 0, :, int(self.spinor_line_cores[0] - x1):int(self.spinor_line_cores[0] + x2)
+                                ].copy()
                 # Deskew function is written to cope with NaNs.
                 # It is NOT written to deal with a hairline.
                 # Mask hairlines
-                hairMin = int(hairlineCenter[beam] - 4)
-                hairMax = int(hairlineCenter[beam] + 5)
-                hairMin = 0 if hairMin < 0 else hairMin
-                hairMax = int(spectralImage.shape[0] - 1) if hairMax > spectralImage.shape[0] - 1 else hairMax
-                spectralImage[hairMin:hairMax, :] = np.nan
+                hair_min = int(hairline_center[beam] - 4)
+                hair_max = int(hairline_center[beam] + 5)
+                hair_min = 0 if hair_min < 0 else hair_min
+                hair_max = int(spectral_image.shape[0] - 1) if hair_max > spectral_image.shape[0] - 1 else hair_max
+                spectral_image[hair_min:hair_max, :] = np.nan
                 # FLIR may not have another set of hairlines.
                 if self.hairlines.shape[1] > 1:
-                    hairMin = int(upperHairlineCenter[beam] - 4)
-                    hairMax = int(upperHairlineCenter[beam] + 5)
-                    hairMin = 0 if hairMin < 0 else hairMin
-                    hairMax = int(spectralImage.shape[0] - 1) if hairMax > spectralImage.shape[0] - 1 else hairMax
-                    spectralImage[hairMin:hairMax, :] = np.nan
-                spectralSkews = spex.spectral_skew(
-                    spectralImage, order=order, slit_reference=0.5
+                    hair_min = int(upper_hairline_center[beam] - 4)
+                    hair_max = int(upper_hairline_center[beam] + 5)
+                    hair_min = 0 if hair_min < 0 else hair_min
+                    hair_max = int(spectral_image.shape[0] - 1) if hair_max > spectral_image.shape[0] - 1 else hair_max
+                    spectral_image[hair_min:hair_max, :] = np.nan
+                spectral_skews = spex.spectral_skew(
+                    spectral_image, order=order, slit_reference=0.5
                 )
-                for prof in range(cutoutBeams.shape[2]):
-                    cutoutBeams[beam, :, prof, :] = scind.shift(
-                        cutoutBeams[beam, :, prof, :], (0, spectralSkews[prof]), mode='nearest'
+                for prof in range(cutout_beams.shape[2]):
+                    cutout_beams[beam, :, prof, :] = scind.shift(
+                        cutout_beams[beam, :, prof, :], (0, spectral_skews[prof]), mode='nearest'
                     )
             x1 -= 3
             x2 -= 3
         # Find bulk spectral line center for full alignment
-        spectralCenter = (
+        spectral_center = (
             spex.find_line_core(
                 np.nanmedian(
-                    cutoutBeams[0, 0, :, int(self.spinorLineCores[0] - 10): int(self.spinorLineCores[0] + 10)],
+                    cutout_beams[0, 0, :, int(self.spinor_line_cores[0] - 10): int(self.spinor_line_cores[0] + 10)],
                     axis=0
                 )
-            ) + int(self.spinorLineCores[0] - 10),
+            ) + int(self.spinor_line_cores[0] - 10),
             spex.find_line_core(
                 np.nanmedian(
-                    cutoutBeams[1, 0, :, int(self.spinorLineCores[0] - 10): int(self.spinorLineCores[0] + 10)],
+                    cutout_beams[1, 0, :, int(self.spinor_line_cores[0] - 10): int(self.spinor_line_cores[0] + 10)],
                     axis=0
                 )
-            ) + int(self.spinorLineCores[0] - 10),
+            ) + int(self.spinor_line_cores[0] - 10),
         )
-        return cutoutBeams, spectralCenter
+        return cutout_beams, spectral_center
 
-
-
-    def solve_spinor_crosstalks(self, iquvCube: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def solve_spinor_crosstalks(self, iquv_cube: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Wrapper for all crosstalk solving terms in reduce_spinor_maps.
 
@@ -2081,119 +2060,118 @@ class SpinorCal:
 
         The original, iquvCube[1:] can be recovered by performing the following operations:
         1.) Undo U -> V
-            iquvCube[3] += np.repeat(internalCrosstalk[2, :, np.newaxis], iquvCube.shape[2], axis=-1) * iquvCube[2]
+            iquvCube[3] += np.repeat(internal_crosstalk[2, :, np.newaxis], iquvCube.shape[2], axis=-1) * iquvCube[2]
         2.) Undo V -> U
-            iquvCube[2] += np.repeat(internalCrosstalk[1, :, np.newaxis], iquvCube.shape[2], axis=-1) * iquvCube[3]
+            iquvCube[2] += np.repeat(internal_crosstalk[1, :, np.newaxis], iquvCube.shape[2], axis=-1) * iquvCube[3]
         3.) Undo V -> Q
-            iquvCube[1] += np.repeat(internalCrosstalk[0, :, np.newaxis], iquvCube.shape[2], axis=-1) * iquvCube[3]
+            iquvCube[1] += np.repeat(internal_crosstalk[0, :, np.newaxis], iquvCube.shape[2], axis=-1) * iquvCube[3]
         4.) Undo I -> QUV
-            iquvCube[1:] += (np.repeat(crosstalkI2QUV[:, 0, :, np.newaxis], iquvCube.shape[2], axis=-1) *
+            iquvCube[1:] += (np.repeat(crosstalk_i2_quv[:, 0, :, np.newaxis], iquvCube.shape[2], axis=-1) *
                     np.arange(iquvCube.shape[2] +
-                    np.repeat(crosstalkI2QUV[:, 1, :, np.newaxis], iquvCube.shape[2], axis=-1)) *
+                    np.repeat(crosstalk_i2_quv[:, 1, :, np.newaxis], iquvCube.shape[2], axis=-1)) *
                 np.repeat(iquvCube[0][np.newaxis, :, :], 3, axis=0)
 
         Parameters
         ----------
-        iquvCube : numpy.ndarray
+        iquv_cube : numpy.ndarray
             Mostly-corrected 3D array of a combined full-Stokes slit image. Should have shape (4, ny, nlambda)
 
         Returns
         -------
         iquvCube : numpy.ndarray
             Shape (4, ny, nlamba), crosstalk-isolated datacube.
-        crosstalkI2QUV : numpy.ndarray
+        crosstalk_i2_quv : numpy.ndarray
             Has shape (3, 2, ny), contains I->QUV crosstalk coefficients.
-        internalCrosstalk : numpy.ndarray
+        internal_crosstalk : numpy.ndarray
             Has shape (3, ny), contains V->Q, V->U, U->V crosstalks
         """
 
-        crosstalkI2QUV = np.zeros((3, 2, iquvCube.shape[1]))
-        internalCrosstalk = np.zeros((3, iquvCube.shape[1]))
+        crosstalk_i2_quv = np.zeros((3, 2, iquv_cube.shape[1]))
+        internal_crosstalk = np.zeros((3, iquv_cube.shape[1]))
 
-        if self.crosstalkContinuum is not None:
+        if self.crosstalk_continuum is not None:
             # Shape 3xNY
             i2quv = np.mean(
-                iquvCube[1:, :, self.crosstalkContinuum[0]:self.crosstalkContinuum[1]] /
+                iquv_cube[1:, :, self.crosstalk_continuum[0]:self.crosstalk_continuum[1]] /
                 np.repeat(
-                    iquvCube[0, :, self.crosstalkContinuum[0]:self.crosstalkContinuum[1]][np.newaxis, :, :],
+                    iquv_cube[0, :, self.crosstalk_continuum[0]:self.crosstalk_continuum[1]][np.newaxis, :, :],
                     3, axis=0
                 ), axis=2
             )
-            iquvCube[1:] = iquvCube[1:] - np.repeat(
-                i2quv[:, :, np.newaxis], iquvCube.shape[2], axis=2
-            ) * np.repeat(iquvCube[0][np.newaxis, :, :], 3, axis=0)
-            crosstalkI2QUV[:, 1, :] = i2quv
+            iquv_cube[1:] = iquv_cube[1:] - np.repeat(
+                i2quv[:, :, np.newaxis], iquv_cube.shape[2], axis=2
+            ) * np.repeat(iquv_cube[0][np.newaxis, :, :], 3, axis=0)
+            crosstalk_i2_quv[:, 1, :] = i2quv
         else:
-            for j in range(iquvCube.shape[1]):
+            for j in range(iquv_cube.shape[1]):
                 # I->QUV crosstalk correction
                 for k in range(1, 4):
-                    iquvCube[k, j, :], crosstalkI2QUV[k - 1, :, j] = self.i2quv_crosstalk(
-                        iquvCube[0, j, :],
-                        iquvCube[k, j, :]
+                    iquv_cube[k, j, :], crosstalk_i2_quv[k - 1, :, j] = self.i2quv_crosstalk(
+                        iquv_cube[0, j, :],
+                        iquv_cube[k, j, :]
                     )
         # V->QU crosstalk correction
         if self.v2q:
-            bulkV2QCrosstalk = self.internal_crosstalk_2d(
-                iquvCube[1, :, :], iquvCube[3, :, :]
+            bulk_v2_q_crosstalk = self.internal_crosstalk_2d(
+                iquv_cube[1, :, :], iquv_cube[3, :, :]
             )
-            iquvCube[1, :, :] = iquvCube[1, :, :] - bulkV2QCrosstalk * iquvCube[3, :, :]
-            for j in range(iquvCube.shape[1]):
-                iquvCube[1, j, :], internalCrosstalk[0, j] = self.v2qu_crosstalk(
-                    iquvCube[3, j, :],
-                    iquvCube[1, j, :]
+            iquv_cube[1, :, :] = iquv_cube[1, :, :] - bulk_v2_q_crosstalk * iquv_cube[3, :, :]
+            for j in range(iquv_cube.shape[1]):
+                iquv_cube[1, j, :], internal_crosstalk[0, j] = self.v2qu_crosstalk(
+                    iquv_cube[3, j, :],
+                    iquv_cube[1, j, :]
                 )
-            internalCrosstalk[0] += bulkV2QCrosstalk
+            internal_crosstalk[0] += bulk_v2_q_crosstalk
         if self.v2u:
-            bulkV2UCrosstalk = self.internal_crosstalk_2d(
-                iquvCube[2, :, :], iquvCube[3, :, :]
+            bulk_v2_u_crosstalk = self.internal_crosstalk_2d(
+                iquv_cube[2, :, :], iquv_cube[3, :, :]
             )
-            iquvCube[2, :, :] = iquvCube[2, :, :] - bulkV2UCrosstalk * iquvCube[3, :, :]
-            for j in range(iquvCube.shape[1]):
-                iquvCube[2, j, :], internalCrosstalk[1, j] = self.v2qu_crosstalk(
-                    iquvCube[3, j, :],
-                    iquvCube[2, j, :]
+            iquv_cube[2, :, :] = iquv_cube[2, :, :] - bulk_v2_u_crosstalk * iquv_cube[3, :, :]
+            for j in range(iquv_cube.shape[1]):
+                iquv_cube[2, j, :], internal_crosstalk[1, j] = self.v2qu_crosstalk(
+                    iquv_cube[3, j, :],
+                    iquv_cube[2, j, :]
                 )
-            internalCrosstalk[1] += bulkV2UCrosstalk
+            internal_crosstalk[1] += bulk_v2_u_crosstalk
         if self.u2v:
-            bulkU2VCrosstalk = self.internal_crosstalk_2d(
-                iquvCube[3, :, :], iquvCube[2, :, :]
+            bulk_u2_v_crosstalk = self.internal_crosstalk_2d(
+                iquv_cube[3, :, :], iquv_cube[2, :, :]
             )
-            iquvCube[3, :, :] = iquvCube[3, :, :] - bulkU2VCrosstalk * iquvCube[2, :, :]
-            for j in range(iquvCube.shape[1]):
-                iquvCube[3, j, :], internalCrosstalk[2, j] = self.v2qu_crosstalk(
-                    iquvCube[2, j, :],
-                    iquvCube[3, j, :]
+            iquv_cube[3, :, :] = iquv_cube[3, :, :] - bulk_u2_v_crosstalk * iquv_cube[2, :, :]
+            for j in range(iquv_cube.shape[1]):
+                iquv_cube[3, j, :], internal_crosstalk[2, j] = self.v2qu_crosstalk(
+                    iquv_cube[2, j, :],
+                    iquv_cube[3, j, :]
                 )
-            internalCrosstalk[2] += bulkU2VCrosstalk
+            internal_crosstalk[2] += bulk_u2_v_crosstalk
 
-        return iquvCube, crosstalkI2QUV, internalCrosstalk
+        return iquv_cube, crosstalk_i2_quv, internal_crosstalk
 
-
-    def package_crosstalks(self, i2quvCrosstalks: np.ndarray, internalCrosstalks: np.ndarray, index: int) -> str:
+    def package_crosstalks(self, i2quv_crosstalks: np.ndarray, internal_crosstalks: np.ndarray, index: int) -> str:
         """
         Places Stokes-vector crosstalk parameters in a file for interested end users.
 
         Parameters
         ----------
-        i2quvCrosstalks : numpy.ndarray
+        i2quv_crosstalks : numpy.ndarray
             Array of shape (nx, 3, 2, ny) of I->QUV crosstalk parameters.
             The option exists to use a 1D fit for crosstalk, hence the 2-axis, where the 2 entries are "m" and "b"
             in y=mx+b
-        internalCrosstalks : numpy.ndarray
+        internal_crosstalks : numpy.ndarray
             Array of shape (nx, 3, ny) of internal crosstalk. (:, 0, :) is V->Q, (:, 1, :) is V->U, (:, 2, :) is U->V
         index : int
             For formatting the output filename
 
         Returns
         -------
-        crosstalkFile : str
+        crosstalk_file : str
             Name of file where crosstalk parameters are stored.
 
         """
         ext0 = fits.PrimaryHDU()
         ext0.header['DATE'] = (np.datetime64('now').astype(str), "File Creation Date and Time")
         ext0.header['ORIGIN'] = "NMSU/SSOC"
-        if self.crosstalkContinuum is not None:
+        if self.crosstalk_continuum is not None:
             ext0.header['I2QUV'] = ("CONST", "0-D I2QUV Crosstalk")
         else:
             ext0.header['I2QUV'] = ("1DFIT", "1-D I2QUV Crosstalk")
@@ -2206,48 +2184,47 @@ class SpinorCal:
         ext0.header['COMMENT'] = "V->U"
         ext0.header['COMMENT'] = "U->V"
 
-        i2quvExt = fits.ImageHDU(i2quvCrosstalks)
-        i2quvExt.header['EXTNAME'] = "I2QUV"
-        i2quvExt.header[""] = "<QUV> = <QUV> - (coef[0]*[0, 1, ... nlambda] + coef[1]) * I"
+        i2quv_ext = fits.ImageHDU(i2quv_crosstalks)
+        i2quv_ext.header['EXTNAME'] = "I2QUV"
+        i2quv_ext.header[""] = "<QUV> = <QUV> - (coef[0]*[0, 1, ... nlambda] + coef[1]) * I"
 
-        v2qExt = fits.ImageHDU(internalCrosstalks[:, 0, :])
-        v2qExt.header['EXTNAME'] = "V2Q"
-        v2qExt.header[""] = "Q = Q - coef*V"
+        v2q_ext = fits.ImageHDU(internal_crosstalks[:, 0, :])
+        v2q_ext.header['EXTNAME'] = "V2Q"
+        v2q_ext.header[""] = "Q = Q - coef*V"
 
-        v2uExt = fits.ImageHDU(internalCrosstalks[:, 1, :])
-        v2uExt.header['EXTNAME'] = "V2U"
-        v2uExt.header[""] = "U = U - coef*V"
+        v2u_ext = fits.ImageHDU(internal_crosstalks[:, 1, :])
+        v2u_ext.header['EXTNAME'] = "V2U"
+        v2u_ext.header[""] = "U = U - coef*V"
 
-        u2vExt = fits.ImageHDU(internalCrosstalks[:, 2, :])
-        u2vExt.header['EXTNAME'] = "U2V"
-        u2vExt.header[""] = "V = V - coef*U"
+        u2v_ext = fits.ImageHDU(internal_crosstalks[:, 2, :])
+        u2v_ext.header['EXTNAME'] = "U2V"
+        u2v_ext.header[""] = "V = V - coef*U"
 
-        hdul = fits.HDUList([ext0, i2quvExt, v2qExt, v2uExt, u2vExt])
+        hdul = fits.HDUList([ext0, i2quv_ext, v2q_ext, v2u_ext, u2v_ext])
         filename = "{0}_MAP_{1}_CROSSTALKS.fits".format(self.camera, index)
-        crosstalkFile = os.path.join(self.finalDir, filename)
-        hdul.writeto(crosstalkFile, overwrite=True)
-        return crosstalkFile
-
+        crosstalk_file = os.path.join(self.final_dir, filename)
+        hdul.writeto(crosstalk_file, overwrite=True)
+        return crosstalk_file
 
     def set_up_live_plot(
-            self, fieldImages: np.ndarray, slitImages: np.ndarray, internalCrosstalks: np.ndarray,
-            dy: float, dx:float
+            self, field_images: np.ndarray, slit_images: np.ndarray, internal_crosstalks: np.ndarray,
+            dy: float, dx: float
     ) -> tuple:
         """
         Initializes live plotting statements for monitoring progress of reductions
 
         Parameters
         ----------
-        fieldImages : numpy.ndarray
+        field_images : numpy.ndarray
             Array of dummy field images for line cores. Shape nlines, 4, ny, nx where:
                 1.) nlines is the number of spectral lines selected by the user to keep an eye on
                 2.) 4 is from the IQUV stokes parameters
                 3.) ny is the length of the slit
                 4.) nx is the number of slit positions in the scan
-        slitImages : numpy.ndarray
+        slit_images : numpy.ndarray
             Array of IQUV slit images. Shape 4, ny, nlambda where:
                 5.) nlambda is the wavelength axis
-        internalCrosstalks : numpy.ndarray
+        internal_crosstalks : numpy.ndarray
             3 x ny array of V<->QU crosstalk values for monitoring
         dy : float
             Approximate resolution scale in y for sizing the map extent
@@ -2256,25 +2233,25 @@ class SpinorCal:
 
         Returns
         -------
-        fieldFigList : list
+        field_fig_list : list
             List of matplotlib figures, with an entry for each line of interest
-        fieldI : list
+        field_i : list
             List of matplotlib.image.AxesImage with an entry for each line of interest Stokes-I subplot
-        fieldQ : list
+        field_q : list
             List of matplotlib.image.AxesImage with an entry for each line of interest Stokes-Q subplot
-        fieldU : list
+        field_u : list
             List of matplotlib.image.AxesImage with an entry for each line of interest Stokes-U subplot
-        fieldV : list
+        field_v : list
             List of matplotlib.image.AxesImage with an entry for each line of interest Stokes-V subplot
-        slitFig : matplotlib.pyplot.figure
+        slit_fig : matplotlib.pyplot.figure
             Matplotlib figure containing the slit IQUV image. The entire image will be blitted each time
-        slitI : matplotlib.image.AxesImage
+        slit_i : matplotlib.image.AxesImage
             Matplotlib axes class containing the slit Stokes-I image
-        slitQ : matplotlib.image.AxesImage
+        slit_q : matplotlib.image.AxesImage
             Matplotlib axes class containing the slit Stokes-Q image
-        slitU : matplotlib.image.AxesImage
+        slit_u : matplotlib.image.AxesImage
             Matplotlib axes class containing the slit Stokes-U image
-        slitV : matplotlib.image.AxesImage
+        slit_v : matplotlib.image.AxesImage
             Matplotlib axes class containing the slit Stokes-V image
         """
         # Close all figures to reset plotting
@@ -2284,156 +2261,153 @@ class SpinorCal:
         plt.ion()
         plt.pause(0.005)
 
-        slitAspectRatio = slitImages.shape[2] / slitImages.shape[1]
+        slit_aspect_ratio = slit_images.shape[2] / slit_images.shape[1]
 
         # Set up the spectral data first, since it's only one window
-        slitFig = plt.figure("Reduced Slit Images", figsize=(5, 5/slitAspectRatio))
-        slitGS = slitFig.add_gridspec(2, 2, hspace=0.1, wspace=0.1)
-        slitAxI = slitFig.add_subplot(slitGS[0, 0])
-        slitI = slitAxI.imshow(slitImages[0], cmap='gray', origin='lower')
-        slitAxI.text(10, 10, "I", color='C1')
-        slitAxQ = slitFig.add_subplot(slitGS[0, 1])
-        slitQ = slitAxQ.imshow(slitImages[1], cmap='gray', origin='lower')
-        slitAxQ.text(10, 10, "Q", color='C1')
-        slitAxU = slitFig.add_subplot(slitGS[1, 0])
-        slitU = slitAxU.imshow(slitImages[2], cmap='gray', origin='lower')
-        slitAxU.text(10, 10, "U", color='C1')
-        slitAxV = slitFig.add_subplot(slitGS[1, 1])
-        slitV = slitAxV.imshow(slitImages[3], cmap='gray', origin='lower')
-        slitAxV.text(10, 10, "V", color='C1')
+        slit_fig = plt.figure("Reduced Slit Images", figsize=(5, 5 / slit_aspect_ratio))
+        slit_gs = slit_fig.add_gridspec(2, 2, hspace=0.1, wspace=0.1)
+        slit_ax_i = slit_fig.add_subplot(slit_gs[0, 0])
+        slit_i = slit_ax_i.imshow(slit_images[0], cmap='gray', origin='lower')
+        slit_ax_i.text(10, 10, "I", color='C1')
+        slit_ax_q = slit_fig.add_subplot(slit_gs[0, 1])
+        slit_q = slit_ax_q.imshow(slit_images[1], cmap='gray', origin='lower')
+        slit_ax_q.text(10, 10, "Q", color='C1')
+        slit_ax_u = slit_fig.add_subplot(slit_gs[1, 0])
+        slit_u = slit_ax_u.imshow(slit_images[2], cmap='gray', origin='lower')
+        slit_ax_u.text(10, 10, "U", color='C1')
+        slit_ax_v = slit_fig.add_subplot(slit_gs[1, 1])
+        slit_v = slit_ax_v.imshow(slit_images[3], cmap='gray', origin='lower')
+        slit_ax_v.text(10, 10, "V", color='C1')
 
         # Now the multiple windows for the multiple lines of interest
-        fieldAspectRatio = (dx * fieldImages.shape[3]) / (dy * fieldImages.shape[2])
+        field_aspect_ratio = (dx * field_images.shape[3]) / (dy * field_images.shape[2])
 
-        fieldFigList = []
-        fieldGS = []
-        fieldI = []
-        fieldQ = []
-        fieldU = []
-        fieldV = []
-        fieldIAx = []
-        fieldQax = []
-        fieldUAx = []
-        fieldVAx = []
-        for j in range(fieldImages.shape[0]):
-            fieldFigList.append(
-                plt.figure("Line " + str(j), figsize=(5, 5/fieldAspectRatio+1))
+        field_fig_list = []
+        field_gs = []
+        field_i = []
+        field_q = []
+        field_u = []
+        field_v = []
+        field_i_ax = []
+        field_q_ax = []
+        field_u_ax = []
+        field_v_ax = []
+        for j in range(field_images.shape[0]):
+            field_fig_list.append(
+                plt.figure("Line " + str(j), figsize=(5, 5 / field_aspect_ratio + 1))
             )
-            fieldGS.append(
-                fieldFigList[j].add_gridspec(2, 2, hspace=0.1, wspace=0.1)
+            field_gs.append(
+                field_fig_list[j].add_gridspec(2, 2, hspace=0.1, wspace=0.1)
             )
-            fieldIAx.append(
-                fieldFigList[j].add_subplot(fieldGS[j][0, 0])
+            field_i_ax.append(
+                field_fig_list[j].add_subplot(field_gs[j][0, 0])
             )
-            fieldI.append(
-                fieldIAx[j].imshow(
-                    fieldImages[j, 0], origin='lower', cmap='gray',
-                    extent=[0, dx*fieldImages.shape[3], 0, dy*fieldImages.shape[2]]
+            field_i.append(
+                field_i_ax[j].imshow(
+                    field_images[j, 0], origin='lower', cmap='gray',
+                    extent=[0, dx * field_images.shape[3], 0, dy * field_images.shape[2]]
                 )
             )
-            fieldQax.append(
-                fieldFigList[j].add_subplot(fieldGS[j][0, 1])
+            field_q_ax.append(
+                field_fig_list[j].add_subplot(field_gs[j][0, 1])
             )
-            fieldQ.append(
-                fieldQax[j].imshow(
-                    fieldImages[j, 1], origin='lower', cmap='gray',
-                    extent=[0, dx*fieldImages.shape[3], 0, dy*fieldImages.shape[2]]
+            field_q.append(
+                field_q_ax[j].imshow(
+                    field_images[j, 1], origin='lower', cmap='gray',
+                    extent=[0, dx * field_images.shape[3], 0, dy * field_images.shape[2]]
                 )
             )
-            fieldUAx.append(
-                fieldFigList[j].add_subplot(fieldGS[j][1, 0])
+            field_u_ax.append(
+                field_fig_list[j].add_subplot(field_gs[j][1, 0])
             )
-            fieldU.append(
-                fieldUAx[j].imshow(
-                    fieldImages[j, 2], origin='lower', cmap='gray',
-                    extent=[0, dx*fieldImages.shape[3], 0, dy*fieldImages.shape[2]]
+            field_u.append(
+                field_u_ax[j].imshow(
+                    field_images[j, 2], origin='lower', cmap='gray',
+                    extent=[0, dx * field_images.shape[3], 0, dy * field_images.shape[2]]
                 )
             )
-            fieldVAx.append(
-                fieldFigList[j].add_subplot(fieldGS[j][1, 1])
+            field_v_ax.append(
+                field_fig_list[j].add_subplot(field_gs[j][1, 1])
             )
-            fieldV.append(
-                fieldVAx[j].imshow(
-                    fieldImages[j, 2], origin='lower', cmap='gray',
-                    extent=[0, dx*fieldImages.shape[3], 0, dy*fieldImages.shape[2]]
+            field_v.append(
+                field_v_ax[j].imshow(
+                    field_images[j, 2], origin='lower', cmap='gray',
+                    extent=[0, dx * field_images.shape[3], 0, dy * field_images.shape[2]]
                 )
             )
 
             # Beautification; Turn off some x/y tick labels, set titles, axes labels, etc...
             # Turn off tick labels for all except the first column in y, and the last row in x
-            fieldIAx[j].set_xticklabels([])
-            fieldIAx[j].set_ylabel("Extent [arcsec]")
-            fieldIAx[j].set_title("Line Core  Stokes-I")
+            field_i_ax[j].set_xticklabels([])
+            field_i_ax[j].set_ylabel("Extent [arcsec]")
+            field_i_ax[j].set_title("Line Core  Stokes-I")
 
-            fieldQax[j].set_yticklabels([])
-            fieldQax[j].set_xticklabels([])
-            fieldQax[j].set_title("Integrated Stokes-Q")
+            field_q_ax[j].set_yticklabels([])
+            field_q_ax[j].set_xticklabels([])
+            field_q_ax[j].set_title("Integrated Stokes-Q")
 
-            fieldUAx[j].set_ylabel("Extent [arcsec]")
-            fieldUAx[j].set_xlabel("Extent [arcsec]")
-            fieldUAx[j].set_title("Integrated Stokes-U")
+            field_u_ax[j].set_ylabel("Extent [arcsec]")
+            field_u_ax[j].set_xlabel("Extent [arcsec]")
+            field_u_ax[j].set_title("Integrated Stokes-U")
 
-            fieldVAx[j].set_yticklabels([])
-            fieldVAx[j].set_xlabel("Extent [arcsec]")
-            fieldVAx[j].set_title("Integrated Stokes-V")
+            field_v_ax[j].set_yticklabels([])
+            field_v_ax[j].set_xlabel("Extent [arcsec]")
+            field_v_ax[j].set_title("Integrated Stokes-V")
 
         if not any((self.v2q, self.v2q, self.v2u)):
 
             plt.show(block=False)
             plt.pause(0.05)
 
-            return (fieldFigList, fieldI, fieldQ, fieldU, fieldV, slitFig, slitI, slitQ, slitU, slitV,
+            return (field_fig_list, field_i, field_q, field_u, field_v, slit_fig, slit_i, slit_q, slit_u, slit_v,
                     None, None, None, None)
         else:
-            crosstalkFig = plt.figure("Internal Crosstalks Along Slit", figsize=(8, 5))
-            v2qAx = crosstalkFig.add_subplot(131)
-            v2uAx = crosstalkFig.add_subplot(132)
-            u2vAx = crosstalkFig.add_subplot(133)
-            v2q = v2qAx.plot(
-                internalCrosstalks[0, :], np.arange(internalCrosstalks.shape[1]),
+            crosstalk_fig = plt.figure("Internal Crosstalks Along Slit", figsize=(8, 5))
+            v2q_ax = crosstalk_fig.add_subplot(131)
+            v2u_ax = crosstalk_fig.add_subplot(132)
+            u2v_ax = crosstalk_fig.add_subplot(133)
+            v2q = v2q_ax.plot(
+                internal_crosstalks[0, :], np.arange(internal_crosstalks.shape[1]),
                 color='C1'
             )
-            v2qAx.set_xlim(-1.05, 1.05)
-            v2qAx.set_ylim(0, internalCrosstalks.shape[1])
-            v2qAx.set_title("V->Q Crosstalk")
-            v2qAx.set_ylabel("Position Along Slit")
+            v2q_ax.set_xlim(-1.05, 1.05)
+            v2q_ax.set_ylim(0, internal_crosstalks.shape[1])
+            v2q_ax.set_title("V->Q Crosstalk")
+            v2q_ax.set_ylabel("Position Along Slit")
 
-            v2u = v2uAx.plot(
-                internalCrosstalks[1, :], np.arange(internalCrosstalks.shape[1]),
+            v2u = v2u_ax.plot(
+                internal_crosstalks[1, :], np.arange(internal_crosstalks.shape[1]),
                 color='C1'
             )
-            v2uAx.set_xlim(-1.05, 1.05)
-            v2uAx.set_ylim(0, internalCrosstalks.shape[1])
-            v2uAx.set_title("V->U Crosstalk")
-            v2uAx.set_xlabel("Crosstalk Value")
+            v2u_ax.set_xlim(-1.05, 1.05)
+            v2u_ax.set_ylim(0, internal_crosstalks.shape[1])
+            v2u_ax.set_title("V->U Crosstalk")
+            v2u_ax.set_xlabel("Crosstalk Value")
 
-            u2v = u2vAx.plot(
-                internalCrosstalks[2, :], np.arange(internalCrosstalks.shape[1]),
+            u2v = u2v_ax.plot(
+                internal_crosstalks[2, :], np.arange(internal_crosstalks.shape[1]),
                 color="C1"
             )
-            u2vAx.set_xlim(-1.05, 1.05)
-            u2vAx.set_ylim(0, internalCrosstalks.shape[1])
-            u2vAx.set_title("U->V Crosstalk [residual]")
+            u2v_ax.set_xlim(-1.05, 1.05)
+            u2v_ax.set_ylim(0, internal_crosstalks.shape[1])
+            u2v_ax.set_title("U->V Crosstalk [residual]")
 
             plt.show(block=False)
             plt.pause(0.05)
 
             return (
-                fieldFigList, fieldI, fieldQ, fieldU, fieldV,
-                slitFig, slitI, slitQ, slitU, slitV,
-                crosstalkFig, v2q, v2u, u2v)
-
-
-
+                field_fig_list, field_i, field_q, field_u, field_v,
+                slit_fig, slit_i, slit_q, slit_u, slit_v,
+                crosstalk_fig, v2q, v2u, u2v)
 
     def update_live_plot(
             self,
-            fieldFigList: list, fieldI: list, fieldQ: list, fieldU: list, fieldV: list,
-            slitFig: matplotlib.pyplot.figure, slitI: matplotlib.image.AxesImage, slitQ: matplotlib.image.AxesImage,
-            slitU: matplotlib.image.AxesImage, slitV: matplotlib.image.AxesImage,
-            crosstalkFig: matplotlib.pyplot.figure, v2q: matplotlib.image.AxesImage,
+            field_fig_list: list, field_i: list, field_q: list, field_u: list, field_v: list,
+            slit_fig: matplotlib.pyplot.figure, slit_i: matplotlib.image.AxesImage, slit_q: matplotlib.image.AxesImage,
+            slit_u: matplotlib.image.AxesImage, slit_v: matplotlib.image.AxesImage,
+            crosstalk_fig: matplotlib.pyplot.figure, v2q: matplotlib.image.AxesImage,
             v2u: matplotlib.image.AxesImage, u2v: matplotlib.image.AxesImage,
-            fieldImages: np.ndarray, slitImages: np.ndarray, internalCrosstalks: np.ndarray,
+            field_images: np.ndarray, slit_images: np.ndarray, internal_crosstalks: np.ndarray,
             step: int
     ) -> None:
         """
@@ -2441,23 +2415,23 @@ class SpinorCal:
 
         Parameters
         ----------
-        fieldFigList : list
-        fieldI : list
-        fieldQ : list
-        fieldU : list
-        fieldV : list
-        slitFig : matplotlib.pyplot.figure
-        slitI : matplotlib.image.AxesImage
-        slitQ : matplotlib.image.AxesImage
-        slitU : matplotlib.image.AxesImage
-        slitV : matplotlib.image.AxesImage
-        crosstalkFig : matplotlib.pyplot.figure
+        field_fig_list : list
+        field_i : list
+        field_q : list
+        field_u : list
+        field_v : list
+        slit_fig : matplotlib.pyplot.figure
+        slit_i : matplotlib.image.AxesImage
+        slit_q : matplotlib.image.AxesImage
+        slit_u : matplotlib.image.AxesImage
+        slit_v : matplotlib.image.AxesImage
+        crosstalk_fig : matplotlib.pyplot.figure
         v2q : matplotlib.image.AxesImage
         v2u : matplotlib.image.AxesImage
         u2v : matplotlib.image.AxesImage
-        fieldImages : numpy.ndarray
-        slitImages : numpy.ndarray
-        internalCrosstalks : numpy.ndarray
+        field_images : numpy.ndarray
+        slit_images : numpy.ndarray
+        internal_crosstalks : numpy.ndarray
         step : int
             Step of the reduction process we're on for normalization purposes.
 
@@ -2466,78 +2440,77 @@ class SpinorCal:
 
         """
 
-        slitI.set_array(slitImages[0])
-        slitI.set_norm(
+        slit_i.set_array(slit_images[0])
+        slit_i.set_norm(
             matplotlib.colors.Normalize(
-                vmin=np.mean(slitImages[0]) - 3 * np.std(slitImages[0]),
-                vmax=np.mean(slitImages[0]) + 3 * np.std(slitImages[0])
+                vmin=np.mean(slit_images[0]) - 3 * np.std(slit_images[0]),
+                vmax=np.mean(slit_images[0]) + 3 * np.std(slit_images[0])
             )
         )
-        slitQ.set_array(slitImages[1])
-        slitQ.set_norm(
+        slit_q.set_array(slit_images[1])
+        slit_q.set_norm(
             matplotlib.colors.Normalize(
-                vmin=np.mean(slitImages[1]) - 3 * np.std(slitImages[1]),
-                vmax=np.mean(slitImages[1]) + 3 * np.std(slitImages[1])
+                vmin=np.mean(slit_images[1]) - 3 * np.std(slit_images[1]),
+                vmax=np.mean(slit_images[1]) + 3 * np.std(slit_images[1])
             )
         )
-        slitU.set_array(slitImages[2])
-        slitU.set_norm(
+        slit_u.set_array(slit_images[2])
+        slit_u.set_norm(
             matplotlib.colors.Normalize(
-                vmin=np.mean(slitImages[2]) - 3 * np.std(slitImages[2]),
-                vmax=np.mean(slitImages[2]) + 3 * np.std(slitImages[2])
+                vmin=np.mean(slit_images[2]) - 3 * np.std(slit_images[2]),
+                vmax=np.mean(slit_images[2]) + 3 * np.std(slit_images[2])
             )
         )
-        slitV.set_array(slitImages[3])
-        slitV.set_norm(
+        slit_v.set_array(slit_images[3])
+        slit_v.set_norm(
             matplotlib.colors.Normalize(
-                vmin=np.mean(slitImages[3]) - 3 * np.std(slitImages[3]),
-                vmax=np.mean(slitImages[3]) + 3 * np.std(slitImages[3])
+                vmin=np.mean(slit_images[3]) - 3 * np.std(slit_images[3]),
+                vmax=np.mean(slit_images[3]) + 3 * np.std(slit_images[3])
             )
         )
 
-        slitFig.canvas.draw()
-        slitFig.canvas.flush_events()
+        slit_fig.canvas.draw()
+        slit_fig.canvas.flush_events()
 
-        for j in range(fieldImages.shape[0]):
-            fieldI[j].set_array(fieldImages[j, 0])
-            fieldI[j].set_norm(
+        for j in range(field_images.shape[0]):
+            field_i[j].set_array(field_images[j, 0])
+            field_i[j].set_norm(
                 matplotlib.colors.Normalize(
-                    vmin=np.mean(fieldImages[j, 0, :, :step]) - 3 * np.std(fieldImages[j, 0, :, :step]),
-                    vmax=np.mean(fieldImages[j, 0, :, :step]) + 3 * np.std(fieldImages[j, 0, :, :step])
+                    vmin=np.mean(field_images[j, 0, :, :step]) - 3 * np.std(field_images[j, 0, :, :step]),
+                    vmax=np.mean(field_images[j, 0, :, :step]) + 3 * np.std(field_images[j, 0, :, :step])
                 )
             )
-            fieldQ[j].set_array(fieldImages[j, 1])
-            fieldQ[j].set_norm(
+            field_q[j].set_array(field_images[j, 1])
+            field_q[j].set_norm(
                 matplotlib.colors.Normalize(
-                    vmin=np.mean(fieldImages[j, 1, :, :step]) - 3 * np.std(fieldImages[j, 1, :, :step]),
-                    vmax=np.mean(fieldImages[j, 1, :, :step]) + 3 * np.std(fieldImages[j, 1, :, :step])
+                    vmin=np.mean(field_images[j, 1, :, :step]) - 3 * np.std(field_images[j, 1, :, :step]),
+                    vmax=np.mean(field_images[j, 1, :, :step]) + 3 * np.std(field_images[j, 1, :, :step])
                 )
             )
-            fieldU[j].set_array(fieldImages[j, 2])
-            fieldU[j].set_norm(
+            field_u[j].set_array(field_images[j, 2])
+            field_u[j].set_norm(
                 matplotlib.colors.Normalize(
-                    vmin=np.mean(fieldImages[j, 2, :, :step]) - 3 * np.std(fieldImages[j, 2, :, :step]),
-                    vmax=np.mean(fieldImages[j, 2, :, :step]) + 3 * np.std(fieldImages[j, 2, :, :step])
+                    vmin=np.mean(field_images[j, 2, :, :step]) - 3 * np.std(field_images[j, 2, :, :step]),
+                    vmax=np.mean(field_images[j, 2, :, :step]) + 3 * np.std(field_images[j, 2, :, :step])
                 )
             )
-            fieldV[j].set_array(fieldImages[j, 3])
-            fieldV[j].set_norm(
+            field_v[j].set_array(field_images[j, 3])
+            field_v[j].set_norm(
                 matplotlib.colors.Normalize(
-                    vmin=np.mean(fieldImages[j, 3, :, :step]) - 3 * np.std(fieldImages[j, 3, :, :step]),
-                    vmax=np.mean(fieldImages[j, 3, :, :step]) + 3 * np.std(fieldImages[j, 3, :, :step])
+                    vmin=np.mean(field_images[j, 3, :, :step]) - 3 * np.std(field_images[j, 3, :, :step]),
+                    vmax=np.mean(field_images[j, 3, :, :step]) + 3 * np.std(field_images[j, 3, :, :step])
                 )
             )
-            fieldFigList[j].canvas.draw()
-            fieldFigList[j].canvas.flush_events()
+            field_fig_list[j].canvas.draw()
+            field_fig_list[j].canvas.flush_events()
 
-        if crosstalkFig is not None:
-            v2q[0].set_data(internalCrosstalks[0], np.arange(internalCrosstalks.shape[1]))
-            v2u[0].set_data(internalCrosstalks[1], np.arange(internalCrosstalks.shape[1]))
-            u2v[0].set_data(internalCrosstalks[2], np.arange(internalCrosstalks.shape[1]))
-            crosstalkFig.canvas.draw()
-            crosstalkFig.canvas.flush_events()
+        if crosstalk_fig is not None:
+            v2q[0].set_data(internal_crosstalks[0], np.arange(internal_crosstalks.shape[1]))
+            v2u[0].set_data(internal_crosstalks[1], np.arange(internal_crosstalks.shape[1]))
+            u2v[0].set_data(internal_crosstalks[2], np.arange(internal_crosstalks.shape[1]))
+            crosstalk_fig.canvas.draw()
+            crosstalk_fig.canvas.flush_events()
         return
-
 
     def package_scan(self, datacube: np.ndarray, wavelength_array: np.ndarray, hairline_centers: tuple) -> str:
         """
@@ -2600,10 +2573,10 @@ class SpinorCal:
                 'spinorCal/SSOSoft'
             )
 
-        slit_plate_scale = self.dstPlateScale * self.dstCollimator/self.slitCameraLens
-        camera_dy = slit_plate_scale * (self.spectrographCollimator/self.cameraLens) * (self.pixel_size / 1000)
+        slit_plate_scale = self.telescope_plate_scale * self.dst_collimator / self.slit_camera_lens
+        camera_dy = slit_plate_scale * (self.spectrograph_collimator / self.camera_lens) * (self.pixel_size / 1000)
 
-        with fits.open(self.scienceFiles[0]) as hdul:
+        with fits.open(self.science_files[0]) as hdul:
             exptime = hdul[1].header['EXPTIME']
             xposure = int(hdul[1].header['SUMS'] * exptime)
             nsumexp = hdul[1].header['SUMS']
@@ -2613,17 +2586,17 @@ class SpinorCal:
             actmapsize = stepsize * (datacube.shape[0] - 1)
             gratingangle = hdul[1].header['HSG_GRAT']
             rsun = hdul[1].header['DST_SDIM'] / 2
-            cameraName = hdul[0].header['CAMERA']
+            camera_name = hdul[0].header['CAMERA']
 
         step_startobs = []
-        solarX = []
-        solarY = []
+        solar_x = []
+        solar_y = []
         rotan = []
         llvl = []
         scin = []
         slitpos = []
 
-        for file in self.scienceFiles:
+        for file in self.science_files:
             with fits.open(file) as hdul:
                 for hdu in hdul[1:]:
                     step_startobs.append(hdu.header['DATE-OBS'])
@@ -2631,12 +2604,12 @@ class SpinorCal:
                     llvl.append(hdu.header['DST_LLVL'])
                     scin.append(hdu.header['DST_SEE'])
                     slitpos.append(hdu.header['HSG_SLP'])
-                    centerCoord = SkyCoord(
-                        hdu.header['DST_SLNG']*u.deg, hdu.header['DST_SLAT']*u.deg,
+                    center_coord = SkyCoord(
+                        hdu.header['DST_SLNG'] * u.deg, hdu.header['DST_SLAT'] * u.deg,
                         obstime=hdu.header['DATE-OBS'], observer='earth', frame=frames.HeliographicStonyhurst
                     ).transform_to(frames.Helioprojective)
-                    solarX.append(centerCoord.Tx.value)
-                    solarY.append(centerCoord.Ty.value)
+                    solar_x.append(center_coord.Tx.value)
+                    solar_y.append(center_coord.Ty.value)
 
         rotan = np.nanmean(rotan)
 
@@ -2644,22 +2617,22 @@ class SpinorCal:
         date = date.replace("-", "")
         time = str(round(float(time.replace(":", "")), 0)).split(".")[0]
 
-        outname = self.reducedFilePattern.format(
+        outname = self.reduced_file_pattern.format(
             date,
             time,
             datacube.shape[2]
         )
-        outfile = os.path.join(self.finalDir, outname)
+        outfile = os.path.join(self.final_dir, outname)
 
         # Need center, have to account for maps w/ even number of steps
-        if len(slitpos)%2==0:
-            slitPosCenter = (slitpos[int(len(slitpos) / 2) - 1] + slitpos[int(len(slitpos) / 2)]) / 2
-            centerX = (solarX[int(len(solarX) / 2) - 1] + solarX[int(len(solarX) / 2)]) / 2
-            centerY = (solarY[int(len(solarY) / 2) - 1] + solarY[int(len(solarY) / 2)]) / 2
+        if len(slitpos) % 2 == 0:
+            slit_pos_center = (slitpos[int(len(slitpos) / 2) - 1] + slitpos[int(len(slitpos) / 2)]) / 2
+            center_x = (solar_x[int(len(solar_x) / 2) - 1] + solar_x[int(len(solar_x) / 2)]) / 2
+            center_y = (solar_y[int(len(solar_y) / 2) - 1] + solar_y[int(len(solar_y) / 2)]) / 2
         else:
-            slitPosCenter = slitpos[int(len(slitpos)/2)]
-            centerX = solarX[int(len(slitpos)/2)]
-            centerY = solarY[int(len(slitpos)/2)]
+            slit_pos_center = slitpos[int(len(slitpos) / 2)]
+            center_x = solar_x[int(len(slitpos) / 2)]
+            center_y = solar_y[int(len(slitpos) / 2)]
         # SPINOR has issues with crashing partway through maps.
         # This poses an issue for determining the center point of a given map,
         # As a crash will cause a map to be off-center relative to the telescope center
@@ -2668,10 +2641,10 @@ class SpinorCal:
         # dX = cos(90 - rotan) * slitPos at halfway point
         # dY = sin(90 - rotan) * slitPos at halfway point
         if round(reqmapsize, 4) != round(actmapsize, 4):
-            dx = slitPosCenter * np.cos((90 - rotan)*np.pi/180)
-            centerX += dx
-            dy = slitPosCenter * np.sin((90 - rotan)*np.pi/180)
-            centerY -= dy # Note sign
+            dx = slit_pos_center * np.cos((90 - rotan) * np.pi / 180)
+            center_x += dx
+            dy = slit_pos_center * np.sin((90 - rotan) * np.pi / 180)
+            center_y -= dy  # Note sign
 
         # Start Assembling HDUList
         # Empty 0th HDU first
@@ -2681,12 +2654,12 @@ class SpinorCal:
         ext0.header['TELESCOP'] = ('DST', "Dunn Solar Telescope, Sacramento Peak NM")
         ext0.header['INSTRUME'] = ("SPINOR", "SPectropolarimetry of INfrared and Optical Regions")
         ext0.header['AUTHOR'] = "sellers"
-        ext0.header['CAMERA'] = cameraName
+        ext0.header['CAMERA'] = camera_name
         ext0.header['DATA_LEV'] = 1.5
 
-        if self.centralWavelength == 6302:
+        if self.central_wavelength == 6302:
             ext0.header['WAVEBAND'] = "Fe I 6301.5 AA, Fe I 6302.5 AA"
-        elif self.centralWavelength == 8542:
+        elif self.central_wavelength == 8542:
             ext0.header['WAVEBAND'] = "Ca II 8542 AA"
         ext0.header['STARTOBS'] = step_startobs[0]
         ext0.header['ENDOBS'] = (np.datetime64(step_startobs[-1]) + np.timedelta64(xposure, 'ms')).astype(str)
@@ -2697,7 +2670,7 @@ class SpinorCal:
         ext0.header['NSUMEXP'] = (nsumexp, "Summed images per modulation state")
         ext0.header['SLIT_WID'] = (slitwidth, "[um] HSG Slit Width")
         ext0.header['SLIT_ARC'] = (
-            round(slit_plate_scale * slitwidth/1000, 2),
+            round(slit_plate_scale * slitwidth / 1000, 2),
             "[arcsec, approx] HSG Slit Width"
         )
         ext0.header['MAP_EXP'] = (round(reqmapsize, 3), "[arcsec] Requested Map Size")
@@ -2713,8 +2686,8 @@ class SpinorCal:
         ext0.header['SPORDER'] = (self.spectral_order, "Spectral Order")
         grating_params = spex.grating_calculations(
             self.grating_rules, self.blaze_angle, gratingangle,
-            self.pixel_size, self.centralWavelength, self.spectral_order,
-            collimator=self.spectrographCollimator, camera=self.cameraLens, slit_width=slitwidth,
+            self.pixel_size, self.central_wavelength, self.spectral_order,
+            collimator=self.spectrograph_collimator, camera=self.camera_lens, slit_width=slitwidth,
         )
         ext0.header['SPEFF'] = (float(grating_params['Grating_Efficiency']), 'Approx. Total Efficiency of Grating')
         ext0.header['LITTROW'] = (float(grating_params['Littrow_Angle']), '[degrees] Littrow Angle')
@@ -2726,14 +2699,14 @@ class SpinorCal:
             ext0.header['HAIRLIN{0}'.format(h)] = (round(hairline_centers[h], 3), "Center of registration hairline")
 
         ext0.header['RSUN_ARC'] = rsun
-        ext0.header['XCEN'] = (round(centerX, 2), "[arcsec], Solar-X of Map Center")
-        ext0.header['YCEN'] = (round(centerY, 2), "[arcsec], Solar-Y of Map Center")
+        ext0.header['XCEN'] = (round(center_x, 2), "[arcsec], Solar-X of Map Center")
+        ext0.header['YCEN'] = (round(center_y, 2), "[arcsec], Solar-Y of Map Center")
         ext0.header['FOVX'] = (round(actmapsize, 3), "[arcsec], Field-of-view of raster-x")
         ext0.header['FOVY'] = (round(datacube.shape[0] * camera_dy, 3), "[arcsec], Field-of-view of raster-y")
         ext0.header['ROT'] = (round(rotan, 3), "[degrees] Rotation from Solar-North")
 
         for i in range(len(prsteps)):
-            ext0.header['PRSTEP' + str(int(i+1))] = (prsteps[i], prstep_comments[i])
+            ext0.header['PRSTEP' + str(int(i + 1))] = (prsteps[i], prstep_comments[i])
         ext0.header['COMMENT'] = "Full WCS Information Contained in Individual Data HDUs"
 
         ext0.header.insert(
@@ -2754,13 +2727,13 @@ class SpinorCal:
             ('', '======== CALIBRATION PROCEDURE OUTLINE ========')
         )
 
-        fitsHDUs = [ext0]
+        fits_hdus = [ext0]
 
         # Stokes-IQUV HDU Construction
         stokes = ['I', 'Q', 'U', 'V']
         for i in range(4):
             ext = fits.ImageHDU(datacube[:, i, :, :])
-            ext.header['EXTNAME'] = 'STOKES-'+stokes[i]
+            ext.header['EXTNAME'] = 'STOKES-' + stokes[i]
             ext.header['RSUN_ARC'] = rsun
             ext.header['CDELT1'] = (stepsize, "arcsec")
             ext.header['CDELT2'] = (camera_dy, "arcsec")
@@ -2771,8 +2744,8 @@ class SpinorCal:
             ext.header['CUNIT1'] = 'arcsec'
             ext.header['CUNIT2'] = 'arcsec'
             ext.header['CUNIT3'] = 'Angstrom'
-            ext.header['CRVAL1'] = (centerX, "Solar-X, arcsec")
-            ext.header['CRVAL2'] = (centerY, "Solar-Y, arcsec")
+            ext.header['CRVAL1'] = (center_x, "Solar-X, arcsec")
+            ext.header['CRVAL2'] = (center_y, "Solar-Y, arcsec")
             ext.header['CRVAL3'] = (wavelength_array[0], "Angstrom")
             ext.header['CRPIX1'] = np.mean(np.arange(datacube.shape[0])) + 1
             ext.header['CRPIX2'] = np.mean(np.arange(datacube.shape[2])) + 1
@@ -2780,14 +2753,14 @@ class SpinorCal:
             ext.header['CROTA2'] = (rotan, "degrees")
             for h in range(len(hairline_centers)):
                 ext.header['HAIRLIN{0}'.format(h)] = (round(hairline_centers[h], 3), "Center of registration hairline")
-            fitsHDUs.append(ext)
+            fits_hdus.append(ext)
 
-        extWvl = fits.ImageHDU(wavelength_array)
-        extWvl.header['EXTNAME'] = 'lambda-coordinate'
-        extWvl.header['BTYPE'] = 'lambda axis'
-        extWvl.header['BUNIT'] = '[AA]'
+        ext_wvl = fits.ImageHDU(wavelength_array)
+        ext_wvl.header['EXTNAME'] = 'lambda-coordinate'
+        ext_wvl.header['BTYPE'] = 'lambda axis'
+        ext_wvl.header['BUNIT'] = '[AA]'
 
-        fitsHDUs.append(extWvl)
+        fits_hdus.append(ext_wvl)
 
         # Finally write the metadata extension.
         # This is a FITS table with
@@ -2811,13 +2784,13 @@ class SpinorCal:
                 name='TEL_SOLX',
                 format='D',
                 unit='ARCSEC',
-                array=np.array(solarX)
+                array=np.array(solar_x)
             ),
             fits.Column(
                 name='TEL_SOLY',
                 format='D',
                 unit='ARCSEC',
-                array=np.array(solarY)
+                array=np.array(solar_y)
             ),
             fits.Column(
                 name='LIGHTLVL',
@@ -2832,18 +2805,17 @@ class SpinorCal:
                 array=np.array(scin)
             )
         ]
-        extMet = fits.BinTableHDU.from_columns(columns)
-        extMet.header['EXTNAME'] = 'METADATA'
-        fitsHDUs.append(extMet)
+        ext_met = fits.BinTableHDU.from_columns(columns)
+        ext_met.header['EXTNAME'] = 'METADATA'
+        fits_hdus.append(ext_met)
 
-        fitsHDUList = fits.HDUList(fitsHDUs)
-        fitsHDUList.writeto(outfile, overwrite=True)
+        fits_hdu_list = fits.HDUList(fits_hdus)
+        fits_hdu_list.writeto(outfile, overwrite=True)
 
         return outfile
 
-
     def spinor_analysis(
-            self, datacube: np.ndarray, boundIndices: np.ndarray
+            self, datacube: np.ndarray, bound_indices: np.ndarray
     ) -> tuple[np.ndarray, list, list, np.ndarray, np.ndarray]:
         """
         Performs moment analysis, determines mean circular/linear polarization, and net circular polarization
@@ -2854,7 +2826,7 @@ class SpinorCal:
         ----------
         datacube : numpy.ndarray
             Reduced FIRS data
-        boundIndices : numpy.ndarray
+        bound_indices : numpy.ndarray
             List of indices for spectral regions of interest. Each entry in the list is a tuple of (xmin, xmax).
 
         Returns
@@ -2867,69 +2839,68 @@ class SpinorCal:
         """
         # 7 maps per region of interest: Core intensity, integrated circ. pol., mean circ. pol., net circ. pol.,
         # mean lin. pol., velocity, velocity width
-        parameter_maps = np.zeros((boundIndices.shape[0], 6, datacube.shape[0], datacube.shape[2]))
-        meanProfile = np.nanmean(datacube[:, 0, :, :], axis=(0, 1))
-        wavelengthArray = self.tweak_wavelength_calibration(meanProfile)
+        parameter_maps = np.zeros((bound_indices.shape[0], 6, datacube.shape[0], datacube.shape[2]))
+        mean_profile = np.nanmean(datacube[:, 0, :, :], axis=(0, 1))
+        wavelength_array = self.tweak_wavelength_calibration(mean_profile)
         # Tweak indices to be an even range around the line core
-        tweakedIndices = []
-        referenceWavelengths = []
-        for i in range(boundIndices.shape[0]):
+        tweaked_indices = []
+        reference_wavelengths = []
+        for i in range(bound_indices.shape[0]):
             # Integer line core
-            lineCore = spex.find_line_core(
-                meanProfile[int(boundIndices[i][0]):int(boundIndices[i][1])]
-            ) + int(boundIndices[i][0])
-            referenceWavelengths.append(
-                float(scinterp.interp1d(np.arange(len(wavelengthArray)), wavelengthArray)(lineCore))
+            line_core = spex.find_line_core(
+                mean_profile[int(bound_indices[i][0]):int(bound_indices[i][1])]
+            ) + int(bound_indices[i][0])
+            reference_wavelengths.append(
+                float(scinterp.interp1d(np.arange(len(wavelength_array)), wavelength_array)(line_core))
             )
             # New min
-            minRange = int(round(lineCore - np.abs(np.diff(boundIndices[i]))[0]/2, 0))
-            maxRange = int(round(lineCore + np.abs(np.diff(boundIndices[i]))[0]/2, 0)) + 1
-            tweakedIndices.append((minRange, maxRange))
+            min_range = int(round(line_core - np.abs(np.diff(bound_indices[i]))[0] / 2, 0))
+            max_range = int(round(line_core + np.abs(np.diff(bound_indices[i]))[0] / 2, 0)) + 1
+            tweaked_indices.append((min_range, max_range))
         with tqdm.tqdm(
-            total=parameter_maps.shape[0] * parameter_maps.shape[2] * parameter_maps.shape[3],
-            desc="Constructing Derived Parameter Maps"
+                total=parameter_maps.shape[0] * parameter_maps.shape[2] * parameter_maps.shape[3],
+                desc="Constructing Derived Parameter Maps"
         ) as pbar:
             for i in range(parameter_maps.shape[0]):
                 for j in range(parameter_maps.shape[2]):
                     for k in range(parameter_maps.shape[3]):
-                        spectralProfile = datacube[j, 0, k, tweakedIndices[i][0]:tweakedIndices[i][1]]
+                        spectral_profile = datacube[j, 0, k, tweaked_indices[i][0]:tweaked_indices[i][1]]
                         intens, vel, wid = spex.moment_analysis(
-                            wavelengthArray[tweakedIndices[i][0]:tweakedIndices[i][1]],
-                            spectralProfile,
-                            referenceWavelengths[i]
+                            wavelength_array[tweaked_indices[i][0]:tweaked_indices[i][1]],
+                            spectral_profile,
+                            reference_wavelengths[i]
                         )
                         parameter_maps[i, 0:3, j, k] = np.array([intens, vel, wid])
                         # Rather than trying to calculate a continuum value, we'll take the average of the four
                         # values on the outsize of the profiles.
-                        pseudoContinuum = np.nanmean(
-                            spectralProfile.take([-2, -1, 0, 1])
+                        pseudo_continuum = np.nanmean(
+                            spectral_profile.take([-2, -1, 0, 1])
                         )
                         # Net V
                         parameter_maps[i, 3, j, k] = spex.net_circular_polarization(
-                            datacube[j, 3, k, tweakedIndices[i][0]:tweakedIndices[i][1]],
-                            wavelengthArray[tweakedIndices[i][0]:tweakedIndices[i][1]]
+                            datacube[j, 3, k, tweaked_indices[i][0]:tweaked_indices[i][1]],
+                            wavelength_array[tweaked_indices[i][0]:tweaked_indices[i][1]]
                         )
                         # Mean V
                         parameter_maps[i, 4, j, k] = spex.mean_circular_polarization(
-                            datacube[j, 3, k, tweakedIndices[i][0]:tweakedIndices[i][1]],
-                            wavelengthArray[tweakedIndices[i][0]:tweakedIndices[i][1]],
-                            referenceWavelengths[i],
-                            pseudoContinuum
+                            datacube[j, 3, k, tweaked_indices[i][0]:tweaked_indices[i][1]],
+                            wavelength_array[tweaked_indices[i][0]:tweaked_indices[i][1]],
+                            reference_wavelengths[i],
+                            pseudo_continuum
                         )
                         # Mean QU
                         parameter_maps[i, 5, j, k] = spex.mean_linear_polarization(
-                            datacube[j, 1, k, tweakedIndices[i][0]:tweakedIndices[i][1]],
-                            datacube[j, 2, k, tweakedIndices[i][0]:tweakedIndices[i][1]],
-                            pseudoContinuum
+                            datacube[j, 1, k, tweaked_indices[i][0]:tweaked_indices[i][1]],
+                            datacube[j, 2, k, tweaked_indices[i][0]:tweaked_indices[i][1]],
+                            pseudo_continuum
                         )
                         pbar.update(1)
 
-        return parameter_maps, referenceWavelengths, tweakedIndices, meanProfile, wavelengthArray
-
+        return parameter_maps, reference_wavelengths, tweaked_indices, mean_profile, wavelength_array
 
     def package_analysis(
             self, analysis_maps: np.ndarray, rwvls: list, indices: list,
-            meanProfile: np.ndarray, wavelengthArray: np.ndarray, reference_file: str
+            mean_profile: np.ndarray, wavelength_array: np.ndarray, reference_file: str
     ) -> str:
         """
         Write SPINOR first-order analysis maps to FITS file.
@@ -2939,8 +2910,8 @@ class SpinorCal:
         analysis_maps : numpy.ndarray
         rwvls : list
         indices : list
-        meanProfile : numpy.ndarray
-        wavelengthArray : numpy.ndarray
+        mean_profile : numpy.ndarray
+        wavelength_array : numpy.ndarray
         reference_file : str
 
         Returns
@@ -2998,54 +2969,53 @@ class SpinorCal:
                 "WAVEMIN",
                 ("REFWVL", round(rwvls[i], 3), "Reference Wavelength Value")
             )
-            ext0.header["WAVEMIN"] = (round(wavelengthArray[indices[i][0]], 3), "Lower Bound for Analysis")
-            ext0.header["WAVEMAX"] = (round(wavelengthArray[indices[i][1]], 3), "Upper Bound for Analysis")
+            ext0.header["WAVEMIN"] = (round(wavelength_array[indices[i][0]], 3), "Lower Bound for Analysis")
+            ext0.header["WAVEMAX"] = (round(wavelength_array[indices[i][1]], 3), "Upper Bound for Analysis")
             ext0.header["COMMENT"] = "File contains derived parameters from moment analysis and polarization analysis"
-            fitsHDUs = [ext0]
+            fits_hdus = [ext0]
             for j in range(analysis_maps.shape[1]):
                 ext = fits.ImageHDU(analysis_maps[i, j, :, :])
                 ext.header = hdr1.copy()
                 ext.header['DATE-OBS'] = ext0.header['STARTOBS']
                 ext.header['DATE-END'] = ext0.header['ENDOBS']
-                dt = (np.datetime64(ext0.header['ENDOBS']) - np.datetime64(ext0.header['STARTOBS']))/2
+                dt = (np.datetime64(ext0.header['ENDOBS']) - np.datetime64(ext0.header['STARTOBS'])) / 2
                 date_avg = (np.datetime64(ext0.header['STARTOBS']) + dt).astype(str)
                 ext.header['DATE-AVG'] = (date_avg, "UTC, time at map midpoint")
                 ext.header['EXTNAME'] = extnames[j]
                 ext.header["METHOD"] = (methods[j], method_comments[j])
-                fitsHDUs.append(ext)
+                fits_hdus.append(ext)
 
-            extWvl = fits.ImageHDU(wavelengthArray)
-            extWvl.header['EXTNAME'] = 'lambda-coordinate'
-            extWvl.header['BTYPE'] = 'lambda axis'
-            extWvl.header['BUNIT'] = '[AA]'
-            extWvl.header['COMMENT'] = "Reference Wavelength Array. For use with reference profile and WAVEMIN/MAX."
-            fitsHDUs.append(extWvl)
+            ext_wvl = fits.ImageHDU(wavelength_array)
+            ext_wvl.header['EXTNAME'] = 'lambda-coordinate'
+            ext_wvl.header['BTYPE'] = 'lambda axis'
+            ext_wvl.header['BUNIT'] = '[AA]'
+            ext_wvl.header['COMMENT'] = "Reference Wavelength Array. For use with reference profile and WAVEMIN/MAX."
+            fits_hdus.append(ext_wvl)
 
-            extRef = fits.ImageHDU(meanProfile)
-            extRef.header['EXTNAME'] = 'reference-profile'
-            extRef.header['BTYPE'] = 'Intensity'
-            extRef.header['BUNIT'] = 'Corrected DN'
-            extRef.header['COMMENT'] = "Mean spectral profile. For use with WAVEMIN/MAX."
-            fitsHDUs.append(extRef)
+            ext_ref = fits.ImageHDU(mean_profile)
+            ext_ref.header['EXTNAME'] = 'reference-profile'
+            ext_ref.header['BTYPE'] = 'Intensity'
+            ext_ref.header['BUNIT'] = 'Corrected DN'
+            ext_ref.header['COMMENT'] = "Mean spectral profile. For use with WAVEMIN/MAX."
+            fits_hdus.append(ext_ref)
 
             date, time = ext0.header['STARTOBS'].split("T")
             date = date.replace("-", "")
             time = str(round(float(time.replace(":", "")), 0)).split(".")[0]
-            outname = self.parameterMapPattern.format(
+            outname = self.parameter_map_pattern.format(
                 date,
                 time,
                 round(ext0.header['WAVEMIN'], 2),
                 round(ext0.header['WAVEMAX'], 2)
             )
-            outfile = os.path.join(self.finalDir, outname)
-            fitsHDUList = fits.HDUList(fitsHDUs)
-            fitsHDUList.writeto(outfile, overwrite=True)
+            outfile = os.path.join(self.final_dir, outname)
+            fits_hdu_list = fits.HDUList(fits_hdus)
+            fits_hdu_list.writeto(outfile, overwrite=True)
 
         return outfile
 
-
     @staticmethod
-    def i2quv_crosstalk(stokesI: np.ndarray, stokesQUV: np.ndarray) -> np.ndarray:
+    def i2quv_crosstalk(stokes_i: np.ndarray, stokes_quv: np.ndarray) -> np.ndarray:
         """
         Corrects for Stokes-I => QUV crosstalk. In the old pipeline, this was done by
         taking the ratio of a continuum section in I, and in QUV, then subtracting
@@ -3057,14 +3027,14 @@ class SpinorCal:
 
         Parameters
         ----------
-        stokesI : numpy.ndarray
+        stokes_i : numpy.ndarray
             1D array of Stokes-I
-        stokesQUV : numpy.ndarray
+        stokes_quv : numpy.ndarray
             1D array of Stokes-Q, U, or V
 
         Returns
         -------
-        correctedQUV : numpy.ndarray
+        corrected_quv : numpy.ndarray
             1D array containing the Stokes-I crosstalk-corrected Q, U or V profile.
 
         """
@@ -3072,7 +3042,7 @@ class SpinorCal:
         def model_function(list_of_params, i, quv):
             """Fit model"""
             xrange = np.arange(len(i))
-            ilinear = list_of_params[0]*xrange + list_of_params[1]
+            ilinear = list_of_params[0] * xrange + list_of_params[1]
             return quv - ilinear * i
 
         def error_function(list_of_params, i, quv):
@@ -3080,24 +3050,23 @@ class SpinorCal:
             quv_corr = model_function(list_of_params, i, quv)
             xrange = np.arange(len(i))
             polyfit = np.polyfit(xrange, quv_corr, 1)
-            return (xrange*polyfit[0] + polyfit[1]) - np.zeros(len(i))
+            return (xrange * polyfit[0] + polyfit[1]) - np.zeros(len(i))
 
         fit_result = scopt.least_squares(
             error_function,
             x0=np.array([0, 0]),
-            args=[stokesI[50:-50], stokesQUV[50:-50]],
+            args=[stokes_i[50:-50], stokes_quv[50:-50]],
             jac='3-point', tr_solver='lsmr'
         )
 
-        ilinearParams = fit_result.x
+        ilinear_params = fit_result.x
 
-        correctedQUV = stokesQUV - (np.arange(len(stokesI))*ilinearParams[0] + ilinearParams[1])*stokesI
+        corrected_quv = stokes_quv - (np.arange(len(stokes_i)) * ilinear_params[0] + ilinear_params[1]) * stokes_i
 
-        return correctedQUV, ilinearParams
-
+        return corrected_quv, ilinear_params
 
     @staticmethod
-    def v2qu_crosstalk(stokesV: np.ndarray, stokesQU: np.ndarray) -> np.ndarray:
+    def v2qu_crosstalk(stokes_v: np.ndarray, stokes_qu: np.ndarray) -> np.ndarray:
         """
         Contrary to I->QUV crosstalk, we want the Q/U profiles to be dissimilar to V.
         Q in particular is HEAVILY affected by crosstalk from V.
@@ -3105,16 +3074,17 @@ class SpinorCal:
         QU & V is maximized
         Parameters
         ----------
-        stokesV : numpy.ndarray
+        stokes_v : numpy.ndarray
             Stokes-V profile
-        stokesQU : numpy.ndarray
+        stokes_qu : numpy.ndarray
             Stokes Q or U profile
 
         Returns
         -------
-        correctedQU : numpy.ndarray
+        corrected_qu : numpy.ndarray
             Crosstalk-corrected Q or U profile
         """
+
         def model_function(param, v, qu):
             """Fit model"""
             return qu - param * v
@@ -3126,27 +3096,27 @@ class SpinorCal:
             """
             qu_corr = model_function(param, v, qu)
 
-            return np.dot(v, qu_corr)/(np.linalg.norm(v) * np.linalg.norm(qu_corr))
+            return np.dot(v, qu_corr) / (np.linalg.norm(v) * np.linalg.norm(qu_corr))
 
         fit_result = scopt.least_squares(
             error_function,
             x0=0,
-            args=[stokesV[50:-50], stokesQU[50:-50]],
+            args=[stokes_v[50:-50], stokes_qu[50:-50]],
             bounds=[-0.5, 0.5]
         )
 
         v2qu_crosstalk = fit_result.x
 
-        correctedQU = stokesQU - v2qu_crosstalk * stokesV
+        corrected_qu = stokes_qu - v2qu_crosstalk * stokes_v
 
-        return correctedQU, v2qu_crosstalk
+        return corrected_qu, v2qu_crosstalk
 
     @staticmethod
-    def internal_crosstalk_2d(baseImage: np.ndarray, contaminationImage: np.ndarray) -> float:
+    def internal_crosstalk_2d(base_image: np.ndarray, contamination_image: np.ndarray) -> float:
         """
         Determines a single crosstalk value for a pair of 2D images.
         Minimizes the linear correlation between:
-            baseImage - crosstalkValue * contaminationImage
+            baseImage - crosstalk_value * contaminationImage
                 and
             contaminationImage
         The v2qu_crosstalk function should be used for individual vectors (uses cosine similarity,
@@ -3155,147 +3125,147 @@ class SpinorCal:
 
         Parameters
         ----------
-        baseImage : numpy.ndarray
+        base_image : numpy.ndarray
             2D image of a spatially-resolved Stokes vector
-        contaminationImage : numpy.ndarray
+        contamination_image : numpy.ndarray
             2D image of a different spatially-resolved Stokes vector that is contaminating baseImage
 
         Returns
         -------
-        crosstalkValue : float
-            Value that, when baseImage - crosstalkValue*contaminationImage is considered, minimizes correlation
+        crosstalk_value : float
+            Value that, when baseImage - crosstalk_value*contaminationImage is considered, minimizes correlation
         """
+
         def model_function(param, contam, img):
             """Fit model"""
             return img - param * contam
+
         def error_function(param, contam, img):
             """Error function
             We'll use cosine similarity for this, as a cosine similarity of 0
             should indicate completely orthogonal, i.e., dissimilar vectors
             """
             contam_corr = model_function(param, contam, img)
-            linCorr = np.nansum(contam_corr * contam) / np.sqrt(np.nansum(contam_corr**2) * np.nansum(contam**2))
+            lin_corr = np.nansum(contam_corr * contam) / np.sqrt(np.nansum(contam_corr ** 2) * np.nansum(contam ** 2))
 
-            return linCorr
+            return lin_corr
+
         # Clean up array for correlation
-        baseImage = np.abs(baseImage) - np.nanmean(np.abs(baseImage))
-        contaminationImage = np.abs(contaminationImage) - np.nanmean(np.abs(contaminationImage))
+        base_image = np.abs(base_image) - np.nanmean(np.abs(base_image))
+        contamination_image = np.abs(contamination_image) - np.nanmean(np.abs(contamination_image))
         fit_result = scopt.least_squares(
             error_function,
             x0=0,
-            args=[contaminationImage[50:-50, 50:-50], baseImage[50:-50, 50:-50]],
+            args=[contamination_image[50:-50, 50:-50], base_image[50:-50, 50:-50]],
             bounds=[-1, 1]
         )
 
-        crosstalkValue = fit_result.x
+        crosstalk_value = fit_result.x
 
-        return crosstalkValue
+        return crosstalk_value
 
-
-    def tweak_wavelength_calibration(self, referenceProfile: np.ndarray) -> np.ndarray:
+    def tweak_wavelength_calibration(self, reference_profile: np.ndarray) -> np.ndarray:
         """
         Determines wavelength array from grating parameters and FTS reference
 
         Parameters
         ----------
-        referenceProfile : numpy.ndarray
+        reference_profile : numpy.ndarray
             1D array containing a reference spectral profile from SPINOR
 
         Returns
         -------
-        wavelengthArray : numpy.ndarray
+        wavelength_array : numpy.ndarray
             1D array containing corresponding wavelengths.
 
         """
 
         grating_params = spex.grating_calculations(
             self.grating_rules, self.blaze_angle, self.grating_angle,
-            self.pixel_size, self.centralWavelength, self.spectral_order,
-            collimator=self.spectrographCollimator, camera=self.cameraLens, slit_width=self.slit_width,
+            self.pixel_size, self.central_wavelength, self.spectral_order,
+            collimator=self.spectrograph_collimator, camera=self.camera_lens, slit_width=self.slit_width,
         )
 
         # Getting Min/Max Wavelength for FTS comparison; padding by 30 pixels on either side
         # Same selection process as in flat fielding.
-        apxWavemin = self.centralWavelength - np.nanmean(self.slitEdges) * grating_params['Spectral_Pixel'] / 1000
-        apxWavemax = self.centralWavelength + np.nanmean(self.slitEdges) * grating_params['Spectral_Pixel'] / 1000
-        apxWavemin -= 30 * grating_params['Spectral_Pixel'] / 1000
-        apxWavemax += 30 * grating_params['Spectral_Pixel'] / 1000
-        fts_wave, fts_spec = spex.fts_window(apxWavemin, apxWavemax)
+        apx_wavemin = self.central_wavelength - np.nanmean(self.slit_edges) * grating_params['Spectral_Pixel'] / 1000
+        apx_wavemax = self.central_wavelength + np.nanmean(self.slit_edges) * grating_params['Spectral_Pixel'] / 1000
+        apx_wavemin -= 30 * grating_params['Spectral_Pixel'] / 1000
+        apx_wavemax += 30 * grating_params['Spectral_Pixel'] / 1000
+        fts_wave, fts_spec = spex.fts_window(apx_wavemin, apx_wavemax)
 
-        ftsCore = sorted(np.array(self.ftsLineCores))
-        if self.flipWave:
-            spinorLineCores = sorted(self.slitEdges[1] - np.array(self.spinorLineCores))
+        fts_core = sorted(np.array(self.fts_line_cores))
+        if self.flip_wave:
+            spinor_line_cores = sorted(self.slit_edges[1] - np.array(self.spinor_line_cores))
         else:
-            spinorLineCores = sorted(np.array(self.spinorLineCores))
+            spinor_line_cores = sorted(np.array(self.spinor_line_cores))
 
-        ftsCoreWaves = [scinterp.CubicSpline(np.arange(len(fts_wave)), fts_wave)(lam) for lam in ftsCore]
+        fts_core_waves = [scinterp.CubicSpline(np.arange(len(fts_wave)), fts_wave)(lam) for lam in fts_core]
         # Update SPINOR selected line cores by redoing core finding with wide, then narrow range
-        spinorLineCores = np.array([
+        spinor_line_cores = np.array([
             spex.find_line_core(
-                referenceProfile[int(lam) - 10:int(lam) + 11]
-            ) + int(lam) - 10 for lam in spinorLineCores
+                reference_profile[int(lam) - 10:int(lam) + 11]
+            ) + int(lam) - 10 for lam in spinor_line_cores
         ])
-        spinorLineCores = np.array([
+        spinor_line_cores = np.array([
             spex.find_line_core(
-                referenceProfile[int(lam) - 5:int(lam) + 7]
+                reference_profile[int(lam) - 5:int(lam) + 7]
             ) + int(lam) - 5
-            for lam in spinorLineCores
+            for lam in spinor_line_cores
         ])
-        angstrom_per_pixel = np.abs(ftsCoreWaves[1] - ftsCoreWaves[0]) / np.abs(spinorLineCores[1] - spinorLineCores[0])
-        zerowvl = ftsCoreWaves[0] - (angstrom_per_pixel * spinorLineCores[0])
-        wavelengthArray = (np.arange(0, len(referenceProfile)) * angstrom_per_pixel) + zerowvl
-        return wavelengthArray
+        angstrom_per_pixel = np.abs(fts_core_waves[1] - fts_core_waves[0]) / np.abs(spinor_line_cores[1] - spinor_line_cores[0])
+        zerowvl = fts_core_waves[0] - (angstrom_per_pixel * spinor_line_cores[0])
+        wavelength_array = (np.arange(0, len(reference_profile)) * angstrom_per_pixel) + zerowvl
+        return wavelength_array
 
-
-    def spherical_coordinate_transform(self, telescopeAngles: list) -> list:
+    def spherical_coordinate_transform(self, telescope_angles: list) -> list:
         """
         Transforms from telescope pointing to parallatic angle using the site latitude
 
         Parameters
         ----------
-        telescopeAngles : list
+        telescope_angles : list
             List of telescope angles. In order, these should be (telescope_azimuth, telescope_elevation)
 
         Returns
         -------
-        coordinateAngles : list
+        coordinate_angles : list
             List of telescope angles. In order, these will be (hour_angle, declination, parallatic angle)
 
         """
 
-        sinLat = np.sin(self.DSTLatitude * np.pi/180.)
-        cosLat = np.cos(self.DSTLatitude * np.pi/180.)
+        sin_lat = np.sin(self.site_latitude * np.pi / 180.)
+        cos_lat = np.cos(self.site_latitude * np.pi / 180.)
 
-        sinAz = np.sin(telescopeAngles[0] * np.pi/180.)
-        cosAz = np.cos(telescopeAngles[0] * np.pi/180.)
+        sin_az = np.sin(telescope_angles[0] * np.pi / 180.)
+        cos_az = np.cos(telescope_angles[0] * np.pi / 180.)
 
-        sinEl = np.sin(telescopeAngles[1] * np.pi/180.)
-        cosEl = np.cos(telescopeAngles[1] * np.pi/180.)
+        sin_el = np.sin(telescope_angles[1] * np.pi / 180.)
+        cos_el = np.cos(telescope_angles[1] * np.pi / 180.)
 
-        sinX = -cosEl * sinAz
-        cosX = sinEl*cosLat - cosEl*cosAz*sinLat
+        sin_x = -cos_el * sin_az
+        cos_x = sin_el * cos_lat - cos_el * cos_az * sin_lat
 
-        sinY = sinEl*sinLat+cosEl*cosAz*sinLat
-        sinZ = cosLat*sinAz
-        cosZ = sinLat*cosEl-sinEl*sinLat*cosAz
+        sin_y = sin_el * sin_lat + cos_el * cos_az * sin_lat
+        sin_z = cos_lat * sin_az
+        cos_z = sin_lat * cos_el - sin_el * sin_lat * cos_az
 
-        X = np.arctan(sinX/cosX)
-        Y = np.arcsin(sinY)
-        Z = -np.arctan(sinZ/cosZ)
+        x = np.arctan(sin_x / cos_x)
+        y = np.arcsin(sin_y)
+        z = -np.arctan(sin_z / cos_z)
 
-        coordinateAngles = [X, Y, Z]
+        coordinate_angles = [x, y, z]
 
-        return coordinateAngles
+        return coordinate_angles
 
-
-    def get_telescope_matrix(self, telescopeGeometry: np.ndarray) -> np.ndarray:
+    def get_telescope_matrix(self, telescope_geometry: list) -> np.ndarray:
         """
         Gets telescope matrix from IDL save (2010 matrix) or numpy save (TBD, hopefully we measure it in the future)
         file. Returns the Mueller matrix of the telescope from these measurements.
 
         Parameters
         ----------
-        telescopeGeometry : numpy.ndarray
+        telescope_geometry : numpy.ndarray
             3-element vector containing the coelostat azimuth, coelostat elevation, and Coude table angle
 
         Returns
@@ -3304,11 +3274,11 @@ class SpinorCal:
             4x4 Mueller matrix of telescope parameters
         """
 
-        filename, filetype = os.path.splitext(self.tMatrixFile)
+        filename, filetype = os.path.splitext(self.t_matrix_file)
         if "idl" in filetype:
-            txparams = scio.readsav(self.tMatrixFile)
+            txparams = scio.readsav(self.t_matrix_file)
         else:
-            txparams = scio.readsav(self.tMatrixFile)
+            txparams = scio.readsav(self.t_matrix_file)
 
         # In these files, the telescope parameters are 'tt'. The structure of tt is a bit odd:
         # tt[0]: Number of wavelength windows
@@ -3326,33 +3296,33 @@ class SpinorCal:
         # tt[10+i*7]: Primary Mirror Reflectance
         # tt[11+i*7]: Primary Mirror Retardance
 
-        entranceWindowOrientation = txparams['tt'][1] * np.pi/180
-        exitWindowOrientation = txparams['tt'][2] * np.pi/180
-        refFrameOrientation = txparams['tt'][3] * np.pi/180
-        entranceWindowPolarizerOffset = txparams['tt'][4]
+        entrance_window_orientation = txparams['tt'][1] * np.pi / 180
+        exit_window_orientation = txparams['tt'][2] * np.pi / 180
+        ref_frame_orientation = txparams['tt'][3] * np.pi / 180
+        entrance_window_polarizer_offset = txparams['tt'][4]
 
         wvls = txparams['tt'][5::7]
-        entranceWindowRetardance = scinterp.interp1d(
+        entrance_window_retardance = scinterp.interp1d(
             wvls, txparams['tt'][6::7], kind='linear'
-        )(self.centralWavelength) * np.pi/180
-        exitWindowRetardance = scinterp.interp1d(
+        )(self.central_wavelength) * np.pi / 180
+        exit_window_retardance = scinterp.interp1d(
             wvls, txparams['tt'][7::7], kind='linear'
-        )(self.centralWavelength) * np.pi/180
-        coelostatReflectance = scinterp.interp1d(
+        )(self.central_wavelength) * np.pi / 180
+        coelostat_reflectance = scinterp.interp1d(
             wvls, txparams['tt'][8::7], kind='linear'
-        )(self.centralWavelength)
-        coelostatRetardance = scinterp.interp1d(
+        )(self.central_wavelength)
+        coelostat_retardance = scinterp.interp1d(
             wvls, txparams['tt'][9::7], kind='linear'
-        )(self.centralWavelength) * np.pi/180
-        primaryReflectance = scinterp.interp1d(
+        )(self.central_wavelength) * np.pi / 180
+        primary_reflectance = scinterp.interp1d(
             wvls, txparams['tt'][10::7], kind='linear'
-        )(self.centralWavelength)
-        primaryRetardance = scinterp.interp1d(
+        )(self.central_wavelength)
+        primary_retardance = scinterp.interp1d(
             wvls, txparams['tt'][11::7], kind='linear'
-        )(self.centralWavelength) * np.pi/180
+        )(self.central_wavelength) * np.pi / 180
 
-        phiElevation = (telescopeGeometry[1] + 90) * np.pi/180
-        phiAzimuth = (telescopeGeometry[2] - telescopeGeometry[0] - 30.) * np.pi/180.
+        phi_elevation = (telescope_geometry[1] + 90) * np.pi / 180
+        phi_azimuth = (telescope_geometry[2] - telescope_geometry[0] - 30.) * np.pi / 180.
 
         # In order, the DST optical train is:
         #   1.) Entrance Window (Retarder)
@@ -3364,47 +3334,46 @@ class SpinorCal:
         #   7.) Exit Window (Retarder)
         #   8.) Coordinate Transform Horizontal (Rotation)
 
-        entranceWindowMueller = spex.linearRetarder(
-            entranceWindowOrientation, entranceWindowRetardance
+        entrance_window_mueller = spex.linear_retarder(
+            entrance_window_orientation, entrance_window_retardance
         )
-        elevationMueller = spex.mirror(
-            coelostatReflectance, coelostatRetardance
+        elevation_mueller = spex.mirror(
+            coelostat_reflectance, coelostat_retardance
         )
-        azelRotationMueller = spex.rotationMueller(phiElevation)
-        azimuthMueller = spex.mirror(
-            coelostatReflectance, coelostatRetardance
+        azel_rotation_mueller = spex.rotation_mueller(phi_elevation)
+        azimuth_mueller = spex.mirror(
+            coelostat_reflectance, coelostat_retardance
         )
-        azvertRotationMueller = spex.rotationMueller(phiAzimuth)
-        primaryMueller = spex.mirror(
-            primaryReflectance, primaryRetardance
+        azvert_rotation_mueller = spex.rotation_mueller(phi_azimuth)
+        primary_mueller = spex.mirror(
+            primary_reflectance, primary_retardance
         )
-        exitWindowMueller = spex.linearRetarder(
-            exitWindowOrientation, exitWindowRetardance
+        exit_window_mueller = spex.linear_retarder(
+            exit_window_orientation, exit_window_retardance
         )
-        refframeRotationMueller = spex.rotationMueller(
-            refFrameOrientation
+        refframe_rotation_mueller = spex.rotation_mueller(
+            ref_frame_orientation
         )
 
         # There's probably a more compact way to do this,
         # but for now, we'll just go straight down the optical chain
-        tmatrix = elevationMueller @ entranceWindowMueller
-        tmatrix = azelRotationMueller @ tmatrix
-        tmatrix = azimuthMueller @ tmatrix
-        tmatrix = azvertRotationMueller @ tmatrix
-        tmatrix = primaryMueller @ tmatrix
-        tmatrix = exitWindowMueller @ tmatrix
-        tmatrix = refframeRotationMueller @ tmatrix
+        tmatrix = elevation_mueller @ entrance_window_mueller
+        tmatrix = azel_rotation_mueller @ tmatrix
+        tmatrix = azimuth_mueller @ tmatrix
+        tmatrix = azvert_rotation_mueller @ tmatrix
+        tmatrix = primary_mueller @ tmatrix
+        tmatrix = exit_window_mueller @ tmatrix
+        tmatrix = refframe_rotation_mueller @ tmatrix
 
         # Normalize the Mueller matrix
         tmatrix /= tmatrix[0, 0]
 
         return tmatrix
 
-
     @staticmethod
     def determine_spectrum_flip(
-            fts_spec: np.ndarray, spinor_spex: np.ndarray, spinPixPerFTSPix: float,
-            spinorCores: list, ftsCores: list
+            fts_spec: np.ndarray, spinor_spex: np.ndarray, spin_pix_per_fts_pix: float,
+            spinor_cores: list, fts_cores: list
     ) -> bool:
         """
         Determine if SPINOR spectra are flipped by correlation value against interpolated
@@ -3413,9 +3382,9 @@ class SpinorCal:
         ----------
         fts_spec
         spinor_spex
-        spinPixPerFTSPix
-        spinorCores
-        ftsCores
+        spin_pix_per_fts_pix
+        spinor_cores
+        fts_cores
 
         Returns
         -------
@@ -3429,19 +3398,19 @@ class SpinorCal:
         # 2025-02-11, Still has trouble with broad profiles with few features.
         # Going to increase the range used slightly
         spinor_spex /= spinor_spex.max()
-        spinorEdgePad = 10
+        spinor_edge_pad = 10
         # Edge case cleaning just in case one of the selected lines is near the edge
-        if (min(spinorCores) < 10) & (spinor_spex.shape[0] - 10 < max(spinorCores)):
+        if (min(spinor_cores) < 10) & (spinor_spex.shape[0] - 10 < max(spinor_cores)):
             # Pad out to the edge of the beam
-            spinorEdgePad = min([min(spinorCores), spinor_spex.shape[0] - max(spinorCores)]) - 1
+            spinor_edge_pad = min([min(spinor_cores), spinor_spex.shape[0] - max(spinor_cores)]) - 1
 
-        spinor_spex = spinor_spex[min(spinorCores) - spinorEdgePad:max(spinorCores) + spinorEdgePad]
+        spinor_spex = spinor_spex[min(spinor_cores) - spinor_edge_pad:max(spinor_cores) + spinor_edge_pad]
 
-        ftsEdgePad = int(spinorEdgePad / spinPixPerFTSPix)
-        fts_spec = fts_spec[int(min(ftsCores) - ftsEdgePad):int(max(ftsCores) + ftsEdgePad)]
+        fts_edge_pad = int(spinor_edge_pad / spin_pix_per_fts_pix)
+        fts_spec = fts_spec[int(min(fts_cores) - fts_edge_pad):int(max(fts_cores) + fts_edge_pad)]
 
         fts_interp = scinterp.interp1d(
-            np.arange(0, fts_spec.shape[0]*spinPixPerFTSPix, spinPixPerFTSPix),
+            np.arange(0, fts_spec.shape[0] * spin_pix_per_fts_pix, spin_pix_per_fts_pix),
             fts_spec,
             kind='linear',
             fill_value='extrapolate'
@@ -3450,21 +3419,20 @@ class SpinorCal:
         fts_interp_reversed = fts_interp[::-1]
 
         lin_corr = np.nansum(
-            fts_interp*spinor_spex
-        ) / np.sqrt(np.nansum(fts_interp**2) * np.nansum(spinor_spex**2))
+            fts_interp * spinor_spex
+        ) / np.sqrt(np.nansum(fts_interp ** 2) * np.nansum(spinor_spex ** 2))
 
         lin_corr_rev = np.nansum(
             fts_interp_reversed * spinor_spex
-        ) / np.sqrt(np.nansum(fts_interp_reversed**2) * np.nansum(spinor_spex**2))
+        ) / np.sqrt(np.nansum(fts_interp_reversed ** 2) * np.nansum(spinor_spex ** 2))
 
         if lin_corr_rev > lin_corr:
             return True
         else:
             return False
 
-
     @staticmethod
-    def despike_image(image: np.ndarray, footprint: tuple=(5, 1), spikeRange: tuple=(0.75, 1.25)) -> np.ndarray:
+    def despike_image(image: np.ndarray, footprint: tuple = (5, 1), spike_range: tuple = (0.75, 1.25)) -> np.ndarray:
         """Removes spikes in image caused by cosmic rays, hot pixels, etc. Works off median filtering image.
         Placeholder for now. Will be replaced by a more robust function in the future.
 
@@ -3474,20 +3442,19 @@ class SpinorCal:
             ND image array. Length of footpoint should match the number of axes
         footprint : tuple
             Footpoint used in scipy.ndimage.median_filter to create median-smoothed image
-        spikeRange : tuple
+        spike_range : tuple
             Range to clip hot pixels from. Pixels in image/median_image exceeding range will be replaced
             by corresponding pixels in median_image
 
         Returns
         -------
-        despikedImage : numpy.ndarray
+        despiked_image : numpy.ndarray
         """
 
-        medfiltImage = scind.median_filter(image, size=footprint)
-        spikeImage = image/medfiltImage
-        despikedImage = image.copy()
-        despikedImage[
-            (spikeImage > max(spikeRange)) | (spikeImage < min(spikeRange))
-        ] = medfiltImage[(spikeImage > max(spikeRange)) | (spikeImage < min(spikeRange))]
-        return despikedImage
-
+        medfilt_image = scind.median_filter(image, size=footprint)
+        spike_image = image / medfilt_image
+        despiked_image = image.copy()
+        despiked_image[
+            (spike_image > max(spike_range)) | (spike_image < min(spike_range))
+            ] = medfilt_image[(spike_image > max(spike_range)) | (spike_image < min(spike_range))]
+        return despiked_image

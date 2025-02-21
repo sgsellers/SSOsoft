@@ -81,7 +81,7 @@ def find_line_core(profile, wvl=None):
     return center
 
 
-def linearRetarder(axis_angle, retardance):
+def linear_retarder(axis_angle, retardance):
     """Returns Mueller matrix for a linear retarder.
     At some point, I'll come back to this and add in kwargs for dichroism
 
@@ -94,14 +94,14 @@ def linearRetarder(axis_angle, retardance):
 
     Returns
     -------
-    retMueller : numpy.ndarray
+    ret_mueller : numpy.ndarray
         Mueller matrix of retarder
     """
 
     c2 = np.cos(2*axis_angle)
     s2 = np.sin(2*axis_angle)
 
-    retMueller = np.array(
+    ret_mueller = np.array(
         [
             [1, 0, 0, 0],
             [0, c2**2 + s2**2 * np.cos(retardance), c2 * s2 * (1 - np.cos(retardance)), -s2 * np.sin(retardance)],
@@ -110,10 +110,10 @@ def linearRetarder(axis_angle, retardance):
         ]
     )
 
-    return retMueller
+    return ret_mueller
 
 
-def rotationMueller(phi, reverse=False):
+def rotation_mueller(phi, reverse=False):
     """Sets up a Mueller matrix for rotation about the optical axis.
     Used for transforming between reference frames
 
@@ -132,17 +132,17 @@ def rotationMueller(phi, reverse=False):
 
     neg = -1 if reverse else 1
 
-    rotationMuellerMatrix = np.array([
+    rotation_mueller_matrix = np.array([
         [1, 0, 0, 0],
         [0, np.cos(2*phi), neg * np.sin(2*phi), 0],
         [0, neg * -np.sin(2*phi), np.cos(2*phi), 0],
         [0, 0, 0, 1]
     ])
 
-    return rotationMuellerMatrix
+    return rotation_mueller_matrix
 
 
-def linearAnalyzerPolarizer(axis_angle, px=1, py=0):
+def linear_analyzer_polarizer(axis_angle, px=1, py=0):
     """Returns the Mueller matrix for a non-ideal linear polarizer
 
     Parameters
@@ -156,7 +156,7 @@ def linearAnalyzerPolarizer(axis_angle, px=1, py=0):
 
     Returns
     -------
-    polMueller : numpy.ndarray
+    pol_mueller : numpy.ndarray
         Mueller matrix of linear polarizer analyzer
     """
 
@@ -167,7 +167,7 @@ def linearAnalyzerPolarizer(axis_angle, px=1, py=0):
     beta = (px**2 - py**2)/alpha
     gamma = 2*px*py/alpha
 
-    polMueller = (alpha/2) * np.array(
+    pol_mueller = (alpha/2) * np.array(
         [
             [1, beta * c2, beta * s2, 0],
             [beta * c2, c2**2 + gamma*s2**2, (1-gamma) * c2*s2, 0],
@@ -175,7 +175,7 @@ def linearAnalyzerPolarizer(axis_angle, px=1, py=0):
             [0, 0, 0, gamma]
         ]
     )
-    return polMueller
+    return pol_mueller
 
 
 def mirror(rs_over_rp, retardance):
@@ -190,18 +190,18 @@ def mirror(rs_over_rp, retardance):
 
     Returns
     -------
-    polMirror : numpy.ndarray
+    pol_mirror : numpy.ndarray
         Mueller matrix of a mirror
     """
 
-    polMirror = np.array([
+    pol_mirror = np.array([
         [(1 + rs_over_rp)/2., (1 - rs_over_rp)/2., 0, 0],
         [(1 - rs_over_rp)/2., (1 + rs_over_rp)/2., 0, 0],
         [0, 0, np.sqrt(rs_over_rp)*np.cos(retardance), np.sqrt(rs_over_rp)*np.sin(retardance)],
         [0, 0, -np.sqrt(rs_over_rp)*np.sin(retardance), np.sqrt(rs_over_rp)*np.cos(retardance)]
     ])
 
-    return polMirror
+    return pol_mirror
 
 
 def matrix_inversion(input_array, output_array):
@@ -223,13 +223,13 @@ def matrix_inversion(input_array, output_array):
         Solution matrix
     """
 
-    D = input_array.T @ input_array
-    D_inv = np.linalg.inv(D)
-    A = D_inv @ input_array.T
-    matrix = A @ output_array
+    d = input_array.T @ input_array
+    d_inv = np.linalg.inv(d)
+    a = d_inv @ input_array.T
+    matrix = a @ output_array
     chi = np.nansum((output_array-input_array@matrix)**2)/input_array.size
 
-    error = np.array([A[:, i]**2 for i in range(A.shape[1])])
+    error = np.array([a[:, i]**2 for i in range(a.shape[1])])
     error = np.sqrt(error * chi)
     matrix = matrix.T
 
@@ -397,7 +397,7 @@ def rolling_median(data, window):
     return rolled
 
 
-def select_lines_singlepanel(array, nselections, figName="Popup Figure"):
+def select_lines_singlepanel(array, nselections, fig_name="Popup Figure"):
     """
     Matplotlib-based function to select an x-value, or series of x-values
     From the plot of a 1D array.
@@ -406,11 +406,13 @@ def select_lines_singlepanel(array, nselections, figName="Popup Figure"):
         Array to plot and select from
     :param nselections: int
         Number of expected selections
+    :param fig_name: str
+        Name of the produced figure
     :return xvals: array-like
         Array of selected x-values with length nselections
     """
 
-    fig = plt.figure(figName)
+    fig = plt.figure(fig_name)
     ax = fig.add_subplot(111)
     ax.set_title("Select " + str(nselections) + " Positions, then Click Again to Exit")
     spectrum, = ax.plot(array)
@@ -435,18 +437,18 @@ def select_lines_singlepanel(array, nselections, figName="Popup Figure"):
 
 
 def select_lines_singlepanel_unbound_xarr(array, xarr=None,
-                                          figName="Popup Figure!", nSelections=None, vlines=None):
+                                          fig_name="Popup Figure!", n_selections=None, vlines=None):
     """
     Matplotlib-based function to select an x-value, or series of x-values
     From the plot of a 1D array.
 
     :param array: array-like
         Array to plot and select from
-    :param array: array-like
+    :param xarr: array-like, optional
         Optional x array to plot against.
-    :param figName: str
+    :param fig_name: str
         Name of the figure window
-    :param nSelections: None or int, optional
+    :param n_selections: None or int, optional
         If set, closes figure after nSelections are made
     :param vlines: None or array-like, optional
         If set, draws axvlines at all specified positions
@@ -454,7 +456,7 @@ def select_lines_singlepanel_unbound_xarr(array, xarr=None,
         Array of selected x-values with length nselections
     """
 
-    fig = plt.figure(figName)
+    fig = plt.figure(fig_name)
     ax = fig.add_subplot(111)
     ax.set_title("Select Positions, then close window")
     if xarr is None:
@@ -472,7 +474,7 @@ def select_lines_singlepanel_unbound_xarr(array, xarr=None,
         fig.canvas.draw()
         xvals.append(find_nearest(xarr, xcd))
         print("Selected: " + str(xcd))
-        if (nSelections is not None) and (len(xvals) >= nSelections):
+        if (n_selections is not None) and (len(xvals) >= n_selections):
             fig.canvas.mpl_disconnect(conn)
             plt.close(fig)
 
@@ -482,7 +484,7 @@ def select_lines_singlepanel_unbound_xarr(array, xarr=None,
     return xvals
 
 
-def select_spans_singlepanel(array, xarr=None, figName="Popup Figure!", nSelections=None):
+def select_spans_singlepanel(array, xarr=None, fig_name="Popup Figure!", n_selections=None):
     """
     Matplotlib-based function to select x range from the plot of a 1D array.
 
@@ -490,13 +492,13 @@ def select_spans_singlepanel(array, xarr=None, figName="Popup Figure!", nSelecti
         Array to plot and select from
     :param xarr: array-like
         Optional x array to plot against.
-    :param figName:
-    :param nSelections: None, int, optional
+    :param fig_name:
+    :param n_selections: None, int, optional
         If provided, closes figure after nSelections are made
     :return xvals: numpy.ndarray
         Array of selected x-spans with shape (2, nselections)
     """
-    fig = plt.figure(figName)
+    fig = plt.figure(fig_name)
     ax = fig.add_subplot(111)
     ax.set_title("Click to select min and max of spectral regions. Close window when done.")
     if xarr is None:
@@ -518,7 +520,7 @@ def select_spans_singlepanel(array, xarr=None, figName="Popup Figure!", nSelecti
         fig.canvas.draw()
         print("Selected: " + str(xcd))
 
-        if (nSelections is not None) and (n >= int(nSelections)):
+        if (n_selections is not None) and (n >= int(n_selections)):
             fig.canvas.mpl_disconnect(conn)
             plt.close(fig)
 
@@ -812,8 +814,8 @@ def detect_beams_hairlines(
 
 
 def select_beam_edges_hairlines(
-        averageYProfile: npt.NDArray, averageXProfile: npt.NDArray,
-        expectedHairlines: int, expectedBeams: int, expectedSlits: int
+        average_y_profile: npt.NDArray, average_x_profile: npt.NDArray,
+        expected_hairlines: int, expected_beams: int, expected_slits: int
 ) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray]:
     """
     Fallback function for user selection of hairlines, beam edges, and slit edges
@@ -826,22 +828,22 @@ def select_beam_edges_hairlines(
 
     Parameters
     ----------
-    averageYProfile : numpy.ndarray
+    average_y_profile : numpy.ndarray
         Average profile along the y-axis of the original image
-    averageXProfile : numpy.ndarray
+    average_x_profile : numpy.ndarray
         Average profile along the x-axis of the original image
-    expectedHairlines : int
+    expected_hairlines : int
         Number of hairlines to select
-    expectedBeams : int
+    expected_beams : int
         Twice this number of edges to select in y
-    expectedSlits : int
+    expected_slits : int
         Twice this number of edges to select in x
 
     Returns
     -------
-    beamEdges: numpy.ndarray
+    beam_edges: numpy.ndarray
         Edges of the beam reshaped to (expectedBeams, 2)
-    slitEdges: numpy.ndarray
+    slit_edges: numpy.ndarray
         Edges of the slit image reshaped to (expectedSlits, 2)
     hairlines: numpy.ndarray
         Hairline centers in a 1D array
@@ -850,53 +852,53 @@ def select_beam_edges_hairlines(
     # Select Beam Edges
     print(
         "\nSelect {0} Intensity Jumps. These correspond to the edges of the spatial beam(s)\n".format(
-            int(2*expectedBeams)
+            int(2 * expected_beams)
         )
     )
     print("Beam Edges May Extend across the range. If the beam fills the range, select the edges of the range")
-    approxBeamEdges = select_lines_singlepanel(
-        averageYProfile, int(2*expectedBeams),
-        figName="Select {0} Positions corresponding to edges of the spatial beam".format(
-            int(2*expectedBeams)
+    approx_beam_edges = select_lines_singlepanel(
+        average_y_profile, int(2 * expected_beams),
+        fig_name="Select {0} Positions corresponding to edges of the spatial beam".format(
+            int(2 * expected_beams)
         )
     )
     # Clean the beam edges to remove out-of-bounds values
-    approxBeamEdges[approxBeamEdges < 0] = 0
-    approxBeamEdges[approxBeamEdges >= len(averageYProfile)] = len(averageYProfile) - 1
-    beamEdges = np.sort(np.round(approxBeamEdges)).reshape(expectedBeams, 2).astype(int)
+    approx_beam_edges[approx_beam_edges < 0] = 0
+    approx_beam_edges[approx_beam_edges >= len(average_y_profile)] = len(average_y_profile) - 1
+    beam_edges = np.sort(np.round(approx_beam_edges)).reshape(expected_beams, 2).astype(int)
     # Select Slit Edges
     print(
         "\nSelect {0} Intensity Jumps. These correspond to the edges of the spectral beam(s)\n".format(
-            int(2 * expectedSlits)
+            int(2 * expected_slits)
         )
     )
     print("Take care not to select spectral lines")
-    approxSlitEdges = select_lines_singlepanel(
-        averageXProfile, int(2*expectedSlits),
-        figName="Select {0} Positions corresponding to the edges of the spectral beam".format(
-            int(2*expectedSlits)
+    approx_slit_edges = select_lines_singlepanel(
+        average_x_profile, int(2 * expected_slits),
+        fig_name="Select {0} Positions corresponding to the edges of the spectral beam".format(
+            int(2 * expected_slits)
         )
     )
     # Clean slit edges to remove out-of-bounds values
-    approxSlitEdges[approxSlitEdges < 0] = 0
-    approxSlitEdges[approxSlitEdges >= len(averageXProfile)] = len(averageXProfile) - 1
-    slitEdges = np.sort(np.round(approxSlitEdges)).reshape(expectedSlits, 2).astype(int)
+    approx_slit_edges[approx_slit_edges < 0] = 0
+    approx_slit_edges[approx_slit_edges >= len(average_x_profile)] = len(average_x_profile) - 1
+    slit_edges = np.sort(np.round(approx_slit_edges)).reshape(expected_slits, 2).astype(int)
     # Select Hairlines
     print(
         "\nSelect {0} Intensity dips. These should correspond to the hairlines\n".format(
-            int(expectedHairlines)
+            int(expected_hairlines)
         )
     )
-    approxHairlines = select_lines_singlepanel(
-        averageYProfile, int(expectedHairlines),
-        figName="Select {0} Positions corresponding to hairline positions".format(
-            int(expectedHairlines)
+    approx_hairlines = select_lines_singlepanel(
+        average_y_profile, int(expected_hairlines),
+        fig_name="Select {0} Positions corresponding to hairline positions".format(
+            int(expected_hairlines)
         )
     )
-    approxHairlines = np.sort(approxHairlines)
+    approx_hairlines = np.sort(approx_hairlines)
     # Clean up hairlines by finding subpixel line center
-    hairlines = np.array([find_line_core(averageYProfile[int(i-3):int(i+4)]) + i - 3 for i in approxHairlines])
-    return beamEdges, slitEdges, hairlines
+    hairlines = np.array([find_line_core(average_y_profile[int(i - 3):int(i + 4)]) + i - 3 for i in approx_hairlines])
+    return beam_edges, slit_edges, hairlines
 
 
 def create_gaintables(flat, lines_indices,
@@ -1145,7 +1147,7 @@ def fourier_fringe_correction(fringe_cube, freqency_cutoff, smoothing, dlambda):
 def select_fringe_freq(wvl, profile, init_period):
     """
     Allows user to adjust fringe frequencies and select best cutoff for template.
-    :param wave: numpy.ndarray
+    :param wvl: numpy.ndarray
         Wavelength array
     :param profile: numpy.ndarray
         Spectral profile
@@ -1192,7 +1194,7 @@ def select_fringe_freq(wvl, profile, init_period):
     return 1 / period_slider.val
 
 
-def moment_analysis(wave, intens, refwvl, continuumCorrect=True):
+def moment_analysis(wave, intens, refwvl, continuum_correct=True):
     """
     Performs simple moment analysis of an input spectral profile.
     :param wave: numpy.ndarray
@@ -1201,59 +1203,61 @@ def moment_analysis(wave, intens, refwvl, continuumCorrect=True):
         Intensity values
     :param refwvl: float
         Reference wavelength value
-    :return I: float
+    :param continuum_correct: bool
+        If True, does a quick correction for pseudo continuum via start/end values
+    :return i: float
         Intensity value
     :return v: float
         Doppler velocity (km/s)
     :return w: float
         Doppler width (km/s)
     """
-    if continuumCorrect:
+    if continuum_correct:
         slope = (np.nanmean(intens[-3:]) - np.nanmean(intens[:3])) / (wave[-1] - wave[0])
         line = wave * slope
         line /= np.nanmedian(line)
         intens /= line
-    I = scint.simpson(intens, x=wave)
+    i = scint.simpson(intens, x=wave)
     m1 = scint.simpson(intens * (wave - refwvl), x=wave)
     m2 = scint.simpson(intens * (wave - refwvl) ** 2, x=wave)
-    v = (c_kms / refwvl) * (m1 / I)
-    w = np.sqrt((c_kms / refwvl) * (m2 / I))
-    return I, v, w
+    v = (c_kms / refwvl) * (m1 / i)
+    w = np.sqrt((c_kms / refwvl) * (m2 / i))
+    return i, v, w
 
 
-def mean_circular_polarization(stokesV, wavelength, referenceWavelength, continuumI):
+def mean_circular_polarization(stokes_v, wavelength, reference_wavelength, continuum_i):
     """
     Computes mean circular polarization as described by Martinez Pillet (2011).
     Adapted for many spectral positions.
     Parameters
     ----------
-    stokesV : numpy.ndarray
+    stokes_v : numpy.ndarray
     wavelength : numpy.ndarray
-    referenceWavelength : float
-    continuumI : float
+    reference_wavelength : float
+    continuum_i : float
 
     Returns
     -------
-    mean_circular_polarization : float
+    mcp : float
     """
-    sign_vector = np.array([1 if x > referenceWavelength else -1 for x in wavelength])
+    sign_vector = np.array([1 if x > reference_wavelength else -1 for x in wavelength])
 
-    mean_circular_polarization = (1/(len(wavelength) * continuumI)) * np.nansum(
-        sign_vector * np.abs(stokesV)
+    mcp = (1 / (len(wavelength) * continuum_i)) * np.nansum(
+        sign_vector * np.abs(stokes_v)
     )
-    return mean_circular_polarization
+    return mcp
 
 
-def mean_linear_polarization(stokesQ, stokesU, continuumI):
+def mean_linear_polarization(stokes_q, stokes_u, continuum_i):
     """
     Computes mean linear polarization as described by Martinez Pillet (2011).
     Parameters
     ----------
-    stokesQ : numpy.ndarray
+    stokes_q : numpy.ndarray
         Stokes-Q profile
-    stokesU : numpy.ndarray
+    stokes_u : numpy.ndarray
         Stokes-U profile
-    continuumI : float
+    continuum_i : float
         Mean Stokes-I continuum intensity
 
     Returns
@@ -1261,29 +1265,29 @@ def mean_linear_polarization(stokesQ, stokesU, continuumI):
     float
         Mean linear polarization
     """
-    return (1/(len(stokesQ) * continuumI)) * np.nansum(np.sqrt(stokesQ**2 + stokesU**2))
+    return (1 / (len(stokes_q) * continuum_i)) * np.nansum(np.sqrt(stokes_q ** 2 + stokes_u ** 2))
 
 
-def net_circular_polarization(stokesV, wavelength, abs=False):
+def net_circular_polarization(stokes_v, wavelength, abs_value=False):
     """
     Just integrates the V-profile. Solanki & Montavon (1993)
     Parameters
     ----------
-    stokesV: numpy.ndarray
+    stokes_v: numpy.ndarray
         Stokes-V
     wavelength: numpy.ndarray
         Wavelengths
-    abs: bool
+    abs_value: bool
         True to integrate the absolute value of V
     Returns
     -------
     float
         Net circular polarizaed light.
     """
-    if abs:
-        return scint.simpson(np.abs(stokesV), x=wavelength)
+    if abs_value:
+        return scint.simpson(np.abs(stokes_v), x=wavelength)
     else:
-        return scint.simpson(stokesV, x=wavelength)
+        return scint.simpson(stokes_v, x=wavelength)
 
 
 def chi_square(fit, prior):
@@ -1417,18 +1421,18 @@ def grating_calculations(
     # If the projected width is the limiting factor, 100% of the rules will be illuminated
     effective_grating_width = np.nanmin([projected_width, illumination_width])/projected_width
     grating_resolution = order * effective_grating_width * n_lines
-    diffraction_resolution_mA = 1000 * wavelength / grating_resolution
+    diffraction_resolution_ma = 1000 * wavelength / grating_resolution
 
     # Dispersion, D = camera * m * d / cos(theta)
     dispersion = (camera/mm_per_m) * order * (gpmm*mm_per_m) / np.cos(refl_angle * np.pi/180)
     # unitless quantity; m/m. Convert to um/mA
-    dispersion_um_mA = dispersion * um_per_m / angstrom_per_m / 1000
-    spectral_scale = pix_size / dispersion_um_mA
+    dispersion_um_ma = dispersion * um_per_m / angstrom_per_m / 1000
+    spectral_scale = pix_size / dispersion_um_ma
     # Spectral slit width = camera * slit_width * slit_magnification / (dispersion * collimator)
-    spectral_slit_width = camera * slit_width * slit_mag / (dispersion_um_mA * collimator)
+    spectral_slit_width = camera * slit_width * slit_mag / (dispersion_um_ma * collimator)
 
     # Add diffraction resln., slit width, and pixel size in quadrature
-    spectral_resolution = np.sqrt(diffraction_resolution_mA**2 + spectral_scale**2 + spectral_slit_width**2)
+    spectral_resolution = np.sqrt(diffraction_resolution_ma**2 + spectral_scale**2 + spectral_slit_width**2)
 
     # grating efficiency calculation:
     # gamma = pi * 1/d * cos(theta) * [sin(alpha - blaze) + sin(theta - blaze)]/(lambda*cos(alpha - blaze))
@@ -1474,7 +1478,7 @@ def solve_grating(
         alpha=None,
         collimator=3040, camera=1700, slit_width=40, slit_scale=3.76*1559/780,
         grating_length=206, pupil_diameter=762*1559/54864, slit_camera=780,
-        minLaserAngle=1.7
+        min_laser_angle=1.7
 ):
     """
     Solve for best grating angle and order for a given wavelength.
@@ -1514,7 +1518,7 @@ def solve_grating(
     slit_camera : float
         Focal length of camera lens that places the field on the slit unit.
         For HSG/SPINOR, usually 780 mm
-    minLaserAngle : float or None
+    min_laser_angle : float or None
         Minimum allowable reflection angle, referenced to incoming beam.
         HSG/SPINOR in particular cannot accomodate angles less than 1.7 degrees,
         as these angles clip the rastering box structure. Can be None if this is
@@ -1547,7 +1551,7 @@ def solve_grating(
         )['Total_Efficiency'] for x in order_arr
     ])
 
-    bestOrder = order_arr[list(effs).index(np.nanmax(effs))]
+    best_order = order_arr[list(effs).index(np.nanmax(effs))]
 
     if alpha is None:
         max_ang = blaze + 20
@@ -1558,7 +1562,7 @@ def solve_grating(
         littrow = np.zeros(alpha_arr.shape)
         for a in range(len(alpha_arr)):
             params = grating_calculations(
-                gpmm, blaze, alpha_arr[a], pix_size, wavelength, bestOrder,
+                gpmm, blaze, alpha_arr[a], pix_size, wavelength, best_order,
                 collimator=collimator, camera=camera, slit_width=slit_width,
                 slit_scale=slit_scale, grating_length=grating_length,
                 pupil_diameter=pupil_diameter, slit_camera=slit_camera
@@ -1566,12 +1570,12 @@ def solve_grating(
             effs[a] = params["Total_Efficiency"]
             littrow[a] = params["Littrow_Angle"]
 
-        bestAlpha = alpha_arr[list(effs).index(np.nanmax(effs))]
+        best_alpha = alpha_arr[list(effs).index(np.nanmax(effs))]
     else:
-        bestAlpha = alpha
+        best_alpha = alpha
 
     grating_params = grating_calculations(
-        gpmm, blaze, bestAlpha, pix_size, wavelength, bestOrder,
+        gpmm, blaze, best_alpha, pix_size, wavelength, best_order,
         collimator=collimator, camera=camera, slit_width=slit_width,
         slit_scale=slit_scale, grating_length=grating_length,
         pupil_diameter=pupil_diameter, slit_camera=slit_camera
@@ -1581,8 +1585,8 @@ def solve_grating(
         [grating_params],
         ['Order', 'Alpha', 'Laser_Angle'],
         [
-            np.array([bestOrder]),
-            np.array([round(bestAlpha, 2)]),
+            np.array([best_order]),
+            np.array([round(best_alpha, 2)]),
             np.array([round(grating_params['Littrow_Angle']/2, 3)])
         ],
         asrecarray=True

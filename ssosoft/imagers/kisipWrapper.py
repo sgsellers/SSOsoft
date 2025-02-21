@@ -76,7 +76,7 @@ class kisipWrapper:
 		self.batchList=rosaZylaCal.batchList
 		self.burstFileForm=rosaZylaCal.burstFileForm
 		self.burstNumber=rosaZylaCal.burstNumber
-		self.configFile=rosaZylaCal.configFile
+		self.configFile=rosaZylaCal.config_file
 		self.imageShape=rosaZylaCal.imageShape
 		self.instrument=rosaZylaCal.instrument.upper()
 		self.kisipPreSpeckleBatch=0
