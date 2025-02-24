@@ -1698,10 +1698,16 @@ class SpinorCal:
                             alignment_beam, hair_centers=None
                         )
                         if self.nhair == 2:
-                            master_hairline_centers = tuple(hairline_centers)
+                            if hairline_centers[0] < self.beam_edges[0, 1] - self.beam_edges[0, 0]:
+                                # Only hairline is at the bottom of the beam. Set dummy second hairline at top.
+                                master_hairline_centers = (hairline_centers[0],
+                                                           self.beam_edges[0, 1] - self.beam_edges[0 ,0])
+                            else:
+                                # Only hairline is at the top of the beam. Set a dummy second hairline at bottom.
+                                master_hairline_centers = (hairline_centers[0], 0)
                         else:
                             master_hairline_centers = (hairline_centers[0],
-                                                     hairline_centers[0] + np.diff(self.hairlines, axis=1)[0])
+                                                     hairline_centers[0] + np.diff(self.hairlines, axis=1)[0][0])
 
                     else:
                         hairline_skews, hairline_centers = self.subpixel_hairline_align(
@@ -1737,8 +1743,7 @@ class SpinorCal:
                     science_beams = scind.shift(
                         science_beams, (
                             0, 0,
-                            -(hairline_centers[0] - master_hairline_centers[0]), 0
-                            # (spectral_centers[0] - master_spectral_line_centers[0])
+                            -(hairline_centers[0] - master_hairline_centers[0]), 0 # Use the 0th master_hairline_center
                         ),
                         mode='nearest'
                     )
@@ -2689,8 +2694,8 @@ class SpinorCal:
             self.pixel_size, self.central_wavelength, self.spectral_order,
             collimator=self.spectrograph_collimator, camera=self.camera_lens, slit_width=slitwidth,
         )
-        ext0.header['SPEFF'] = (float(grating_params['Grating_Efficiency']), 'Approx. Total Efficiency of Grating')
-        ext0.header['LITTROW'] = (float(grating_params['Littrow_Angle']), '[degrees] Littrow Angle')
+        ext0.header['SPEFF'] = (round(float(grating_params['Total_Efficiency']), 3), 'Approx. Total Efficiency of Grating')
+        ext0.header['LITTROW'] = (round(float(grating_params['Littrow_Angle']), 3), '[degrees] Littrow Angle')
         ext0.header['RESOLVPW'] = (
             round(np.nanmean(wavelength_array) / (0.001 * float(grating_params['Spectrograph_Resolution'])), 0),
             "Maximum Resolving Power of Spectrograph"

@@ -344,6 +344,8 @@ def fts_window(wavemin, wavemax, atlas='FTS', norm=True, lines=False):
         else:
             warnings.warn("Using solar irradiance (i.e., not normalized)")
             atlas_spectrum = read_data('ssosoft.spectral.FTS_atlas', 'FTS1984_296.-1300nm_Irradiance.npy')
+            atlas_spectrum *= 462020 # Conversion to erg/cm2/s/nm
+            atlas_spectrum /= 10 # Conversion to erg/cm2/s/Angstrom
 
     idx_lo = find_nearest(atlas_angstroms, wavemin) - 5
     idx_hi = find_nearest(atlas_angstroms, wavemax) + 5
