@@ -424,7 +424,7 @@ class InversionPrep:
             noise_maps = np.zeros((spectral_ranges['Continuum Range'].shape[0], *stokes_norm.shape[1:3]))
             for j in range(spectral_ranges['Continuum Range'].shape[0]):
                 indices = sorted(
-                    [int(spex.find_nearest(wavelength_array, k)) for k in spectral_ranges['Continuum Range'][i]]
+                    [int(spex.find_nearest(wavelength_array, k)) for k in spectral_ranges['Continuum Range'][j]]
                 )
                 noise_maps[j] = np.nanstd(stokes_norm[i, :, :, indices[0]:indices[1]], axis=-1)
             stokes_noise[i] = np.repeat(
