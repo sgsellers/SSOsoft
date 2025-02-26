@@ -1398,16 +1398,13 @@ class InversionPrep:
         -------
         clv_grid : numpy.ndarray
         """
-        clv_grid = np.zeros((*theta.shape, len(wavelength)))
         mu = np.cos(theta * np.pi/180)
-        for x in range(mu.shape[0]):
-            for y in range(mu.shape[1]):
-                clv_grid[x, y, :] = self.i0_allen(wavelength, mu[x, y]) / self.i0_allen(wavelength, 1.0)
+        clv_grid = self.i0_allen(wavelength, mu) / self.i0_allen(wavelength, 1.0)
 
         return clv_grid
 
     @staticmethod
-    def i0_allen(wavelength: float or np.ndarray, mu_angle: float) -> float or np.ndarray:
+    def i0_allen(wavelength: float or np.ndarray, mu_angle: float or numpy.ndarray) -> float or np.ndarray:
         """
         Adaptation of the Allen model included with Hazel.
         I took the hardcoded data arrays, packed them into .npy save files, and packed it here.
@@ -1416,7 +1413,7 @@ class InversionPrep:
         ----------
         wavelength : float or numpy.ndarray
             In Angstrom, wavelength to get CLV variation at
-        mu_angle : float
+        mu_angle : float ot numpy.ndarray
             The cosine of the heliocentric angle (i.e., position on disk)
 
         Returns
@@ -1437,7 +1434,12 @@ class InversionPrep:
         u = np.interp(wavelength, lambda_ic, u_data)
         v = np.interp(wavelength, lambda_ic, v_data)
         i0_interp = np.interp(wavelength, lambda_i0, i0)
-        return (1.0 - u - v + u*mu_angle + v*mu_angle**2) * i0_interp
+
+        if type(mu_angle) is float:
+            return (1.0 - u - v + u*mu_angle + v*mu_angle**2) * i0_interp
+        else:
+            mu_grid = np.repeat(mu_angle[:, :, np.newaxis], wavelength.shape[0], axis=-1)
+            return (1.0 - u - v + u*mu_grid + v*mu_grid**2) * i0_interp
 
 
     @staticmethod
