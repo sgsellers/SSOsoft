@@ -344,7 +344,7 @@ class InversionPrep:
             stokes_norm = np.zeros((4, *hdul['STOKES-I'].data.shape))
             l = ["I", "Q", "U", "V"]
             for i in range(4):
-                stokes_norm[i] = hdul['STOKES-{0}'.format(l[i])]
+                stokes_norm[i] = hdul['STOKES-{0}'.format(l[i])].data
             # grab wavelength array
             wavelength_array = hdul['lambda-coordinate'].data
             # grab coordinate values for setting up the grid
