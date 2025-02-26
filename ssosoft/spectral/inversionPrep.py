@@ -115,6 +115,8 @@ class InversionPrep:
         """
         cameras, codes = self.parse_config_file()
         for camera, code in zip(cameras, codes):
+            if self.verbose:
+                print("Proceeding with processing of {0}".format(camera))
             map_list = self.parse_camera_params(camera)
             outdir_list = self.set_up_output_directories(len(map_list))
             self.inversion_code = code
@@ -339,6 +341,8 @@ class InversionPrep:
         coord_grid : numpy.ndarray
             Hazel-compatible coordinate grid. Shape (4, ny, nx) for theta, phi, gamma
         """
+        if self.verbose:
+            print("Loading data from:\n{0}".format(map_file))
         with fits.open(map_file) as hdul:
             # Assemble stokes profiles
             stokes_norm = np.zeros((4, *hdul['STOKES-I'].data.shape))
@@ -370,11 +374,15 @@ class InversionPrep:
             else:
                 hairline_centers = tuple()
 
+        if self.verbose:
+            print("Assembling coordinate grid")
         # Start by assembling the coordinate grid:
         coord_grid = self.assemble_coord_grid(
             xcen, ycen, fovx, fovy, dx, dy, rotation, (stokes_norm.shape[1], stokes_norm.shape[2]) # Y/X shape
         )
         # Need Hazel installed for this part.
+        if self.verbose:
+            print("Correcting for limb darkening")
         clv_factor = self.center_to_limb_variation(coord_grid[0], wavelength_array)
         # Assemble 2D image of Stokes-I in the continuum. Use this to make a mask of quiet(er) regions.
         # From this and the defined continuum windows, we can get a quiet-sun continuum value at this
@@ -390,6 +398,8 @@ class InversionPrep:
             continuum_determination_region = stokes_norm[
                 0, 50: -50, :, :
             ]
+        if self.verbose:
+            print("Determining local continuum")
         continuum_value = self.determine_local_continuum_intensity(
             continuum_determination_region, spectral_ranges['Continuum Range'], wavelength_array
         )
@@ -460,7 +470,7 @@ class InversionPrep:
         mean_continuum = np.zeros(continuum_ranges.shape[0])
         for i in range(continuum_ranges.shape[0]):
             indices = sorted([int(spex.find_nearest(wavelength_array, j)) for j in continuum_ranges[i]])
-            continuum_image = np.nanmean(intensity_spectra[:, :, indices[0]:indices[1]])
+            continuum_image = np.nanmean(intensity_spectra[:, :, indices[0]:indices[1]], axis=-1)
             percentile_values = np.percentile(continuum_image, self.percentiles)
             continuum_image[continuum_image < percentile_values[0]] = np.nan
             continuum_image[continuum_image > percentile_values[1]] = np.nan
