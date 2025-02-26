@@ -32,3 +32,4 @@ repository = "https://github.com/sgsellers/SSOsoft"
 
 [tool.setuptools.package-data]
 "ssosoft.spectral.FTS_atlas" = ["**"]
+"ssosoft.spectral.inversions" = ["**"]
