@@ -4,5 +4,4 @@ scipy
 tqdm
 matplotlib
 sunpy
-setuptools
-cv2
+h5py

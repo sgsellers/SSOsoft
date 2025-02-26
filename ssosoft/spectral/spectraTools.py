@@ -1,22 +1,19 @@
-from . import FTS_atlas
-import matplotlib
-import tqdm
+import warnings
+from importlib import resources
 
+import matplotlib.pyplot as plt
 import numpy as np
-import numpy.typing as npt
 import numpy.lib.recfunctions as nrec
 import numpy.polynomial.polynomial as npoly
-import matplotlib.pyplot as plt
+import numpy.typing as npt
 import scipy.integrate as scint
 import scipy.interpolate as scinterp
 import scipy.ndimage as scind
 import scipy.optimize as scopt
 import scipy.signal as scig
-import warnings
-
-from importlib import resources
-from matplotlib.widgets import Slider
+import tqdm
 from astropy.constants import c
+from matplotlib.widgets import Slider
 
 c_kms = c.value / 1e3
 

@@ -25,3 +25,8 @@ ssosoftConfig :
 
 from ssosoft.imagers import *
 from ssosoft.spectral import *
+
+from ssosoft.imagers.rosaZylaCal import *
+from ssosoft.imagers.kisipWrapper import *
+from ssosoft.imagers.destretch import *
+

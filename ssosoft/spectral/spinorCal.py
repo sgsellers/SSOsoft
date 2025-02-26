@@ -14,9 +14,9 @@ import scipy.io as scio
 import scipy.ndimage as scind
 import scipy.optimize as scopt
 import tqdm
-
 from astropy.coordinates import SkyCoord
 from sunpy.coordinates import frames
+
 from . import spectraTools as spex
 
 
