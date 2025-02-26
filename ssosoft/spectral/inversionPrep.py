@@ -362,12 +362,12 @@ class InversionPrep:
             if "HAIRLIN0" in hdul[0].header.keys():
                 if "HAIRLIN1" in hdul[0].header.keys():
                     hairline_centers = (hdul[0].header['HAIRLIN0'], hdul[0].header['HAIRLIN1'])
+                    # Edge case: hairline centers incorrectly registered too close.
+                    if np.diff(hairline_centers)[0] < 50:
+                        hairline_centers = tuple()
                 else:
                     hairline_centers = tuple([hdul[0].header['HAIRLIN0']])
             else:
-                hairline_centers = tuple()
-            # Edge case: hairline centers incorrectly registered too close.
-            if np.diff(hairline_centers)[0] < 50:
                 hairline_centers = tuple()
 
         # Start by assembling the coordinate grid:
