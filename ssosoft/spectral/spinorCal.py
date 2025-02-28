@@ -1289,7 +1289,7 @@ class SpinorCal:
                     scind.shift(
                         data[
                         :, self.beam_edges[1, 0]:self.beam_edges[1, 1], self.slit_edges[0]:self.slit_edges[1]
-                        ], (0, shift, -xshift)
+                        ], (0, shift, -xshift), order=1
                     ),
                     axis=1
                 )
@@ -1685,7 +1685,7 @@ class SpinorCal:
                             :,
                             self.beam_edges[1, 0]:self.beam_edges[1, 1],
                             self.slit_edges[0]:self.slit_edges[1]
-                            ], (0, shift, self.beam1_xshift)
+                            ], (0, shift, self.beam1_xshift), order=1
                         ), axis=1
                     )
 
@@ -1719,12 +1719,12 @@ class SpinorCal:
                             science_beams[beam, :, :, hairProf] = scind.shift(
                                 science_beams[beam, :, :, hairProf],
                                 (0, hairline_skews[beam, hairProf]),
-                                mode='nearest'
+                                mode='nearest', order=1
                             )
                     # Perform bulk hairline alignment on deskewed beams
                     science_beams[1] = scind.shift(
                         science_beams[1], (0, -np.diff(hairline_centers)[0], 0),
-                        mode='nearest'
+                        mode='nearest', order=1
                     )
 
                     # Perform spectral deskew
@@ -1733,7 +1733,7 @@ class SpinorCal:
                     # Perform bulk spectral alignment on deskewed beams
                     science_beams[1] = scind.shift(
                         science_beams[1], (0, 0, -np.diff(spectral_centers)[0]),
-                        mode='nearest'
+                        mode='nearest', order=1
                     )
 
                     # Common positions to register observation to.
@@ -1745,7 +1745,7 @@ class SpinorCal:
                             0, 0,
                             -(hairline_centers[0] - master_hairline_centers[0]), 0 # Use the 0th master_hairline_center
                         ),
-                        mode='nearest'
+                        mode='nearest', order=1
                     )
 
                     combined_beams = np.zeros(science_beams.shape[1:])
@@ -1934,7 +1934,7 @@ class SpinorCal:
         beam1 = np.flip(
             scind.shift(
                 slit_image[self.beam_edges[1, 0]:self.beam_edges[1, 1], self.slit_edges[0]:self.slit_edges[1]],
-                (self.beam1_yshift, self.beam1_xshift)
+                (self.beam1_yshift, self.beam1_xshift), order=1
             ), axis=0
         )
         dual_beams = np.stack([beam0, beam1], axis=0)
@@ -1962,7 +1962,7 @@ class SpinorCal:
             for j in range(hairline_skews.shape[1]):
                 deskewed_dual_beams[i, :, j] = scind.shift(
                     dual_beams[i, :, j], hairline_skews[i, j],
-                    mode='nearest'
+                    mode='nearest', order=1
                 )
         # Find bulk hairline center for full alignment
         hairline_center = (
@@ -2029,7 +2029,7 @@ class SpinorCal:
                 )
                 for prof in range(cutout_beams.shape[2]):
                     cutout_beams[beam, :, prof, :] = scind.shift(
-                        cutout_beams[beam, :, prof, :], (0, spectral_skews[prof]), mode='nearest'
+                        cutout_beams[beam, :, prof, :], (0, spectral_skews[prof]), mode='nearest', order=1
                     )
             x1 -= 3
             x2 -= 3
