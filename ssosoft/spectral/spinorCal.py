@@ -3308,22 +3308,22 @@ class SpinorCal:
 
         wvls = txparams['tt'][5::7]
         entrance_window_retardance = scinterp.interp1d(
-            wvls, txparams['tt'][6::7], kind='linear'
+            wvls, txparams['tt'][6::7], kind='linear', fill_value='extrapolate'
         )(self.central_wavelength) * np.pi / 180
         exit_window_retardance = scinterp.interp1d(
-            wvls, txparams['tt'][7::7], kind='linear'
+            wvls, txparams['tt'][7::7], kind='linear', fill_value='extrapolate'
         )(self.central_wavelength) * np.pi / 180
         coelostat_reflectance = scinterp.interp1d(
-            wvls, txparams['tt'][8::7], kind='linear'
+            wvls, txparams['tt'][8::7], kind='linear', fill_value='extrapolate'
         )(self.central_wavelength)
         coelostat_retardance = scinterp.interp1d(
-            wvls, txparams['tt'][9::7], kind='linear'
+            wvls, txparams['tt'][9::7], kind='linear', fill_value='extrapolate'
         )(self.central_wavelength) * np.pi / 180
         primary_reflectance = scinterp.interp1d(
-            wvls, txparams['tt'][10::7], kind='linear'
+            wvls, txparams['tt'][10::7], kind='linear', fill_value='extrapolate'
         )(self.central_wavelength)
         primary_retardance = scinterp.interp1d(
-            wvls, txparams['tt'][11::7], kind='linear'
+            wvls, txparams['tt'][11::7], kind='linear', fill_value='extrapolate'
         )(self.central_wavelength) * np.pi / 180
 
         phi_elevation = (telescope_geometry[1] + 90) * np.pi / 180
