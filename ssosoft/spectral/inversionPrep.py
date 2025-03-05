@@ -542,7 +542,7 @@ class InversionPrep:
         # Weight file as plaintext
         with open(os.path.join(outdir, "hazel_preinversion.weights"), "w") as weights:
             weights.write('# WeightI WeightQ WeightU WeightV\n')
-            for i in range(stokes_norm.shape[0]):
+            for i in range(stokes_norm.shape[1]):
                 weights.write('1.0    1.0    1.0    1.0\n')
         # Reference atmospheres
         if self.write_atmos & ("hazel" in sys.modules):
