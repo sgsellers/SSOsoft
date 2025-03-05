@@ -521,7 +521,7 @@ class InversionPrep:
         coord_grid = np.swapaxes(coord_grid, 0, 1)
 
         boundary = np.repeat(
-            self.boundary_default[np.newaxis, np.newaxis, :], stokes_norm.shape[0], axis=1
+            self.boundary_default[np.newaxis, np.newaxis, :], stokes_norm.shape[1], axis=1
         )
         boundary = np.repeat(boundary, npix, axis=0)
 
