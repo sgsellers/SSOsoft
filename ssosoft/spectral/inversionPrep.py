@@ -515,15 +515,15 @@ class InversionPrep:
         stokes_norm = stokes_norm.reshape(4, npix, stokes_norm.shape[3])
         stokes_noise = stokes_noise.reshape(4, npix, stokes_noise.shape[3])
         coord_grid = coord_grid.reshape(3, npix)
-        # Swap axes to (nlambda, npixels, 4)
-        stokes_norm = np.swapaxes(stokes_norm, 0, 2)
-        stokes_noise = np.swapaxes(stokes_noise, 0, 2)
+        # Move axes to (npixels, nlambda, 4)
+        stokes_norm = np.moveaxis(stokes_norm, 0, 2)
+        stokes_noise = np.moveaxis(stokes_noise, 0, 2)
         coord_grid = np.swapaxes(coord_grid, 0, 1)
 
         boundary = np.repeat(
-            self.boundary_default[np.newaxis, np.newaxis, :], stokes_norm.shape[0], axis=0
+            self.boundary_default[np.newaxis, np.newaxis, :], stokes_norm.shape[0], axis=1
         )
-        boundary = np.repeat(boundary, npix, axis=1)
+        boundary = np.repeat(boundary, npix, axis=0)
 
         # Main h5-formatted file with stokes profiles, noise values, coordinate grid, boundary conditions
         with h5py.File(os.path.join(outdir, "{0}_preinversion.h5".format(self.inversion_code)), mode="w") as input_file:
