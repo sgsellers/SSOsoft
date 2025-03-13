@@ -355,18 +355,25 @@ class SpinorCal:
         else:
             self.verbose = False
         self.v2q = config[self.camera]["v2q"] if "v2q" in config[self.camera].keys() else "True"
-        if "t" in self.v2q.lower():
+        if self.v2q.lower() == "true":
             self.v2q = True
+        elif self.v2q.lower() == "full":
+            self.v2q = "full"
         else:
             self.v2q = False
+
         self.v2u = config[self.camera]["v2u"] if "v2u" in config[self.camera].keys() else "True"
-        if "t" in self.v2u.lower():
+        if self.v2u.lower() == "true":
             self.v2u = True
+        elif self.v2u.lower() == "full":
+            self.v2u = "full"
         else:
             self.v2u = False
         self.u2v = config[self.camera]["u2v"] if "u2v" in config[self.camera].keys() else "True"
-        if "t" in self.u2v.lower():
+        if self.u2v.lower() == "true":
             self.u2v = True
+        elif self.u2v.lower() == "full":
+            self.u2v = "full"
         else:
             self.u2v = False
         self.plot = config[self.camera]["plot"] if "plot" in config[self.camera].keys() else "False"
@@ -2121,33 +2128,36 @@ class SpinorCal:
                 iquv_cube[1, :, :], iquv_cube[3, :, :]
             )
             iquv_cube[1, :, :] = iquv_cube[1, :, :] - bulk_v2_q_crosstalk * iquv_cube[3, :, :]
-            for j in range(iquv_cube.shape[1]):
-                iquv_cube[1, j, :], internal_crosstalk[0, j] = self.v2qu_crosstalk(
-                    iquv_cube[3, j, :],
-                    iquv_cube[1, j, :]
-                )
+            if self.v2q == "full":
+                for j in range(iquv_cube.shape[1]):
+                    iquv_cube[1, j, :], internal_crosstalk[0, j] = self.v2qu_crosstalk(
+                        iquv_cube[3, j, :],
+                        iquv_cube[1, j, :]
+                    )
             internal_crosstalk[0] += bulk_v2_q_crosstalk
         if self.v2u:
             bulk_v2_u_crosstalk = self.internal_crosstalk_2d(
                 iquv_cube[2, :, :], iquv_cube[3, :, :]
             )
             iquv_cube[2, :, :] = iquv_cube[2, :, :] - bulk_v2_u_crosstalk * iquv_cube[3, :, :]
-            for j in range(iquv_cube.shape[1]):
-                iquv_cube[2, j, :], internal_crosstalk[1, j] = self.v2qu_crosstalk(
-                    iquv_cube[3, j, :],
-                    iquv_cube[2, j, :]
-                )
+            if self.v2u == "full":
+                for j in range(iquv_cube.shape[1]):
+                    iquv_cube[2, j, :], internal_crosstalk[1, j] = self.v2qu_crosstalk(
+                        iquv_cube[3, j, :],
+                        iquv_cube[2, j, :]
+                    )
             internal_crosstalk[1] += bulk_v2_u_crosstalk
         if self.u2v:
             bulk_u2_v_crosstalk = self.internal_crosstalk_2d(
                 iquv_cube[3, :, :], iquv_cube[2, :, :]
             )
             iquv_cube[3, :, :] = iquv_cube[3, :, :] - bulk_u2_v_crosstalk * iquv_cube[2, :, :]
-            for j in range(iquv_cube.shape[1]):
-                iquv_cube[3, j, :], internal_crosstalk[2, j] = self.v2qu_crosstalk(
-                    iquv_cube[2, j, :],
-                    iquv_cube[3, j, :]
-                )
+            if self.u2v == "full":
+                for j in range(iquv_cube.shape[1]):
+                    iquv_cube[3, j, :], internal_crosstalk[2, j] = self.v2qu_crosstalk(
+                        iquv_cube[2, j, :],
+                        iquv_cube[3, j, :]
+                    )
             internal_crosstalk[2] += bulk_u2_v_crosstalk
 
         return iquv_cube, crosstalk_i2_quv, internal_crosstalk
@@ -2180,9 +2190,9 @@ class SpinorCal:
             ext0.header['I2QUV'] = ("CONST", "0-D I2QUV Crosstalk")
         else:
             ext0.header['I2QUV'] = ("1DFIT", "1-D I2QUV Crosstalk")
-        ext0.header['V2Q'] = (int(self.v2q), "1 if V->Q Calculated, else 0")
-        ext0.header['V2U'] = (int(self.v2u), "1 if V->U Calculated, else 0")
-        ext0.header['U2V'] = (int(self.u2v), "1 if U->V Calculated, else 0")
+        ext0.header['V2Q'] = (self.v2q, "True=by slit, Full=by slit and row")
+        ext0.header['V2U'] = (self.v2u, "True=by slit, Full=by slit and row")
+        ext0.header['U2V'] = (self.u2v, "True=by slit, Full=by slit and row")
         ext0.header['COMMENT'] = "Crosstalks applied in order:"
         ext0.header['COMMENT'] = "I->QUV"
         ext0.header['COMMENT'] = "V->Q"
@@ -2359,7 +2369,7 @@ class SpinorCal:
             field_v_ax[j].set_xlabel("Extent [arcsec]")
             field_v_ax[j].set_title("Integrated Stokes-V")
 
-        if not any((self.v2q, self.v2q, self.v2u)):
+        if not any((self.v2q, self.v2u, self.u2v)):
 
             plt.show(block=False)
             plt.pause(0.05)
