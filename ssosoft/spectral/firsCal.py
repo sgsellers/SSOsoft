@@ -140,11 +140,15 @@ class FirsCal:
         self.verbose = False
         self.v2q = True
         self.v2u = True
+        self.q2v = False
+        self.u2v = False
         self.despike = False
         self.despike_footprint = (1, 5, 1)
         self.plot = False
         self.save_figs = False
         self.crosstalk_continuum = None
+        self.defringe = "flat" # Construct a fringe template from nearest solar flat series.
+        # Future releases will include PCA-based defringe.
 
         # Basic FIRS Feed Optics
         self.slit_camera_lens = 780  # mm, f.l. of usual HSG feed lens
@@ -192,8 +196,10 @@ class FirsCal:
             np.char.find(self.obssum_info['OBSTYPE'], "SCAN") != -1
         )[0]
         if self.verbose:
-            print("Found {0} science map series in base directory:\n{1}\nReduced files will be saved to:\n{2}".format(
-                len(self.science_series_list), self.indir, self.final_dir
+            print(
+                "Found {0} science map series in base directory:"
+                "\n{1}\nReduced files will be saved to:\n{2}".format(
+                    len(self.science_series_list), self.indir, self.final_dir
             ))
         for index in self.science_series_list:
             self.__init__(self.config_file)
@@ -207,7 +213,18 @@ class FirsCal:
                 plt.pause(2)
                 plt.close("all")
             self.science_file_list = sorted(glob.glob(self.science_series_list[index] + "*"))
-            self.reduce_firs_maps(index)
+            fringe_template = None
+            if self.defringe == "flat":
+                sflt_indices = np.where(["SFLT" in i for i in self.obssum_info['OBSTYPE']])[0]
+                sflt_starts = self.obssum_info['STARTTIME'][sflt_indices]
+                obs_start = self.obssum_info['STARTTIME'][index]
+                sflat_index = sflt_indices[spex.find_nearest(sflt_starts, obs_start)]
+                fringe_template = self.reduce_firs_maps(sflat_index, write=False, overview=False, fringe_template=None)
+
+            self.reduce_firs_maps(
+                index, overview=self.plot, write=True, fringe_template=fringe_template,
+                v2q=self.v2q, v2u=self.v2u, q2v=self.q2v, u2v=self.u2v
+            )
         return
 
     def firs_configure_run(self) -> None:
@@ -855,6 +872,266 @@ class FirsCal:
         plt.pause(0.1)
 
         return
+
+    def reduce_firs_maps(
+            self,
+            index: int, overview: bool=False, write: bool=True, fringe_template: None or np.ndarray=None,
+            v2q: bool or str=False, v2u: bool or str=False, q2v: bool or str=False, u2v: bool or str=False
+    ) -> np.ndarray:
+        """
+        Main reduction loop. Performs the following corrections:
+            ~Applies dark and gain corrections.
+            ~Applies inverse telescope+spectrograph matrix.
+            ~Corrects QU for parallactic angle.
+            ~Performs I->QUV crosstalk estimation, and optional V<-->QU estimates
+            ~Subtracts a fringe template
+
+
+        Parameters
+        ----------
+        index : int
+            Index in observing summary array to reduce
+        overview : bool, optional
+            Whether to create overview plots and construct parameter maps
+        write : bool, optional
+            Whether to write files to disk
+        fringe_template : None or numpy.ndarray, optional
+            If provided, uses an array of shape (4, nslits, ny, nx, nlambda) to subtract off polarimetric fringes
+        v2q : bool or str, optional
+            If true, determines single crosstalk value V->Q. If "full", determines profile-by-profile crosstalk
+        v2u : bool or str, optional
+            If true, determines single crosstalk value V->Q. If "full", determines profile-by-profile crosstalk
+        q2v : bool or str, optional
+            If true, determines single crosstalk value V->Q. If "full", determines profile-by-profile crosstalk
+        u2v : bool or str, optional
+            If true, determines single crosstalk value V->Q. If "full", determines profile-by-profile crosstalk
+
+        Returns
+        -------
+        reduced_data : numpy.ndarray
+            Reduced stokes vectors, shape (4, nslits, ny, nx, nlambda)
+        """
+        # FIRS maps taken with a repeat have the same file stem;
+        # firs.2.YYYYMMDD.HHMMSS.XXXX.RRRR, where XXXX is the slit position, and RRRR is the iteration of map.
+        nrepeat = self.obssum_info['NREPEAT'][index]
+        for n in range(nrepeat):
+            filelist = sorted(glob.glob(os.path.join(
+                self.indir,
+                self.obssum_info['OBSSERIES'][index] + ".*.{0:04d}".format(n) # Really should use regex for this...
+            )))
+            if self.verbose:
+                print(
+                    "Reducing Map {0} of {1} with {2} slit positions:"
+                    "\nSeries: {3}".format(n+1, nrepeat, len(filelist), self.obssum_info['OBSSERIES'][index])
+                )
+            with fits.open(filelist[0]) as hdul:
+                date, time = hdul[1].header['OBS_STAR'].split("T")
+                date = date.replace("-", "")
+                time = str(round(float(time.replace(":", "")), 0)).split(".")[0]
+                outname = self.reduced_file_pattern.format(
+                    date, time, len(filelist)
+                )
+                outfile = os.path.join(self.final_dir, outname)
+                if os.path.exists(outfile):
+                    remake_file = input("File: {0}"
+                                        "\nExists. (R)emake or (C)ontinue?  ".format(outname))
+                    if ("c" in remake_file.lower()) or (remake_file.lower() == ""):
+                        plt.pause(2)
+                        plt.close('all')
+                        reduced_data = self.read_reduced_data(outfile)
+                        return reduced_data
+                    elif ("r" in remake_file.lower()) and self.verbose:
+                        print("Remaking file with current correction configuration. This may take some time.")
+
+            reduced_data = np.zeros((
+                4, self.nslits, np.minimum(self.rotated_beam_sizes[0]),
+                len(filelist),
+                np.minimum(self.rotated_beam_sizes[1])
+            ))
+            complete_i2quv_crosstalk = np.zeros((
+                3, 2, self.nslits, np.minimum(self.rotated_beam_sizes[0]), len(filelist)
+            ))
+            complete_internal_crosstalks = np.zeros((
+                4,
+                self.nslits, np.minimum(self.rotated_beam_sizes[0]), len(filelist)
+            ))
+            xinv_interp = scinterp.CubicSpline(
+                np.linspace(0, np.minimum(self.rotated_beam_sizes[0]), self.n_subslits),
+                self.txmatinv,
+                axis=0
+            )(np.arange(0, np.minimum(self.rotated_beam_sizes[0])))
+            step_ctr = 0
+            with tqdm.tqdm(total=len(filelist), desc="Reducing Science Map") as pbar:
+                for file in filelist:
+                    with fits.open(file) as hdul:
+                        iquv = self.demodulate_firs(
+                            (hdul[0].data - self.solar_dark) / self.lamp_gain / self.combined_gain_table
+                        )
+                        science_beams = np.zeros((
+                            2, 4, self.nslits,
+                            np.minimum(self.rotated_beam_sizes[0]), np.minimum(self.rotated_beam_sizes[1])
+                        ))
+                        # Reference image for hairline/spectral line deskew. Don't do full gain correction,
+                        # as this will result in hairline residuals.
+                        ibeam = (np.mean(hdul[0].data, axis=0) - self.solar_dark) / self.lamp_gain
+                        alignment_beams = np.zeros((
+                            2, self.nslits,
+                            np.minimum(self.rotated_beam_sizes[0]), np.minimum(self.rotated_beam_sizes[1])
+                        ))
+                        for i in range(2): # Beams
+                            for j in range(self.nslits): # Slits
+                                # Cut em out, rotate n shift em, clip em
+                                science_beams[i, :, j, :, :] = scind.shift(
+                                    scind.rotate(
+                                        iquv[:,
+                                            self.beam_edges[i, 0]:self.beam_edges[i, 1],
+                                            self.slit_edges[j, 0]:self.slit_edges[j, 1]
+                                        ], self.beam_rotation[i, j], axis=(1, 2)
+                                    ), (0, *self.beam_shifts[:, j, i])
+                                )[:, :np.minimum(self.rotated_beam_sizes[0]), :np.minimum(self.rotated_beam_sizes[1])]
+                                alignment_beams[i, j, :, :] = scind.shift(
+                                    scind.rotate(
+                                        ibeam[
+                                            self.beam_edges[i, 0]:self.beam_edges[i, 1],
+                                            self.slit_edges[j, 0]:self.slit_edges[j, 1]
+                                        ], self.beam_rotation[i, j], axis=(0, 1)
+                                    ), self.beam_shifts[:, j, i]
+                                )[:np.minimum(self.rotated_beam_sizes[0]), :np.minimum(self.rotated_beam_sizes[1])]
+                        if step_ctr == 0:
+                            hairline_skews, hairline_centers = self.subpixel_hairline_align(
+                                alignment_beams, hair_centers=None
+                            )
+                            master_hairline_centers = (
+                                hairline_centers[0, 0], # Slit 0, Beam 0 lower hairline
+                                hairline_centers[0, 0] + np.diff(self.full_hairlines[0, 0]) # Based on original spacing.
+                            )
+                        else:
+                            hairline_skews, hairline_centers = self.subpixel_hairline_align(
+                                alignment_beams, hair_centers=hairline_centers
+                            )
+                        # Perform hairline deskew
+                        for beam in range(science_beams.shape[0]):
+                            for slit in range(science_beams.shape[2]):
+                                for profile in range(science_beams.shape[4]):
+                                    science_beams[beam, :, slit, :, profile] = scind.shift(
+                                        science_beams[beam, :, slit, :, profile],
+                                        (0, hairline_skews[beam, slit, profile]),
+                                        mode='nearest', order=1
+                                    )
+                                # Perform bulk shift to 0th beam, 0th slit
+                                if not beam == slit == 0:
+                                    science_beams[beam, :, slit, :, :] = scind.shift(
+                                        science_beams[beam, :, slit, :, :],
+                                        (0, -(hairline_centers[beam, slit] - hairline_centers[0, 0]), 0),
+                                        mode='nearest', order=1
+                                    )
+                                # Perform bulk shift to 0th beam, 0th slit, 0th step
+                                science_beams[beam, :, slit, :, :] = scind.shift(
+                                    science_beams[beam, :, slit, :, :],
+                                    (0, -(hairline_centers[beam, slit] - master_hairline_centers[0, 0]), 0),
+                                    mode='nearest', order=1
+                                )
+                        # Perform spectral deskew and registration
+                        science_beams, spectral_centers = self.subpixel_spectral_align(science_beams, hairline_centers)
+
+
+    def subpixel_hairline_align(
+            self,
+            alignment_image: np.ndarray, hair_centers: None or np.ndarray=None
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Performs subpixel hairline alignment of two beams into a single image, and returns the necessary translations.
+
+        Parameters
+        ----------
+        alignment_image : numpy.ndarray
+            Minimally processed image cutouts. Shape (2, nslits, ny, nx)
+        hair_centers : None or numpy.ndarray
+            If given, should be of shape (2, nslits) containing the y-location of the lower hairline.
+            If None, uses ssosoft.spectral.spectraTools.detect_beams_hairlines to get a first-order estimate.
+
+        Returns
+        -------
+        hairline_skews : numpy.ndarray
+            Array of shape (2, nslits, nx) containing subpixel shifts for hairline registration
+        hairline_centers : numpy.ndarray
+            Array of shape (2, nslits) containing the y-value of the hairline center
+        """
+        if hair_centers is None:
+            spex.detect_beams_hairlines.num_calls = 0
+            hair_centers = np.zeros((alignment_image.shape[0], alignment_image.shape[1]))
+            for i in range(alignment_image.shape[0]):
+                for j in range(alignment_image.shape[1]):
+                    _, _, tmp_hairlines = spex.detect_beams_hairlines(
+                        alignment_image[i, j, :, :], threshold=self.beam_threshold, hairline_width=self.hairline_width,
+                        expected_hairlines=2, expected_slits=1, expected_beams=1, fallback=False # Too many popups.
+                    )
+                    hair_centers[i, j] = tmp_hairlines.min()
+        hairline_skews = np.zeros((alignment_image.shape[0], alignment_image.shape[1], alignment_image.shape[3]))
+        hairline_centers = np.zeros((alignment_image.shape[0], alignment_image.shape[1]))
+        for i in range(alignment_image.shape[0]):
+            for j in range(alignment_image.shape[1]):
+                deskewed_image = np.zeros(alignment_image.shape[2:])
+                hairline_minimum = hair_centers[i, j] - 6
+                hairline_maximum = hair_centers[i, j] + 6
+                if hairline_minimum < 0:
+                    hairline_minimum = 0
+                if hairline_maximum > alignment_image.shape[2]:
+                    hairline_maximum = alignment_image.shape[2] - 1
+                medfilt_hairline_image = scind.median_filter(
+                    alignment_image[i, j, hairline_minimum:hairline_maximum, :],
+                    size=(2, 25)
+                )
+                hairline_skews[i, j, :] = spex.spectral_skew(
+                    np.rot90(medfilt_hairline_image), order=1, slit_reference=0.5
+                )
+                for k in range(hairline_skews.shape[2]):
+                    deskewed_image[:, k] = scind.shift(
+                        alignment_image[i, j, :, k], hairline_skews[i, j, k],
+                        mode='nearest', order=1
+                    )
+                hairline_centers[i, j] = spex.find_line_core(
+                    np.nanmedian(deskewed_image[hairline_minimum:hairline_maximum, 50:-50], axis=1)
+                ) + hairline_minimum
+        return hairline_skews, hairline_centers
+
+    def subpixel_spectral_align(
+            self, cutout_beams: np.ndarray, hairline_centers: np.ndarray
+    ) -> tuple[np.ndarray, float]:
+        """
+        Performs iterative deskew and align along the spectral axis.
+        Returns the aligned beam and spectral line center for master registration.
+
+        Parameters
+        ----------
+        cutout_beams
+        hairline_centers
+
+        Returns
+        -------
+
+        """
+        return
+
+    @staticmethod
+    def read_reduced_data(filename: str) -> np.ndarray:
+        """
+        Reads reduced data file Stokes vectors into memory
+
+        Parameters
+        ----------
+        filename : str
+
+        Returns
+        -------
+        reduced_data : numpy.ndarray
+            Array of shape (4, nslits, ny, nx, nlambda)
+        """
+        with fits.open(filename) as hdul:
+            reduced_data = np.zeros((4, *hdul['STOKES-I'].data.shape))
+            for i in range(1, 5):
+                reduced_data[i-1] = hdul[i].data
+        return reduced_data
 
     def clean_flat(self, flat_image: np.ndarray) -> np.ndarray:
         """
