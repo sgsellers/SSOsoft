@@ -1033,6 +1033,44 @@ class FirsCal:
                                 )
                         # Perform spectral deskew and registration
                         science_beams, spectral_centers = self.subpixel_spectral_align(science_beams, hairline_centers)
+                        if step_ctr == 0:
+                            master_spectral_center = spectral_centers[0, 0]
+                        # Bulk spectral alignment on deskewed beams to 0th slit, beam, step
+                        for beam in range(science_beams.shape[0]):
+                            for slit in range(science_beams.shape[2]):
+                                science_beams[beam, :, slit, :, :] = scind.shift(
+                                    science_beams[beam, :, slit, :, :],
+                                    (0, 0, -(spectral_centers[beam, slit] - master_spectral_center))
+                                )
+                        reduced_data[0, :, :, :] = np.nanmean(science_beams[:, 0, :, :, :], axis=0)
+                        reduced_data[1:] = (
+                            science_beams[0, 1:, :, :, :] - science_beams[1, 1:, :, :, :]
+                        ) / 2
+                        tmtx = pol.get_dst_matrix(
+                            [hdul[0].header['DST_AZ'], hdul[0].header['DST_EL'], hdul[0].header['DST_TBL']],
+                            self.central_wavelength,
+                            self.t_matrix_file
+                        )
+                        inv_tmtx = np.linalg.inv(tmtx)
+                        for slit in range(self.nslits):
+                            for profile in range(reduced_data.shape[2]):
+                                reduced_data[:, slit, profile, :] = (
+                                    inv_tmtx @ xinv_interp[slit, profile, :, :] @ reduced_data[:, slit, profile, :]
+                                )
+                        # Parallactic angle for QU rotation correction
+                        angular_geometry = pol.spherical_coordinate_transform(
+                            [hdul[0].header['DST_AZ'], hdul[0].header['DST_EL']]
+                        )
+                        # Sub off P0 angle
+                        rotation = np.pi + angular_geometry[2] - hdul[0].header['DST_PEE'] * np.pi / 180
+                        crot = np.cos(-2 * rotation)
+                        srot = np.sin(-2 * rotation)
+                        # Make Q/U copies since the correction to each depends on the other
+                        qtmp = reduced_data[1, :, :, :].copy()
+                        utmp = reduced_data[2, :, :, :].copy()
+                        reduced_data[1, :, :, :] = crot * qtmp + srot * utmp
+                        reduced_data[2, :, :, :] = -srot * qtmp + crot * utmp
+                        # Next up; sub off fringe template, perform crosstalk correction, set up overviews.
 
 
     def subpixel_hairline_align(
@@ -1096,7 +1134,7 @@ class FirsCal:
         return hairline_skews, hairline_centers
 
     def subpixel_spectral_align(
-            self, cutout_beams: np.ndarray, hairline_centers: np.ndarray
+            self, cutout_beams: np.ndarray, lower_hairline_center: float
     ) -> tuple[np.ndarray, float]:
         """
         Performs iterative deskew and align along the spectral axis.
@@ -1104,14 +1142,56 @@ class FirsCal:
 
         Parameters
         ----------
-        cutout_beams
-        hairline_centers
+        cutout_beams : numpy.ndarray
+            Array containing the hairline-aligned beams. Shape (2, 4, nslits, ny, nx, nlambda)
+        lower_hairline_center : float
+            Center of the lower hairline. Beams should all be registered to this common hairline.
 
         Returns
         -------
-
+        cutout_beams : numpy.ndarray
+            Array containing the spectrally-aligned and deskewed beams. Shape (2, 4, nslits, ny, nx, nlambda)
+        spectral_centers : numpy.ndarray
+            Center of the per beam, per slit spectral line used for registration. Shape (2, nslits)
         """
-        return
+        upper_hairline_center = lower_hairline_center + np.diff(self.full_hairlines[0, 0])
+        x1, x2 = 20, 21
+        spectral_centers = np.zeros((2, self.nslits))
+        for iternum in range(5):
+            order = 1 if iternum < 2 else 2
+            for beam in range(cutout_beams.shape[0]):
+                for slit in range(cutout_beams.shape[2]):
+                    spectral_image = cutout_beams[
+                        beam, 0, slit, :, int(self.firs_line_cores[0] - x1):int(self.firs_line_cores[0] + x2)
+                    ]
+                    # Replace hairlines with NaNs to keep them from throwing off the skews
+                    hair_min = int(lower_hairline_center - 4)
+                    hair_max = int(lower_hairline_center + 5)
+                    hair_min = 0 if hair_min < 0 else hair_min
+                    spectral_image[hair_min:hair_max] = np.nan
+                    hair_min = int(upper_hairline_center - 4)
+                    hair_max = int(upper_hairline_center + 5)
+                    hair_min = int(spectral_image.shape[0] - 1) if hair_min > spectral_image.shape[0] - 1 else hair_max
+                    spectral_image[hair_min:hair_max] = np.nan
+                    skews = spex.spectral_skew(
+                        spectral_image, order=order, slit_reference=0.5
+                    )
+                    for profile in range(cutout_beams.shape[3]):
+                        cutout_beams[beam, :, slit, profile, :] = scind.shift(
+                            cutout_beams[beam, :, slit, profile, :], (0, skews[profile]),
+                            mode='nearest', order=1
+                        )
+                    spectral_centers[beam, slit] = spex.find_line_core(
+                        np.nanmedian(
+                            cutout_beams[
+                                beam, 0, slit, :, int(self.firs_line_cores[0] - 10):int(self.firs_line_cores[0] + 10)
+                            ], axis=0
+                        )
+                    ) + int(self.firs_line_cores[0] - 10)
+            x1 -= 3
+            x2 -= 3
+
+        return cutout_beams, spectral_centers
 
     @staticmethod
     def read_reduced_data(filename: str) -> np.ndarray:
