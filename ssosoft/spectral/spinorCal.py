@@ -1927,6 +1927,7 @@ class SpinorCal:
             Centers of the registered hairline. Should assist in getting an evenly-registered image across all slit pos.
         """
         if hair_centers is None:
+            first_step = True
             spex.detect_beams_hairlines.num_calls = 0
             # Undo the lamp gain for a second to get the intensity jumps in the right direction
             _, _, tmp_hairlines = spex.detect_beams_hairlines(
@@ -1967,7 +1968,7 @@ class SpinorCal:
                 (hairline_minimum >= dual_beams.shape[1]).any() or
                 (hairline_maximum <= 0).any() or
                 (hairline_maximum >= dual_beams.shape[1]).any() or
-                (self.manual_hairline_selection and hair_centers is None)
+                (self.manual_hairline_selection and first_step)
         ):
             beam0_profile = beam0.mean(axis=1)
             beam1_profile = beam1.mean(axis=1)
