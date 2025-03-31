@@ -1942,6 +1942,8 @@ class SpinorCal:
                 (hair_centers[0, 0],
                  hair_centers[1, 0] + self.beam1_yshift)
             )
+        else:
+            first_step = False
 
         beam0 = slit_image[self.beam_edges[0, 0]:self.beam_edges[0, 1], self.slit_edges[0]:self.slit_edges[1]]
         beam1 = np.flip(
