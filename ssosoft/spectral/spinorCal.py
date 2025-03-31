@@ -187,6 +187,7 @@ class SpinorCal:
         self.plot = False
         self.save_figs = False
         self.crosstalk_continuum = None
+        self.manual_hairline_selection = False
 
         # Can be pulled from header:
         self.grating_angle = None
@@ -422,6 +423,10 @@ class SpinorCal:
         if "crosstalkcontinuum" in config[self.camera].keys():
             if config[self.camera]['crosstalkContinuum'] != "":
                 self.crosstalk_continuum = [int(idx) for idx in config[self.camera]['crosstalkContinuum'].split(",")]
+
+        if "hairselect" in config[self.camera].keys():
+            if config[self.camera]['hairSelect'].lower() == "true":
+                self.manual_hairline_selection = True
 
         # Required global values
         self.t_matrix_file = config["SHARED"]["tMatrixFile"]
@@ -1956,6 +1961,23 @@ class SpinorCal:
             hairline_minimum[:] = hairline_maximum - 2 * (hairline_maximum - hair_centers)
         hairline_minimum = hairline_minimum.astype(int)
         hairline_maximum = hairline_maximum.astype(int)
+        # Final catch-all fallback option if something is *still* wrong.
+        if (
+                (hairline_minimum <= 0).any() or
+                (hairline_minimum >= dual_beams.shape[1]).any() or
+                (hairline_maximum <= 0).any() or
+                (hairline_maximum >= dual_beams.shape[1]).any() or
+                self.manual_hairline_selection
+        ):
+            beam0_profile = beam0.mean(axis=1)
+            beam1_profile = beam1.mean(axis=1)
+            beam0_range, beam1_range = spex.select_spans_doublepanel(beam0_profile, beam1_profile, 1)
+            hairline_minimum = np.array(
+                [beam0_range[0, 0], beam1_range[0, 0]]
+            )
+            hairline_maximum = np.array(
+                [beam0_range[0, 1], beam1_range[0, 1]]
+            )
 
         hairline_skews = np.zeros((2, dual_beams.shape[2]))
         for i in range(dual_beams.shape[0]):

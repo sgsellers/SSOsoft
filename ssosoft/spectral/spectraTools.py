@@ -529,6 +529,82 @@ def select_spans_singlepanel(array, xarr=None, fig_name="Popup Figure!", n_selec
     return xvals
 
 
+def select_spans_doublepanel(array1: np.ndarray, array2: np.ndarray, nselections: int) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Matplotlib-based function to select ranges from two arrays
+
+    Parameters
+    ----------
+    array1 : np.ndarray
+        Top panel array
+    array2 : np.ndarray
+        Bottom panel array
+    nselections : int
+        Number of spans to select on each plot
+
+    Returns
+    -------
+    xvals_top : np.ndarray
+        Span ranges for top panel
+    xvals_bottom : np.ndarray
+        Span ranges for bottom panel
+    """
+    fig = plt.figure("Select {0} min/max ranges on each panel".format(nselections))
+    ax1 = fig.add_subplot(211)
+    ax2 = fig.add_subplot(212)
+    fig.suptitle("Select {0} min/max ranges on each panel".format(nselections))
+    spectrum1, = ax1.plot(array1)
+    spectrum2, = ax2.plot(array2)
+
+    xarr_top = np.arange(len(array1))
+    xarr_bottom = np.arange(len(array2))
+
+    xvals_top = []
+    xvals_bottom = []
+
+    n_top = 1
+    n_bottom = 1
+
+    def onselect_2panel(event):
+        nonlocal n_top, n_bottom
+        if event.inaxes == ax1:
+            if len(xvals_top) < int(nselections * 2):
+                xcd = event.xdata
+                ax1.axvline(xcd, c='C{0}'.format(n_top), linestyle=':')
+                if (len(xvals_top) % 2 == 0) and (len(xvals_top) != 0):
+                    ax1.axvspan(
+                        xarr_top[xvals_top[-2]], xarr_top[xvals_top[-1]],
+                        fc='C{0}'.format(n_top), alpha=0.3
+                    )
+                    n_top += 1
+                fig.canvas.draw()
+                xvals_top.append(int(xcd))
+                print("Selected: " + str(xcd))
+        elif event.inaxes == ax2:
+            if len(xvals_bottom) < int(nselections * 2):
+                xcd = event.xdata
+                ax2.axvline(xcd, c='C{0}'.format(n_bottom), linestyle=':')
+                if (len(xvals_bottom) % 2 == 0) and (len(xvals_bottom) != 0):
+                    ax1.axvspan(
+                        xarr_bottom[xvals_bottom[-2]], xarr_bottom[xvals_bottom[-1]],
+                        fc='C{0}'.format(n_bottom), alpha=0.3
+                    )
+                    n_bottom += 1
+                fig.canvas.draw()
+                xvals_bottom.append(int(xcd))
+                print("Selected: " + str(xcd))
+
+        if (len(xvals_top) >= int(nselections * 2)) & (len(xvals_bottom) >= int(nselections * 2)):
+            fig.canvas.mpl_disconnect(conn)
+            plt.close(fig)
+
+    conn = fig.canvas.mpl_connect('button_press_event', onselect_2panel)
+    plt.show(block=True)
+    xvals_top = np.sort(np.array(xvals_top).reshape(nselections, 2)).astype(int)
+    xvals_bottom = np.sort(np.array(xvals_bottom).reshape(nselections, 2)).astype(int)
+    return xvals_top, xvals_bottom
+
+
 def select_lines_doublepanel(array1, array2, nselections):
     """
     Matplotlib-based function to select an x-value, or series of x-values
