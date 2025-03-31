@@ -137,6 +137,7 @@ class FirsCal:
         self.pixel_size = 20 # um -- for the Virgo 1k, probably.
         self.slit_width = 40  # um -- needs to be changed if slit unit is swapped out.
         self.n_subslits = 10
+        self.fringe_frequency = [-0.4, 0.4] # In angstrom, the assumed threshold for high-frequency noise to filter out
         self.verbose = False
         self.v2q = True
         self.v2u = True
@@ -219,7 +220,8 @@ class FirsCal:
                 sflt_starts = self.obssum_info['STARTTIME'][sflt_indices]
                 obs_start = self.obssum_info['STARTTIME'][index]
                 sflat_index = sflt_indices[spex.find_nearest(sflt_starts, obs_start)]
-                fringe_template = self.reduce_firs_maps(sflat_index, write=False, overview=False, fringe_template=None)
+                reduced_flat = self.reduce_firs_maps(sflat_index, write=False, overview=False, fringe_template=None)
+                fringe_template = self.construct_fringe_template_from_flat(reduced_flat)
 
             self.reduce_firs_maps(
                 index, overview=self.plot, write=True, fringe_template=fringe_template,
@@ -1042,8 +1044,8 @@ class FirsCal:
                                     science_beams[beam, :, slit, :, :],
                                     (0, 0, -(spectral_centers[beam, slit] - master_spectral_center))
                                 )
-                        reduced_data[0, :, :, :] = np.nanmean(science_beams[:, 0, :, :, :], axis=0)
-                        reduced_data[1:] = (
+                        reduced_data[0, :, :,step_ctr, :] = np.nanmean(science_beams[:, 0, :, :, :], axis=0)
+                        reduced_data[1:, :, :, step_ctr, :] = (
                             science_beams[0, 1:, :, :, :] - science_beams[1, 1:, :, :, :]
                         ) / 2
                         tmtx = pol.get_dst_matrix(
@@ -1054,8 +1056,10 @@ class FirsCal:
                         inv_tmtx = np.linalg.inv(tmtx)
                         for slit in range(self.nslits):
                             for profile in range(reduced_data.shape[2]):
-                                reduced_data[:, slit, profile, :] = (
-                                    inv_tmtx @ xinv_interp[slit, profile, :, :] @ reduced_data[:, slit, profile, :]
+                                reduced_data[:, slit, profile, step_ctr, :] = (
+                                    inv_tmtx @
+                                    xinv_interp[slit, profile, :, :] @
+                                    reduced_data[:, slit, profile, step_ctr, :]
                                 )
                         # Parallactic angle for QU rotation correction
                         angular_geometry = pol.spherical_coordinate_transform(
@@ -1066,12 +1070,237 @@ class FirsCal:
                         crot = np.cos(-2 * rotation)
                         srot = np.sin(-2 * rotation)
                         # Make Q/U copies since the correction to each depends on the other
-                        qtmp = reduced_data[1, :, :, :].copy()
-                        utmp = reduced_data[2, :, :, :].copy()
-                        reduced_data[1, :, :, :] = crot * qtmp + srot * utmp
-                        reduced_data[2, :, :, :] = -srot * qtmp + crot * utmp
+                        qtmp = reduced_data[1, :, :, step_ctr, :].copy()
+                        utmp = reduced_data[2, :, :, step_ctr, :].copy()
+                        reduced_data[1, :, :, step_ctr, :] = crot * qtmp + srot * utmp
+                        reduced_data[2, :, :, step_ctr, :] = -srot * qtmp + crot * utmp
+                        # Here, we have to make a choice. We need to do crosstalks, prefilter corrections, and defringe.
+                        # I'm torn on what the best order of this is, but my gut feeling is:
+                        #   1.) Prefilter to flatten Stokes-I
+                        #   2.) I->QUV crosstalk to flatten QUV
+                        #   3.) QUV Fringe removal
+                        #   4.) V->QU
+                        # Prefilter/spectral efficiency correction:
+                        for slit in range(self.nslits):
+                            # The wavelength calibration should really be done for each slit, just in case...
+                            wavelength_array = self.tweak_wavelength_calibration(
+                                reduced_data[0, slit, :, :step_ctr, :].mean(axis=(0, 1, 2))
+                            )
+                            reduced_data[0, slit, :, step_ctr, :] = self.prefilter_correction(
+                                reduced_data[0, slit, :, step_ctr, :], wavelength_array
+                            )
+                        # I -> QUV crosstalk correction
+                        reduced_data[
+                            1:, :, :, step_ctr, :
+                        ], complete_i2quv_crosstalk[
+                           :, :, :, :, step_ctr
+                        ] = self.detrend_i_crosstalk(
+                            reduced_data[1:, :, :, step_ctr, :], reduced_data[0, :, :, step_ctr, :]
+                        )
                         # Next up; sub off fringe template, perform crosstalk correction, set up overviews.
+                        if fringe_template is not None:
+                            reduced_data[1:, :, :, step_ctr, :] = self.defringe_from_template(
+                                reduced_data[1:, :, :, step_ctr, :], fringe_template[:, :, :, step_ctr, :]
+                            )
+                        # V <-> QU crosstalk correction
+                        """HERE"""
 
+    def detrend_i_crosstalk(
+            self, quv_data: np.ndarray, i_data: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Performs and applies I->QUV crosstalk.
+        Two methods currently implemented;
+            1.) Old method; continuum region defined and used to determine a single crosstalk value
+            2.) New method; linear crosstalk along wavelength axis.
+
+        Parameters
+        ----------
+        quv_data : numpy.ndarray
+            Partially-reduced Stokes-QUV array. Shape (3, nslits, ny, nlambda)
+        i_data : numpy.ndarray
+            Reduced Stokes-I array. Shape (nslits, ny, nlambda)
+
+        Returns
+        -------
+        quv_data : numpy.ndarray
+            Shape (3, nslits, ny, nlambda), crosstalk-corrected Stokes-QUV
+        crosstalk_i2quv : numpy.ndarray
+            Shape (3, 2, nslits, ny), contains I->QUV crosstalk coefficients
+        """
+        crosstalk_i2quv = np.zeros((3, 2, self.nslits, quv_data.shape[2]))
+
+        if self.crosstalk_continuum is not None:
+            # Shape 3xNSlitsxNY
+            i2quv = np.mean(
+                quv_data[:, :, :, self.crosstalk_continuum[0]:self.crosstalk_continuum[1]]/
+                np.repeat(
+                    i_data[np.newaxis, :, :, self.crosstalk_continuum[0]:self.crosstalk_continuum[1]],
+                    3, axis=0
+                ), axis=-1
+            )
+            quv_data = quv_data - np.repeat(
+                i2quv[:, :, :, np.newaxis], quv_data.shape[-1], axis=-1
+            ) * np.repeat(i_data[np.newaxis, :, :, :], 3, axis=0)
+            crosstalk_i2quv[:, 1, :, :] = i2quv
+        else:
+            for i in range(quv_data.shape[0]):
+                for j in range(quv_data.shape[1]):
+                    for k in range(quv_data.shape[2]):
+                        quv_data[i, j, k, :], crosstalk_i2quv[i, :, j, k] = pol.i2quv_crosstalk(
+                            i_data[j, k, :], quv_data[i, j, k, :]
+                        )
+        return quv_data, crosstalk_i2quv
+
+
+    def construct_fringe_template_from_flat(self, reduced_flat: np.ndarray) -> np.ndarray:
+        """
+        Performs median and Fourier filtering to construct a fringe template from a solar flat
+
+        Parameters
+        ----------
+        reduced_flat : numpy.ndarray
+            Flat field that's undergone the same reduction process as a science map.
+            Shape (4, nslits, ny, 32, nlambda) as FIRS flats are 32 steps each.
+
+        Returns
+        -------
+        fringe_template : numpy.ndarray
+            Flat field that's been median filtered along the slit, with high/low frequency information removed.
+            Shape (3, nslits, ny, nlambda)
+        """
+        fringe_template = np.zeros((
+            3, self.nslits, reduced_flat.shape[2], reduced_flat.shape[-1]
+        ))
+        mean_flat = np.mean(reduced_flat, axis=3)
+        with tqdm.tqdm(total=3 * self.nslits * reduced_flat.shape[2], desc="Constructing Fringe Template") as pbar:
+            # Fringe template likely varies for each slit
+            for slit in range(self.nslits):
+                wavelength_array = self.tweak_wavelength_calibration(
+                    np.mean(mean_flat[0, slit, 50:-50, :], axis=(0))
+                )
+                fft_frequencies = np.fft.fftfreq(
+                    len(wavelength_array),
+                    np.mean(wavelength_array[1:] - wavelength_array[:-1])
+                )
+                ft_cut1 = fft_frequencies >= max(self.fringe_frequency)
+                ft_cut2 = fft_frequencies <= min(self.fringe_frequency)
+                medfilt_flat = scind.median_filter(mean_flat[:, slit, :, :], size=(0, 32, 16))
+                for y in range(medfilt_flat.shape[1]):
+                    for stoke in range(1, 4):
+                        quv_ft = np.fft.fft(medfilt_flat[stoke, y, :])
+                        quv_ft[ft_cut1] = 0
+                        quv_ft[ft_cut2] = 0
+                        fringe_template[stoke-1, slit, y, :] = np.real(np.fft.ifft(quv_ft))
+                        pbar.update(1)
+        return fringe_template
+
+    def defringe_from_template(self, data_slice: np.ndarray, template: np.ndarray) -> np.ndarray:
+        """
+        Removes polarimetric fringes via template
+        Parameters
+        ----------
+        data_slice
+        template
+
+        Returns
+        -------
+
+        """
+        return
+
+    def prefilter_correction(
+            self, data_slice: np.ndarray, wavelength_array: np.ndarray, degrade_to: int=50, rolling_window: int=8
+    ) -> np.ndarray:
+        """
+        Performs correction for prefilter curvature/spectrograph efficiency differences along wavelength in Stokes-I
+        This correction is performed by dividing the FIRS reference spectrum by the FTS reference spectrum.
+        In an ideal world, you'd end up with the prefilter profile from this.
+        This is not an ideal world, and there are usually strong residuals from this.
+        Instead, we degrade this to a small number of points, median filter it, and then fit a polynomial to that
+        degraded residual profile. Interpolating this back up gets a reasonable prefilter estimate.
+
+        Parameters
+        ----------
+        data_slice : numpy.ndarray
+            Slice of Stokes-I data to determine prefilter profiles for. Of the shape (ny, nlambda)
+        wavelength_array : numpy.ndarray
+            1D array of wavelength grid values
+        degrade_to : int
+            Number of points for the profile to fit. Default 50 points
+        rolling_window : int
+            Width of the window along the spectral axis to median filter by. Default 8.
+
+        Returns
+        -------
+        data_slice : numpy.ndarray
+            Corrected for spectrograph/prefilter curvature
+        """
+        fts_wave, fts_spec = spex.fts_window(wavelength_array[0], wavelength_array[-1])
+        fts_spec_firs_res = np.interp(wavelength_array, fts_wave, fts_spec)
+        degraded_wavelengths = np.linspace(wavelength_array[0], wavelength_array[-1], num=degrade_to)
+        # Median filter along spatial direction
+        medfilt_divided = scind.median_filter(data_slice, size=(25, 0)) / fts_spec_firs_res
+        degraded_medfilt = scinterp.CubicSpline(
+            wavelength_array, medfilt_divided, axis=-1, extrapolate=True
+        )(degraded_wavelengths)
+        pfc = scinterp.CubicSpline(
+            degraded_wavelengths, scind.median_filter(degraded_medfilt, size=(0, rolling_window)),
+            axis=-1, extrapolate=True
+        )(wavelength_array)
+        pfc /= np.repeat(np.nanmax(pfc, axis=0)[np.newaxis, :], pfc.shape[1], axis=0)
+
+        return data_slice/pfc
+
+    def tweak_wavelength_calibration(self, reference_profile: np.ndarray) -> np.ndarray:
+        """
+        Determines wavelength array from grating parameters and FTS reference
+
+        Parameters
+        ----------
+        reference_profile : numpy.ndarray
+            1D array containing reference spectral profile
+
+        Returns
+        -------
+        wavelength_array : numpy.ndarray
+            1D array with corresponding wavelengths
+        """
+        grating_params = spex.grating_calculations(
+            self.grating_rules, self.blaze_angle, self.grating_angle,
+            self.pixel_size, self.central_wavelength, self.spectral_order,
+            collimator=self.spectrograph_collimator, camera=self.camera_lens,
+            slit_width=self.slit_width
+        )
+        # Getting Min/Max Wavelength for FTS comparison; padding by 30 pixels on either side
+        # Same selection process as in flat fielding.
+        apx_wavemin = self.central_wavelength - np.nanmean(self.slit_edges) * grating_params['Spectral_Pixel'] / 1000
+        apx_wavemax = self.central_wavelength + np.nanmean(self.slit_edges) * grating_params['Spectral_Pixel'] / 1000
+        apx_wavemin -= 30 * grating_params['Spectral_Pixel'] / 1000
+        apx_wavemax += 30 * grating_params['Spectral_Pixel'] / 1000
+        fts_wave, fts_spec = spex.fts_window(apx_wavemin, apx_wavemax)
+        fts_core = sorted(np.array(self.fts_line_cores))
+
+        firs_line_cores = sorted(np.array(self.firs_line_cores))
+
+        fts_core_waves = [scinterp.CubicSpline(np.arange(len(fts_wave)), fts_wave)(lam) for lam in fts_core]
+        # Update FIRS selected line cores by redoing core finding with wide, then narrow range
+        firs_line_cores = np.array([
+            spex.find_line_core(
+                reference_profile[int(lam) - 10:int(lam) + 11]
+            ) + int(lam) - 10 for lam in firs_line_cores
+        ])
+        firs_line_cores = np.array([
+            spex.find_line_core(
+                reference_profile[int(lam) - 5:int(lam) + 7]
+            ) + int(lam) - 5
+            for lam in firs_line_cores
+        ])
+        angstrom_per_pixel = np.abs(fts_core_waves[1] - fts_core_waves[0]) / np.abs(
+            firs_line_cores[1] - firs_line_cores[0])
+        zerowvl = fts_core_waves[0] - (angstrom_per_pixel * firs_line_cores[0])
+        wavelength_array = (np.arange(0, len(reference_profile)) * angstrom_per_pixel) + zerowvl
+        return wavelength_array
 
     def subpixel_hairline_align(
             self,
@@ -1519,7 +1748,5 @@ class FirsCal:
         ]
 
         return firs_line_cores, fts_line_cores
-
-
 
 
