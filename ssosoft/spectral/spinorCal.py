@@ -1967,7 +1967,7 @@ class SpinorCal:
                 (hairline_minimum >= dual_beams.shape[1]).any() or
                 (hairline_maximum <= 0).any() or
                 (hairline_maximum >= dual_beams.shape[1]).any() or
-                self.manual_hairline_selection
+                (self.manual_hairline_selection and hair_centers is None)
         ):
             beam0_profile = beam0.mean(axis=1)
             beam1_profile = beam1.mean(axis=1)
