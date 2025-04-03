@@ -1846,6 +1846,15 @@ class SpinorCal:
                             average_delta = np.mean(np.abs(coarse_indices[j, :] - line_cores[j]))
                             self.analysis_ranges[j, 0] = int(round(line_cores[j] - average_delta, 0))
                             self.analysis_ranges[j, 1] = int(round(line_cores[j] + average_delta, 0) + 1)
+                    elif self.analysis_ranges is not None:
+                        mean_profile = np.nanmean(combined_beams[0], axis=0)
+                        line_cores = [
+                            spex.find_line_core(
+                                mean_profile[self.analysis_ranges[x, 0]:self.analysis_ranges[x, 1]]
+                            ) + self.analysis_ranges[x, 0] for x in range(self.analysis_ranges.shape[0])
+                        ]
+                    else:
+                        line_cores = []
 
                     if self.plot:
                         plt.ion()
