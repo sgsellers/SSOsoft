@@ -1821,7 +1821,7 @@ class SpinorCal:
 
                     # Choose lines for analysis. Use same method of choice as hsgCal, where user sets
                     # approx. min/max, the code changes the bounds, and
-                    if (step_index == 0) & self.analysis_ranges is None:
+                    if (step_index == 0) and (self.analysis_ranges is None):
                         mean_profile = np.nanmean(combined_beams[0], axis=0)
                         approx_wavelength_array = self.tweak_wavelength_calibration(mean_profile)
                         print("Select spectral ranges (xmin, xmax) for overview maps. Close window when done.")
