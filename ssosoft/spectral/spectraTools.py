@@ -431,8 +431,7 @@ def select_lines_singlepanel(array, nselections, fig_name="Popup Figure"):
 
     conn = fig.canvas.mpl_connect('button_press_event', onselect)
     plt.show()
-    xvals = np.array(xvals)
-    return xvals
+    return np.array(xvals)
 
 
 def select_lines_singlepanel_unbound_xarr(array, xarr=None,
@@ -479,8 +478,7 @@ def select_lines_singlepanel_unbound_xarr(array, xarr=None,
 
     conn = fig.canvas.mpl_connect('button_press_event', onselect)
     plt.show()
-    xvals = np.array(xvals)
-    return xvals
+    return np.array(xvals)
 
 
 def select_spans_singlepanel(array, xarr=None, fig_name="Popup Figure!", n_selections=None):
@@ -525,8 +523,7 @@ def select_spans_singlepanel(array, xarr=None, fig_name="Popup Figure!", n_selec
 
     conn = fig.canvas.mpl_connect('button_press_event', onselect)
     plt.show(block=True)
-    xvals = np.sort(np.array(xvals).reshape(int(len(xvals) / 2), 2))
-    return xvals
+    return np.sort(np.array(xvals).reshape(int(len(xvals) / 2), 2))
 
 
 def select_spans_doublepanel(array1: np.ndarray, array2: np.ndarray, nselections: int) -> tuple[np.ndarray, np.ndarray]:
@@ -600,9 +597,10 @@ def select_spans_doublepanel(array1: np.ndarray, array2: np.ndarray, nselections
 
     conn = fig.canvas.mpl_connect('button_press_event', onselect_2panel)
     plt.show(block=True)
-    xvals_top = np.sort(np.array(xvals_top).reshape(nselections, 2)).astype(int)
-    xvals_bottom = np.sort(np.array(xvals_bottom).reshape(nselections, 2)).astype(int)
-    return xvals_top, xvals_bottom
+    return (
+        np.sort(np.array(xvals_top).reshape(nselections, 2)).astype(int),
+        np.sort(np.array(xvals_bottom).reshape(nselections, 2)).astype(int)
+    )
 
 
 def select_lines_doublepanel(array1, array2, nselections):

@@ -161,6 +161,7 @@ class SpinorCal:
         self.spinor_line_cores = None
         self.fts_line_cores = None
         self.flip_wave_idx = 1
+        self.analysis_ranges = None
 
         # Polcal-specific variables
         self.polcal_processing = True
@@ -266,6 +267,15 @@ class SpinorCal:
                     else:
                         print("Plots will NOT be saved.")
                 print("===========================\n\n")
+            # We have to reset certain values that are calculated through the main loop.
+            # Easiest way to do this is re-initialize the loop.
+            # However, to avoid more user-interaction than strictly required, we do want to
+            # exempt certain values from being overwritten. Namely, ones that were previously-selected.
+            if index != 0:
+                spinor_line_cores = self.spinor_line_cores
+                fts_line_cores = self.fts_line_cores
+                flip_wave = self.flip_wave
+                analysis_ranges = self.analysis_ranges
             self.__init__(self.camera, self.config_file)
             self.spinor_configure_run()
             self.spinor_get_cal_images(index)
@@ -273,6 +283,12 @@ class SpinorCal:
                 plt.pause(2)
                 plt.close("all")
             self.science_files = self.science_map_file_list[index]
+            # And repopulate..
+            if index != 0:
+                self.spinor_line_cores = spinor_line_cores
+                self.fts_line_cores = fts_line_cores
+                self.flip_wave = flip_wave
+                self.analysis_ranges = analysis_ranges
             self.reduce_spinor_maps(index)
         return
 
@@ -957,9 +973,11 @@ class SpinorCal:
             axis=0
         )
 
-        self.spinor_line_cores, self.fts_line_cores, self.flip_wave = self.spinor_fts_line_select(
-            grating_params, avg_profile
-        )
+        if self.spinor_line_corse is None or self.fts_line_cores is None:
+            # If these are defined elsewhere, we can refrain from selecting another window
+            self.spinor_line_cores, self.fts_line_cores, self.flip_wave = self.spinor_fts_line_select(
+                grating_params, avg_profile
+            )
         if self.verbose & self.flip_wave:
             print("Spectrum flipped along the wavelength axis... Correcting.")
         if self.verbose and not self.flip_wave:
@@ -1403,7 +1421,7 @@ class SpinorCal:
         input_stokes = np.zeros((self.calcurves.shape[0], 4))
         for i in range(self.calcurves.shape[0]):
             init_stokes = np.array([1, 0, 0, 0])
-            tmtx = self.get_telescope_matrix([az_pol[i], el_pol[i], ta_pol[i]])
+            tmtx = self.get_telescope_matrix([az_pol[i], el_pol[i], ta_pol[i]], 90)
             init_stokes = tmtx @ init_stokes
             if bool(polarizer_staged[i]):
                 # Mult by 2 since we normalized our intensities earlier...
@@ -1768,7 +1786,8 @@ class SpinorCal:
                     tmtx = self.get_telescope_matrix(
                         [science_hdu[i].header['DST_AZ'],
                          science_hdu[i].header['DST_EL'],
-                         science_hdu[i].header['DST_TBL']]
+                         science_hdu[i].header['DST_TBL']],
+                        180
                     )
                     inv_tmtx = np.linalg.inv(tmtx)
                     for j in range(combined_beams.shape[1]):
@@ -1802,7 +1821,7 @@ class SpinorCal:
 
                     # Choose lines for analysis. Use same method of choice as hsgCal, where user sets
                     # approx. min/max, the code changes the bounds, and
-                    if step_index == 0:
+                    if (step_index == 0) & self.analysis_ranges is None:
                         mean_profile = np.nanmean(combined_beams[0], axis=0)
                         approx_wavelength_array = self.tweak_wavelength_calibration(mean_profile)
                         print("Select spectral ranges (xmin, xmax) for overview maps. Close window when done.")
@@ -1822,11 +1841,11 @@ class SpinorCal:
                             spex.find_line_core(mean_profile[x - 5:x + 7]) + x - 5 for x in min_indices
                         ]
                         # Find start and end indices that put line cores at the center of the window.
-                        map_indices = np.zeros(coarse_indices.shape)
+                        self.analysis_ranges = np.zeros(coarse_indices.shape)
                         for j in range(coarse_indices.shape[0]):
                             average_delta = np.mean(np.abs(coarse_indices[j, :] - line_cores[j]))
-                            map_indices[j, 0] = int(round(line_cores[j] - average_delta, 0))
-                            map_indices[j, 1] = int(round(line_cores[j] + average_delta, 0) + 1)
+                            self.analysis_ranges[j, 0] = int(round(line_cores[j] - average_delta, 0))
+                            self.analysis_ranges[j, 1] = int(round(line_cores[j] + average_delta, 0) + 1)
 
                     if self.plot:
                         plt.ion()
@@ -1846,8 +1865,12 @@ class SpinorCal:
                             for k in range(1, 4):
                                 field_images[j, k, :, step_index] = scinteg.trapezoid(
                                     np.nan_to_num(
-                                        combined_beams[k, :, int(map_indices[j, 0]):int(map_indices[j, 1])] /
-                                        combined_beams[0, :, int(map_indices[j, 0]):int(map_indices[j, 1])]
+                                        combined_beams[
+                                            k, :, int(self.analysis_ranges[j, 0]):int(self.analysis_ranges[j, 1])
+                                        ] /
+                                        combined_beams[
+                                            0, :, int(self.analysis_ranges[j, 0]):int(self.analysis_ranges[j, 1])
+                                        ]
                                     ),
                                     axis=-1
                                 )
@@ -1881,7 +1904,7 @@ class SpinorCal:
         reduced_filename = self.package_scan(reduced_data, approx_wavelength_array, master_hairline_centers)
         crosstalk_filename = self.package_crosstalks(complete_i2_quv_crosstalk, complete_internal_crosstalks, index)
         parameter_maps, reference_wavelengths, tweaked_indices, mean_profile, wavelength_array = self.spinor_analysis(
-            reduced_data, map_indices
+            reduced_data, self.analysis_ranges
         )
         param_filename = self.package_analysis(
             parameter_maps,
@@ -1926,7 +1949,29 @@ class SpinorCal:
         hairline_center : tuple
             Centers of the registered hairline. Should assist in getting an evenly-registered image across all slit pos.
         """
-        if hair_centers is None:
+
+        beam0 = slit_image[self.beam_edges[0, 0]:self.beam_edges[0, 1], self.slit_edges[0]:self.slit_edges[1]]
+        beam1 = np.flip(
+            scind.shift(
+                slit_image[self.beam_edges[1, 0]:self.beam_edges[1, 1], self.slit_edges[0]:self.slit_edges[1]],
+                (self.beam1_yshift, self.beam1_xshift), order=1
+            ), axis=0
+        )
+
+        dual_beams = np.stack([beam0, beam1], axis=0)
+        deskewed_dual_beams = dual_beams.copy()
+
+        if self.manual_hairline_selection and hair_centers is None:
+            beam0_profile = beam0.mean(axis=1)
+            beam1_profile = beam1.mean(axis=1)
+            beam0_range, beam1_range = spex.select_spans_doublepanel(beam0_profile, beam1_profile, 1)
+            hairline_minimum = np.array(
+                [beam0_range[0, 0], beam1_range[0, 0]]
+            )
+            hairline_maximum = np.array(
+                [beam0_range[0, 1], beam1_range[0, 1]]
+            )
+        elif hair_centers is None:
             first_step = True
             spex.detect_beams_hairlines.num_calls = 0
             # Undo the lamp gain for a second to get the intensity jumps in the right direction
@@ -1942,36 +1987,36 @@ class SpinorCal:
                 (hair_centers[0, 0],
                  hair_centers[1, 0] + self.beam1_yshift)
             )
+            hairline_minimum = hair_centers - 4
+            hairline_maximum = hair_centers + 4
+            if (hairline_minimum <= 0).any():
+                hairline_minimum = np.array([0, 0])
+                hairline_maximum = (2 * hair_centers).astype(int)
+            if (hairline_maximum >= dual_beams.shape[1]).any():
+                hairline_maximum[:] = dual_beams.shape[1]
+                hairline_minimum[:] = hairline_maximum - 2 * (hairline_maximum - hair_centers)
+            hairline_minimum = hairline_minimum.astype(int)
+            hairline_maximum = hairline_maximum.astype(int)
         else:
             first_step = False
+            hairline_minimum = hair_centers - 4
+            hairline_maximum = hair_centers + 4
+            if (hairline_minimum <= 0).any():
+                hairline_minimum = np.array([0, 0])
+                hairline_maximum = (2 * hair_centers).astype(int)
+            if (hairline_maximum >= dual_beams.shape[1]).any():
+                hairline_maximum[:] = dual_beams.shape[1]
+                hairline_minimum[:] = hairline_maximum - 2 * (hairline_maximum - hair_centers)
+            hairline_minimum = hairline_minimum.astype(int)
+            hairline_maximum = hairline_maximum.astype(int)
 
-        beam0 = slit_image[self.beam_edges[0, 0]:self.beam_edges[0, 1], self.slit_edges[0]:self.slit_edges[1]]
-        beam1 = np.flip(
-            scind.shift(
-                slit_image[self.beam_edges[1, 0]:self.beam_edges[1, 1], self.slit_edges[0]:self.slit_edges[1]],
-                (self.beam1_yshift, self.beam1_xshift), order=1
-            ), axis=0
-        )
-        dual_beams = np.stack([beam0, beam1], axis=0)
-        deskewed_dual_beams = dual_beams.copy()
-        hairline_minimum = hair_centers - 4
-        hairline_maximum = hair_centers + 4
-        if (hairline_minimum <= 0).any():
-            hairline_minimum = np.array([0, 0])
-            hairline_maximum = (2 * hair_centers).astype(int)
-        if (hairline_maximum >= dual_beams.shape[1]).any():
-            hairline_maximum[:] = dual_beams.shape[1]
-            hairline_minimum[:] = hairline_maximum - 2 * (hairline_maximum - hair_centers)
-        hairline_minimum = hairline_minimum.astype(int)
-        hairline_maximum = hairline_maximum.astype(int)
         # Final catch-all fallback option if something is *still* wrong.
         if (
                 (hairline_minimum <= 0).any() or
                 (hairline_minimum >= dual_beams.shape[1]).any() or
                 (hairline_maximum <= 0).any() or
-                (hairline_maximum >= dual_beams.shape[1]).any() or
-                (self.manual_hairline_selection and first_step)
-        ):
+                (hairline_maximum >= dual_beams.shape[1]).any()
+        ) and first_step:
             beam0_profile = beam0.mean(axis=1)
             beam1_profile = beam1.mean(axis=1)
             beam0_range, beam1_range = spex.select_spans_doublepanel(beam0_profile, beam1_profile, 1)
@@ -3286,9 +3331,9 @@ class SpinorCal:
         sin_x = -cos_el * sin_az
         cos_x = sin_el * cos_lat - cos_el * cos_az * sin_lat
 
-        sin_y = sin_el * sin_lat + cos_el * cos_az * sin_lat
+        sin_y = sin_el * sin_lat + cos_el * cos_az * cos_lat
         sin_z = cos_lat * sin_az
-        cos_z = sin_lat * cos_el - sin_el * sin_lat * cos_az
+        cos_z = sin_lat * cos_el - sin_el * cos_lat * cos_az
 
         x = np.arctan(sin_x / cos_x)
         y = np.arcsin(sin_y)
@@ -3298,7 +3343,7 @@ class SpinorCal:
 
         return coordinate_angles
 
-    def get_telescope_matrix(self, telescope_geometry: list) -> np.ndarray:
+    def get_telescope_matrix(self, telescope_geometry: list, reference_frame: float) -> np.ndarray:
         """
         Gets telescope matrix from IDL save (2010 matrix) or numpy save (TBD, hopefully we measure it in the future)
         file. Returns the Mueller matrix of the telescope from these measurements.
@@ -3307,6 +3352,8 @@ class SpinorCal:
         ----------
         telescope_geometry : numpy.ndarray
             3-element vector containing the coelostat azimuth, coelostat elevation, and Coude table angle
+        reference_frame : float
+            Spectrograph reference frame. Different for polcals and observations, for reasons I'm not totally clear on.
 
         Returns
         -------
@@ -3338,7 +3385,7 @@ class SpinorCal:
 
         entrance_window_orientation = txparams['tt'][1] * np.pi / 180
         exit_window_orientation = txparams['tt'][2] * np.pi / 180
-        ref_frame_orientation = txparams['tt'][3] * np.pi / 180
+        ref_frame_orientation = reference_frame * np.pi/180
         entrance_window_polarizer_offset = txparams['tt'][4]
 
         wvls = txparams['tt'][5::7]
