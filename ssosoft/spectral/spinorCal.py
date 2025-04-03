@@ -1848,6 +1848,7 @@ class SpinorCal:
                             self.analysis_ranges[j, 1] = int(round(line_cores[j] + average_delta, 0) + 1)
                     elif (step_index == 0) and (self.analysis_ranges is not None):
                         mean_profile = np.nanmean(combined_beams[0], axis=0)
+                        self.analysis_ranges = self.analysis_ranges.astype(int)
                         line_cores = [
                             spex.find_line_core(
                                 mean_profile[self.analysis_ranges[x, 0]:self.analysis_ranges[x, 1]]
@@ -3361,6 +3362,9 @@ class SpinorCal:
             3-element vector containing the coelostat azimuth, coelostat elevation, and Coude table angle
         reference_frame : float
             Spectrograph reference frame. Different for polcals and observations, for reasons I'm not totally clear on.
+            ---- Figured out why ---- Polcals, the telescope matrix takes you up to the insertion of the linear
+            polarizer and retarder units, which are just above the exit window. For observations, the telescope
+            matrix includes the plane change to get to the table.
 
         Returns
         -------
