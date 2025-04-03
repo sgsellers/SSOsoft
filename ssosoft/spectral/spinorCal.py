@@ -973,7 +973,7 @@ class SpinorCal:
             axis=0
         )
 
-        if self.spinor_line_corse is None or self.fts_line_cores is None:
+        if self.spinor_line_cores is None or self.fts_line_cores is None:
             # If these are defined elsewhere, we can refrain from selecting another window
             self.spinor_line_cores, self.fts_line_cores, self.flip_wave = self.spinor_fts_line_select(
                 grating_params, avg_profile
