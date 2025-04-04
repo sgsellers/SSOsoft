@@ -36,11 +36,11 @@ class rosaZylaDestretch:
         if type(instruments) == str:
             try:
                 assert (instruments.upper() in [
-                    'ZYLA', 'ROSA_3500', 'ROSA_4170', 'ROSA_CAK', 'ROSA_GBAND', 'ROSA_RED', "ROSA_6561"
+                    'ZYLA', 'ROSA_3500', 'ROSA_4170', 'ROSA_CAK', 'ROSA_GBAND', 'ROSA_RED', "ROSA_6561", "ROSA_NAD"
                 ]
                         ), ('Allowed values for <instrument>: '
                             'ZYLA, ROSA_3500, ROSA_4170, '
-                            'ROSA_CAK', 'ROSA_GBAND', 'ROSA_RED', "ROSA_6561"
+                            'ROSA_CAK', 'ROSA_GBAND', 'ROSA_RED', "ROSA_6561", "ROSA_NAD"
                             )
             except Exception as err:
                 print("Exception {0}".format(err))
@@ -49,10 +49,10 @@ class rosaZylaDestretch:
             for instrument in instruments:
                 try:
                     assert (instrument.upper() in [
-                        'ZYLA', 'ROSA_3500', 'ROSA_4170', 'ROSA_CAK', 'ROSA_GBAND', 'ROSA_RED', "ROSA_6561"
+                        'ZYLA', 'ROSA_3500', 'ROSA_4170', 'ROSA_CAK', 'ROSA_GBAND', 'ROSA_RED', "ROSA_6561", "ROSA_NAD"
                     ]), ('Allowed values for <instrument>: '
                                 'ZYLA, ROSA_3500, ROSA_4170, '
-                                'ROSA_CAK', 'ROSA_GBAND', 'ROSA_RED', "ROSA_6561"
+                                'ROSA_CAK', 'ROSA_GBAND', 'ROSA_RED', "ROSA_6561", "ROSA_NAD"
                          )
                 except Exception as err:
                     print("Exception {0}".format(err))

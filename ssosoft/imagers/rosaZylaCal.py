@@ -103,10 +103,10 @@ class rosaZylaCal:
 
         try:
             assert (instrument.upper() in ['ZYLA', 'ROSA_3500',
-                                           'ROSA_4170', 'ROSA_CAK', 'ROSA_GBAND', 'ROSA_RED', "ROSA_6561"]
+                                           'ROSA_4170', 'ROSA_CAK', 'ROSA_GBAND', 'ROSA_RED', "ROSA_6561", "ROSA_NAD"]
                     ), ('Allowed values for <instrument>: '
                         'ZYLA, ROSA_3500, ROSA_4170, '
-                        'ROSA_CAK', 'ROSA_GBAND', 'ROSA_RED', "ROSA_6561"
+                        'ROSA_CAK', 'ROSA_GBAND', 'ROSA_RED', "ROSA_6561", "ROSA_NAD"
                         )
         except Exception as err:
             print("Exception {0}".format(err))
