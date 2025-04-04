@@ -391,7 +391,7 @@ class InversionPrep:
         # Case where there are two hairlines
         if len(hairline_centers) == 2:
             continuum_determination_region = stokes_norm[
-                0, int(min(hairline_centers)) + 5:int(min(hairline_centers)) - 5, :, :
+                0, int(min(hairline_centers)) + 5:int(max(hairline_centers)) - 5, :, :
             ]
         else:
             # Cut the edge 100 pixels.
