@@ -1041,8 +1041,11 @@ class SpinorCal:
         ax_lamp.imshow(
             self.lamp_gain, origin='lower', cmap='gray', vmin=0.5, vmax=2.5
         )
+        corr_flat = (self.solar_flat - self.solar_dark) / self.lamp_gain
         ax_flat.imshow(
-            (self.solar_flat - self.solar_dark) / self.lamp_gain, origin='lower', cmap='gray'
+            corr_flat, origin='lower', cmap='gray',
+            vmin=corr_flat.mean() - 2*np.std(corr_flat),
+            vmax=corr_flat.mean() + 2*np.std(corr_flat)
         )
         ax_coarse.imshow(
             self.combined_coarse_gain_table, origin='lower', cmap='gray', vmin=0.5, vmax=2.5
@@ -1970,6 +1973,7 @@ class SpinorCal:
         deskewed_dual_beams = dual_beams.copy()
 
         if self.manual_hairline_selection and hair_centers is None:
+            first_step = True
             beam0_profile = beam0.mean(axis=1)
             beam1_profile = beam1.mean(axis=1)
             beam0_range, beam1_range = spex.select_spans_doublepanel(beam0_profile, beam1_profile, 1)

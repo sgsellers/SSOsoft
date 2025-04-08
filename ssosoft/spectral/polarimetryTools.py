@@ -237,7 +237,9 @@ def check_mueller_physicality(mueller_mtx: np.ndarray) -> tuple[bool, float, flo
     return True, master_imin, master_pmin
 
 
-def get_dst_matrix(telescope_geometry: list, central_wavelength: float, matrix_file: str) -> np.ndarray:
+def get_dst_matrix(
+        telescope_geometry: list, central_wavelength: float, reference_frame: float, matrix_file: str
+) -> np.ndarray:
     """
     Gets DST telescope matrix from IDL save (2010 matrix) or numpy save (TBD, hopefully we measure it in the future)
     file. Returns the Mueller matrix of the telescope from these measurements.
@@ -248,6 +250,8 @@ def get_dst_matrix(telescope_geometry: list, central_wavelength: float, matrix_f
         3-element vector containing the coelostat azimuth, coelostat elevation, and Coude table angle
     central_wavelength : float
         In angstrom, wavelength to interpolate measured values to
+    reference_frame : float
+        In degrees, the orientation of the reference frame relative to the telescope matrix.
     matrix_file : str
         Path to telescope matrix file
 
@@ -281,7 +285,7 @@ def get_dst_matrix(telescope_geometry: list, central_wavelength: float, matrix_f
 
     entrance_window_orientation = txparams['tt'][1] * np.pi / 180
     exit_window_orientation = txparams['tt'][2] * np.pi / 180
-    ref_frame_orientation = txparams['tt'][3] * np.pi / 180
+    ref_frame_orientation = reference_frame * np.pi / 180
 
     wvls = txparams['tt'][5::7]
     entrance_window_retardance = scinterp.interp1d(
@@ -383,9 +387,9 @@ def spherical_coordinate_transform(telescope_angles: list, site_latitude: float)
     sin_x = -cos_el * sin_az
     cos_x = sin_el * cos_lat - cos_el * cos_az * sin_lat
 
-    sin_y = sin_el * sin_lat + cos_el * cos_az * sin_lat
+    sin_y = sin_el * sin_lat + cos_el * cos_az * cos_lat
     sin_z = cos_lat * sin_az
-    cos_z = sin_lat * cos_el - sin_el * sin_lat * cos_az
+    cos_z = sin_lat * cos_el - sin_el * cos_lat * cos_az
 
     x = np.arctan(sin_x / cos_x)
     y = np.arcsin(sin_y)
