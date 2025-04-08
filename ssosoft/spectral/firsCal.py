@@ -132,6 +132,8 @@ class FirsCal:
         self.grating_angle = 63.5 - 3.75 # Default 10830/15648 value
         # Usually, FIRS is operated at 10830, but the code should be able to handle 15648
         self.central_wavelength = 10830
+        self.internal_crosstalk_line = 10827.089 # Line to use for V<->QU crosstalk determination.
+        self.crosstalk_range = 2 # Angstroms, range around self.internal_crosstalk_line
         # 52nd order for 10830, 36th order for 15648
         self.spectral_order = 52
         self.pixel_size = 20 # um -- for the Virgo 1k, probably.
@@ -148,6 +150,13 @@ class FirsCal:
         self.plot = False
         self.save_figs = False
         self.crosstalk_continuum = None
+        self.analysis_ranges = "default" # Default or choose. Choose pops up a widget.
+        self.analysis_indices = []
+        # From NIST, laboratory reference line centers for Si I, He I
+        self.default_reference_wavelengths = np.array([10827.089, 10829.09115, 10830.30989])
+        self.default_analysis_ranges = np.array(
+            [self.default_reference_wavelengths - 1.25, self.default_reference_wavelengths + 1.25]
+        )
         self.defringe = "flat" # Construct a fringe template from nearest solar flat series.
         # Future releases will include PCA-based defringe.
 
@@ -676,6 +685,7 @@ class FirsCal:
             tmtx = pol.get_dst_matrix(
                 [azimuth[i], elevation[i], table_angle[i]],
                 self.central_wavelength,
+                90,
                 self.t_matrix_file
             )
             init_stokes = tmtx @ init_stokes
@@ -916,6 +926,7 @@ class FirsCal:
         # FIRS maps taken with a repeat have the same file stem;
         # firs.2.YYYYMMDD.HHMMSS.XXXX.RRRR, where XXXX is the slit position, and RRRR is the iteration of map.
         nrepeat = self.obssum_info['NREPEAT'][index]
+        reduced_data = []
         for n in range(nrepeat):
             filelist = sorted(glob.glob(os.path.join(
                 self.indir,
@@ -1051,6 +1062,7 @@ class FirsCal:
                         tmtx = pol.get_dst_matrix(
                             [hdul[0].header['DST_AZ'], hdul[0].header['DST_EL'], hdul[0].header['DST_TBL']],
                             self.central_wavelength,
+                            180,
                             self.t_matrix_file
                         )
                         inv_tmtx = np.linalg.inv(tmtx)
@@ -1063,7 +1075,8 @@ class FirsCal:
                                 )
                         # Parallactic angle for QU rotation correction
                         angular_geometry = pol.spherical_coordinate_transform(
-                            [hdul[0].header['DST_AZ'], hdul[0].header['DST_EL']]
+                            [hdul[0].header['DST_AZ'], hdul[0].header['DST_EL']],
+                            self.site_latitude
                         )
                         # Sub off P0 angle
                         rotation = np.pi + angular_geometry[2] - hdul[0].header['DST_PEE'] * np.pi / 180
@@ -1074,36 +1087,185 @@ class FirsCal:
                         utmp = reduced_data[2, :, :, step_ctr, :].copy()
                         reduced_data[1, :, :, step_ctr, :] = crot * qtmp + srot * utmp
                         reduced_data[2, :, :, step_ctr, :] = -srot * qtmp + crot * utmp
-                        # Here, we have to make a choice. We need to do crosstalks, prefilter corrections, and defringe.
-                        # I'm torn on what the best order of this is, but my gut feeling is:
-                        #   1.) Prefilter to flatten Stokes-I
-                        #   2.) I->QUV crosstalk to flatten QUV
-                        #   3.) QUV Fringe removal
-                        #   4.) V->QU
-                        # Prefilter/spectral efficiency correction:
-                        for slit in range(self.nslits):
-                            # The wavelength calibration should really be done for each slit, just in case...
-                            wavelength_array = self.tweak_wavelength_calibration(
-                                reduced_data[0, slit, :, :step_ctr, :].mean(axis=(0, 1, 2))
-                            )
-                            reduced_data[0, slit, :, step_ctr, :] = self.prefilter_correction(
-                                reduced_data[0, slit, :, step_ctr, :], wavelength_array
-                            )
-                        # I -> QUV crosstalk correction
-                        reduced_data[
-                            1:, :, :, step_ctr, :
-                        ], complete_i2quv_crosstalk[
-                           :, :, :, :, step_ctr
-                        ] = self.detrend_i_crosstalk(
-                            reduced_data[1:, :, :, step_ctr, :], reduced_data[0, :, :, step_ctr, :]
+                        # Last thing we need the file open for: grab the slit width as a proxy for step size
+
+                        slit_width = hdul[0].header['SLITWDTH'] # mm
+                        # Exit the FITS context manager and close the file
+                    # Here, we have to make a choice. We need to do crosstalks, prefilter corrections, and defringe.
+                    # I'm torn on what the best order of this is, but my gut feeling is:
+                    #   1.) Prefilter to flatten Stokes-I
+                    #   2.) I->QUV crosstalk to flatten QUV
+                    #   3.) QUV Fringe removal
+                    #   4.) V->QU
+                    # Prefilter/spectral efficiency correction:
+                    wavegrid = np.zeros((self.nslits, reduced_data.shape[-1]))
+                    for slit in range(self.nslits):
+                        # The wavelength calibration should really be done for each slit, just in case...
+                        wavelength_array = self.tweak_wavelength_calibration(
+                            reduced_data[0, slit, :, :step_ctr, :].mean(axis=(0, 1, 2))
                         )
-                        # Next up; sub off fringe template, perform crosstalk correction, set up overviews.
-                        if fringe_template is not None:
-                            reduced_data[1:, :, :, step_ctr, :] = self.defringe_from_template(
-                                reduced_data[1:, :, :, step_ctr, :], fringe_template[:, :, :, step_ctr, :]
+                        wavegrid[slit, :] = wavelength_array
+                        reduced_data[0, slit, :, step_ctr, :] = self.prefilter_correction(
+                            reduced_data[0, slit, :, step_ctr, :], wavelength_array
+                        )
+                    # I -> QUV crosstalk correction
+                    reduced_data[
+                        1:, :, :, step_ctr, :
+                    ], complete_i2quv_crosstalk[
+                       :, :, :, :, step_ctr
+                    ] = self.detrend_i_crosstalk(
+                        reduced_data[1:, :, :, step_ctr, :], reduced_data[0, :, :, step_ctr, :]
+                    )
+                    # Next up; sub off fringe template, perform crosstalk correction, set up overviews.
+                    if fringe_template is not None:
+                        # Subtract fringes
+                        reduced_data[1:, :, :, step_ctr, :] = self.defringe_from_template(
+                            reduced_data[1:, :, :, step_ctr, :], fringe_template[:, :, :, step_ctr, :]
+                        )
+                    if any((v2q, v2u, q2v, u2v)):
+                        # Internal Crosstalk
+                        reduced_data[1:, :, :, step_ctr, :] = self.detrend_internal_crosstalk(
+                            reduced_data[1:, :, :, step_ctr, :], wavegrid
+                        )
+                    # Grab analysis lines if they're not the default.
+                    # Skip if overview set to false, i.e., reducing a flat field
+                    if (step_ctr == 0) and (self.analysis_ranges == "choose") and overview:
+                        mean_profile = np.nanmean(reduced_data[0, 0, :, 0, :], axis=0)
+                        print(
+                            "Select spectral ranges (xmin, xmax) for overview maps and initial analysis.\n"
+                            "Close window when you're done."
+                        )
+                        coarse_indices = spex.select_spans_singlepanel(
+                            mean_profile, xarr=wavegrid[0], fig_name="Select Lines for Analysis"
+                        )
+                        # Location of minimum in the range
+                        min_indices = [
+                            spex.find_nearest(
+                                mean_profile[coarse_indices[x][0]:coarse_indices[x][1]],
+                                mean_profile[coarse_indices[x][0]:coarse_indices[x][1]].min()
+                            ) + coarse_indices[x][0] for x in range(coarse_indices.shape[0])
+                        ]
+                        # Location of exact line core
+                        line_cores = [
+                            spex.find_line_core(mean_profile[x - 5:x + 7]) + x - 5 for x in min_indices
+                        ]
+                        # Find start and end indices that put line cores at the center of the window.
+                        self.analysis_indices = np.zeros((2, self.nslits, len(line_cores)))
+                        line_core_arr = np.zeros((self.nslits, len(line_cores)))
+                        for slit in range(self.nslits):
+                            for j in range(coarse_indices.shape[0]):
+                                average_delta = np.mean(np.abs(coarse_indices[j, :] - line_cores[j]))
+                                min_idx_s0 = int(round(line_cores[j] - average_delta, 0))
+                                max_idx_s0 = int(round(line_cores[j] + average_delta, 0) + 1)
+                                self.analysis_indices[0, slit, j] = spex.find_nearest(
+                                    wavegrid[slit], wavegrid[0, min_idx_s0]
+                                )
+                                self.analysis_indices[1, slit, j] = spex.find_nearest(
+                                    wavegrid[slit], wavegrid[0, max_idx_s0]
+                                )
+                                line_core_arr[slit, j] = spex.find_nearest(
+                                    wavegrid[slit], wavegrid[0, line_cores[j]]
+                                )
+                    elif (step_ctr == 0) and (self.analysis_ranges == "default") and overview:
+                        # Default analysis ranges, i.e., Si I and He I lines.
+                        # Find indices of default ranges in each slit
+                        self.analysis_indices = np.zeros((2, self.nslits, self.default_analysis_ranges.shape[1]))
+                        line_core_arr = np.zeros((self.nslits, self.default_analysis_ranges.shape[1]))
+                        for slit in range(self.nslits):
+                            for line in range(self.default_analysis_ranges.shape[1]):
+                                self.analysis_indices[0, slit, line] = spex.find_nearest(
+                                    wavegrid[slit], self.default_analysis_ranges[0, line]
+                                )
+                                line_core_arr[slit, line] = spex.find_nearest(
+                                    wavegrid[slit], self.default_reference_wavelengths[line]
+                                )
+                    if overview:
+                        plt.ion()
+                        # If step 0, set up overview maps to blit data into
+                        # Unlike SPINOR, we're considering multiple slits,
+                        # so we'll be updating nslits columns each step
+                        if step_ctr == 0:
+                            field_images = np.zeros((
+                                self.analysis_indices.shape[2], # Nlines
+                                4, # IQUV,
+                                reduced_data.shape[2],
+                                int(len(filelist) * self.nslits)
+                            ))
+                        for line in range(self.analysis_indices.shape[2]):
+                            for slit in range(self.nslits):
+                                field_images[
+                                    line, 0, :, step_ctr+slit*len(filelist)
+                                ] = reduced_data[0, slit, :, step_ctr, line_core_arr[slit, line]]
+                                for k in range(1, 4):
+                                    field_images[line, k, :, step_ctr+slit*len(filelist)] = scinteg.trapezoid(
+                                        np.nan_to_num(np.abs(
+                                            # What a mess.. clean this up!
+                                            reduced_data[
+                                                k, slit, :, step_ctr,
+                                                int(
+                                                    self.analysis_indices[0, slit, line]
+                                                ): int(self.analysis_indices[1, slit, line])
+                                            ] / reduced_data[
+                                                0, slit, :, step_ctr,
+                                                int(
+                                                    self.analysis_indices[0, slit, line]
+                                                ):int(self.analysis_indices[1, slit, line])
+                                            ]
+                                        )), axis=-1
+                                    )
+                        if step_ctr == 0:
+                            slit_plate_scale = self.telescope_plate_scale * self.dst_collimator / self.slit_camera_lens
+                            camera_dy = slit_plate_scale * self.pixel_size / 1000
+                            map_dx = slit_plate_scale * slit_width
+                            plot_params = self.set_up_live_plot(
+                                field_images, reduced_data[:, :, :, step_ctr, :],
+                                complete_internal_crosstalks[:, :, :, :, step_ctr],
+                                camera_dy, map_dx
                             )
-                        # V <-> QU crosstalk correction
-                        """HERE"""
+                        self.update_live_plot(
+                            *plot_params, field_images, reduced_data[:, :, :, step_ctr, :],
+                            complete_internal_crosstalks[:, :, :, :, step_ctr], step_ctr
+                        )
+                    step_ctr += 1
+                    pbar.update(1)
+            # Completed series, moving to next repeat, but save first
+            if overview and self.save_figs:
+                if self.analysis_ranges == "default":
+                    names = ["SiI_10827", "HeI_10829", "HeI_10830"]
+                else:
+                    names = ["line{0}".format(i) for i in range(len(plot_params[0]))]
+                for fig in range(len(plot_params[0])):
+                    filename = os.path.join(
+                        self.final_dir,
+                        "field_image_{0}_map{1}_repeat{2}.png".format(names[fig], index, n)
+                    )
+                    plot_params[0][fig].savefig(filename, bbox_inches='tight')
+            if write:
+                wavelength_grids = np.zeros((self.nslits, reduced_data.shape[-1]))
+                for slit in range(self.nslits):
+                    mean_profile = np.nanmean(reduced_data[0, slit], axis=(0, 1))
+                    wavelength_grids[slit] = self.tweak_wavelength_calibration(mean_profile)
+                reduced_filename = self.package_scan(reduced_data, wavelength_grids, master_hairline_centers)
+                crosstalk_filename = self.package_crosstalks(
+                    complete_i2quv_crosstalk, complete_internal_crosstalks, index, n
+                )
+                derived_params = self.firs_analysis(
+                    reduced_data, self.analysis_indices
+                )
+                param_filename = self.package_analysis(
+                    *derived_params, reduced_filename
+                )
+                if self.verbose:
+                    print("\n\n=====================")
+                    print("Saved Reduced Data at: {0}".format(reduced_filename))
+                    print("Saved Parameter Maps at: {0}".format(param_filename))
+                    print("Saved Crosstalk Coefficients at: {0}".format(crosstalk_filename))
+                    print("=====================\n\n")
+                if overview:
+                    plt.pause(2)
+                    plt.close("all")
+        return reduced_data
+
 
     def detrend_i_crosstalk(
             self, quv_data: np.ndarray, i_data: np.ndarray
@@ -1152,6 +1314,117 @@ class FirsCal:
                         )
         return quv_data, crosstalk_i2quv
 
+    def detrend_internal_crosstalk(
+            self, quv_data: np.ndarray, wavelength_grid: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Detrend internal crosstalks. Unlike SPINOR, in order to avoid spurious fringe effects,
+        we should pick a window surrounding a magnetically-sensitive line to use for the crosstalk cosine
+        similarity determination. Si I 10827 will be the default, but we'll write the function for generality
+
+        Parameters
+        ----------
+        quv_data : numpy.ndarray
+            Array of QUV data. Assumed to be roughly defringed and of shape (3, nslits, ny, nlambda)
+        wavelength_grid : numpy.ndarray
+            Array of wavelengths corresponding to nlambda axis of quv_data. Shape (nslits, nlambda)
+
+        Returns
+        -------
+        quv_data : numpy.ndarray
+        internal_crosstalk : numpy.ndarray
+            Of shape (4, nslits, ny). Axis 0 corresponds to V->Q, V->U, Q->V, U->V
+        """
+        internal_crosstalk = np.zeros((4, self.nslits, quv_data.shape[2]))
+        if self.v2q:
+            for slit in self.nslits:
+                # Baseline bulk crosstalk first
+                bulk_v2q_crosstalk = pol.internal_crosstalk_2d(
+                    quv_data[0, slit, :, :], quv_data[2, slit, :, :]
+                )
+                quv_data[0, slit, :, :] = quv_data[0, slit, :, :] - bulk_v2q_crosstalk * quv_data[2, slit, :, :]
+                if self.v2q == "full":
+                    # Determine crosstalks from range around self.internal_crosstalk_line
+                    min_idx = int(spex.find_nearest(
+                        wavelength_grid[slit], self.internal_crosstalk_line - self.crosstalk_range
+                    ))
+                    max_idx = int(spex.find_nearest(
+                        wavelength_grid[slit], self.internal_crosstalk_line + self.crosstalk_range
+                    ))
+                    for y in range(quv_data.shape[2]):
+                        _, ct_val = pol.v2qu_crosstalk(
+                            quv_data[2, slit, y, min_idx:max_idx], quv_data[0, slit, y, min_idx:max_idx]
+                        )
+                        internal_crosstalk[0, slit, y] = ct_val
+                        quv_data[0, slit, y, :] = quv_data[0, slit, y, :] - ct_val * quv_data[2, slit, y, :]
+                internal_crosstalk[0, slit] += bulk_v2q_crosstalk
+        if self.v2u:
+            for slit in self.nslits:
+                # Baseline bulk crosstalk first
+                bulk_v2u_crosstalk = pol.internal_crosstalk_2d(
+                    quv_data[1, slit, :, :], quv_data[2, slit, :, :]
+                )
+                quv_data[1, slit, :, :] = quv_data[1, slit, :, :] - bulk_v2u_crosstalk * quv_data[2, slit, :, :]
+                if self.v2u == "full":
+                    # Determine crosstalks from range around self.internal_crosstalk_line
+                    min_idx = int(spex.find_nearest(
+                        wavelength_grid[slit], self.internal_crosstalk_line - self.crosstalk_range
+                    ))
+                    max_idx = int(spex.find_nearest(
+                        wavelength_grid[slit], self.internal_crosstalk_line + self.crosstalk_range
+                    ))
+                    for y in range(quv_data.shape[2]):
+                        _, ct_val = pol.v2qu_crosstalk(
+                            quv_data[2, slit, y, min_idx:max_idx], quv_data[1, slit, y, min_idx:max_idx]
+                        )
+                        internal_crosstalk[1, slit, y] = ct_val
+                        quv_data[1, slit, y, :] = quv_data[1, slit, y, :] - ct_val * quv_data[2, slit, y, :]
+                internal_crosstalk[1, slit] += bulk_v2q_crosstalk
+        if self.q2v:
+            for slit in self.nslits:
+                # Baseline bulk crosstalk first
+                bulk_q2v_crosstalk = pol.internal_crosstalk_2d(
+                    quv_data[2, slit, :, :], quv_data[0, slit, :, :]
+                )
+                quv_data[2, slit, :, :] = quv_data[2, slit, :, :] - bulk_q2v_crosstalk * quv_data[0, slit, :, :]
+                if self.q2v == "full":
+                    # Determine crosstalks from range around self.internal_crosstalk_line
+                    min_idx = int(spex.find_nearest(
+                        wavelength_grid[slit], self.internal_crosstalk_line - self.crosstalk_range
+                    ))
+                    max_idx = int(spex.find_nearest(
+                        wavelength_grid[slit], self.internal_crosstalk_line + self.crosstalk_range
+                    ))
+                    for y in range(quv_data.shape[2]):
+                        _, ct_val = pol.v2qu_crosstalk(
+                            quv_data[0, slit, y, min_idx:max_idx], quv_data[2, slit, y, min_idx:max_idx]
+                        )
+                        internal_crosstalk[3, slit, y] = ct_val
+                        quv_data[2, slit, y, :] = quv_data[2, slit, y, :] - ct_val * quv_data[0, slit, y, :]
+                internal_crosstalk[2, slit] += bulk_q2v_crosstalk
+        if self.u2v:
+            for slit in self.nslits:
+                # Baseline bulk crosstalk first
+                bulk_u2v_crosstalk = pol.internal_crosstalk_2d(
+                    quv_data[2, slit, :, :], quv_data[1, slit, :, :]
+                )
+                quv_data[2, slit, :, :] = quv_data[2, slit, :, :] - bulk_u2v_crosstalk * quv_data[1, slit, :, :]
+                if self.u2v == "full":
+                    # Determine crosstalks from range around self.internal_crosstalk_line
+                    min_idx = int(spex.find_nearest(
+                        wavelength_grid[slit], self.internal_crosstalk_line - self.crosstalk_range
+                    ))
+                    max_idx = int(spex.find_nearest(
+                        wavelength_grid[slit], self.internal_crosstalk_line + self.crosstalk_range
+                    ))
+                    for y in range(quv_data.shape[2]):
+                        _, ct_val = pol.v2qu_crosstalk(
+                            quv_data[1, slit, y, min_idx:max_idx], quv_data[2, slit, y, min_idx:max_idx]
+                        )
+                        internal_crosstalk[3, slit, y] = ct_val
+                        quv_data[2, slit, y, :] = quv_data[2, slit, y, :] - ct_val * quv_data[1, slit, y, :]
+                internal_crosstalk[3, slit] += bulk_u2v_crosstalk
+        return quv_data, internal_crosstalk
 
     def construct_fringe_template_from_flat(self, reduced_flat: np.ndarray) -> np.ndarray:
         """
@@ -1200,14 +1473,25 @@ class FirsCal:
         Removes polarimetric fringes via template
         Parameters
         ----------
-        data_slice
-        template
+        data_slice : numpy.ndarray
+            Slice of QUV data for defringe. Shape 3, nslits, ny, nlambda
+        template : numpy.ndarray
+            Template of QUV fringes. Currently constructed from flats assuming mostly-static fringes
 
         Returns
         -------
-
+        defringed_data_slice : numpy.ndarray
         """
-        return
+        defringed_data_slice = np.zeros(data_slice.shape)
+        for stoke in range(data_slice.shape[0]):
+            for slit in range(data_slice.shape[1]):
+                for y in range(data_slice.shape[2]):
+                    fringe_med = np.nanmedian(template[stoke, slit, y, :50])
+                    map_med = np.nanmedian(data_slice[stoke, slit, y, :50])
+                    corr_factor = fringe_med - map_med
+                    fringe_corr = template[stoke, slit, y, :] - corr_factor
+                    defringed_data_slice[stoke, slit, y, :] = data_slice[stoke, slit, y, :] - fringe_corr
+        return defringed_data_slice
 
     def prefilter_correction(
             self, data_slice: np.ndarray, wavelength_array: np.ndarray, degrade_to: int=50, rolling_window: int=8
