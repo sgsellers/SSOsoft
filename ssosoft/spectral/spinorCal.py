@@ -162,6 +162,8 @@ class SpinorCal:
         self.fts_line_cores = None
         self.flip_wave_idx = 1
         self.analysis_ranges = None
+        self.align_range = None
+        self.hair_align_ranges = None
 
         # Polcal-specific variables
         self.polcal_processing = True
@@ -189,6 +191,7 @@ class SpinorCal:
         self.save_figs = False
         self.crosstalk_continuum = None
         self.manual_hairline_selection = False
+        self.manual_alignment_selection = False
 
         # Can be pulled from header:
         self.grating_angle = None
@@ -276,6 +279,11 @@ class SpinorCal:
                 fts_line_cores = self.fts_line_cores
                 flip_wave = self.flip_wave
                 analysis_ranges = self.analysis_ranges
+                if self.manual_hairline_selection and self.hair_align_ranges is not None:
+                    hair_align_ranges = self.hair_align_ranges
+                if self.manual_alignment_selection and self.align_range is not None:
+                    align_range = self.align_range
+
             self.__init__(self.camera, self.config_file)
             self.spinor_configure_run()
             self.spinor_get_cal_images(index)
@@ -289,6 +297,10 @@ class SpinorCal:
                 self.fts_line_cores = fts_line_cores
                 self.flip_wave = flip_wave
                 self.analysis_ranges = analysis_ranges
+                if self.manual_hairline_selection:
+                    self.hair_align_ranges = hair_align_ranges
+                if self.manual_alignment_selection:
+                    self.align_range = align_range
             self.reduce_spinor_maps(index)
         return
 
@@ -443,6 +455,9 @@ class SpinorCal:
         if "hairselect" in config[self.camera].keys():
             if config[self.camera]['hairSelect'].lower() == "true":
                 self.manual_hairline_selection = True
+        if "alignselect" in config[self.camera].keys():
+            if config[self.camera]['hairSelect'].lower() == "true":
+                self.manual_alignment_selection = True
 
         # Required global values
         self.t_matrix_file = config["SHARED"]["tMatrixFile"]
@@ -1972,7 +1987,7 @@ class SpinorCal:
         dual_beams = np.stack([beam0, beam1], axis=0)
         deskewed_dual_beams = dual_beams.copy()
 
-        if self.manual_hairline_selection and hair_centers is None:
+        if self.manual_hairline_selection and hair_centers is None and self.hair_align_ranges is None:
             first_step = True
             beam0_profile = beam0.mean(axis=1)
             beam1_profile = beam1.mean(axis=1)
@@ -1983,6 +1998,22 @@ class SpinorCal:
             hairline_maximum = np.array(
                 [beam0_range[0, 1], beam1_range[0, 1]]
             )
+            self.hair_align_ranges = np.array([hairline_minimum, hairline_maximum])
+        elif self.manual_hairline_selection and self.hair_align_ranges is not None:
+            # Manual hairlines selected on previous iter, using this selection
+            first_step = True
+            hairline_minimum = self.hair_align_ranges[0]
+            hairline_maximum = self.hair_align_ranges[1]
+            difference = int(np.mean(hairline_maximum - hairline_minimum) / 2)
+            # Tweak the ranges for beam drift
+            line_centers = [
+                int(spex.find_line_core(np.median(dual_beams[i, :, hairline_minimum[i]:hairline_maximum[i]], axis=0)))
+                for i in range(dual_beams.shape[0])
+            ]
+            hairline_minimum = np.array(line_centers) - difference
+            hairline_maximum = np.array(line_centers) + difference
+            self.hair_align_ranges = np.array([hairline_minimum, hairline_maximum])
+
         elif hair_centers is None:
             first_step = True
             spex.detect_beams_hairlines.num_calls = 0
@@ -2065,7 +2096,9 @@ class SpinorCal:
 
         return hairline_skews, hairline_center
 
-    def subpixel_spectral_align(self, cutout_beams: np.ndarray, hairline_center: tuple) -> tuple[np.ndarray, float]:
+    def subpixel_spectral_align(
+            self, cutout_beams: np.ndarray, hairline_center: tuple
+    ) -> tuple[np.ndarray, float]:
         """
         Performs iterative deskew and align along the spectral axis.
         Returns the aligned beam and spectral line center of the aligned beam.
@@ -2091,15 +2124,18 @@ class SpinorCal:
                 hairline_center[0] + np.diff(self.hairlines, axis=1)[0],
                 hairline_center[1] + np.diff(self.hairlines, axis=1)[1]
             )
-        x1, x2 = 20, 21
-        for spiter in range(5):
-            order = 2 if spiter < 2 else 2
+        else:
+            upper_hairline_center = None
+
+        if self.manual_alignment_selection and self.align_range is None:
+            # Case: iter 0, select alignment range is set to True
+            beam0_profile = cutout_beams[0, 0, :, :].mean(axis=0)
+            beam1_profile = cutout_beams[1, 0, :, :].mean(axis=0)
+            beam0_range = beam1_range = spex.select_spans_doublepanel(beam0_profile, beam1_profile, 1)
+            spex_minimum = np.array([beam0_range[0, 0], beam1_range[0, 0]])
+            spex_maximum = np.array([beam0_range[0, 1], beam1_range[0, 1]])
             for beam in range(2):
-                spectral_image = cutout_beams[
-                                beam, 0, :, int(self.spinor_line_cores[0] - x1):int(self.spinor_line_cores[0] + x2)
-                                ].copy()
-                # Deskew function is written to cope with NaNs.
-                # It is NOT written to deal with a hairline.
+                spectral_image = cutout_beams[beam, 0, :, spex_minimum[beam]:spex_maximum[beam]].copy()
                 # Mask hairlines
                 hair_min = int(hairline_center[beam] - 4)
                 hair_max = int(hairline_center[beam] + 5)
@@ -2114,14 +2150,72 @@ class SpinorCal:
                     hair_max = int(spectral_image.shape[0] - 1) if hair_max > spectral_image.shape[0] - 1 else hair_max
                     spectral_image[hair_min:hair_max, :] = np.nan
                 spectral_skews = spex.spectral_skew(
-                    spectral_image, order=order, slit_reference=0.5
+                    spectral_image, order=2, slit_reference=0.5
                 )
                 for prof in range(cutout_beams.shape[2]):
                     cutout_beams[beam, :, prof, :] = scind.shift(
                         cutout_beams[beam, :, prof, :], (0, spectral_skews[prof]), mode='nearest', order=1
                     )
-            x1 -= 3
-            x2 -= 3
+            self.align_range = np.array([spex_minimum, spex_maximum])
+        elif self.manual_alignment_selection and self.align_range is not None:
+            # Case iter > 0, alignment range was saved from previous loops
+            spex_minimum = self.align_range[0]
+            spex_maximum = self.align_range[1]
+            for beam in range(2):
+                spectral_image = cutout_beams[beam, 0, :, spex_minimum[beam]:spex_maximum[beam]].copy()
+                # Mask hairlines
+                hair_min = int(hairline_center[beam] - 4)
+                hair_max = int(hairline_center[beam] + 5)
+                hair_min = 0 if hair_min < 0 else hair_min
+                hair_max = int(spectral_image.shape[0] - 1) if hair_max > spectral_image.shape[0] - 1 else hair_max
+                spectral_image[hair_min:hair_max, :] = np.nan
+                # FLIR may not have another set of hairlines.
+                if self.hairlines.shape[1] > 1:
+                    hair_min = int(upper_hairline_center[beam] - 4)
+                    hair_max = int(upper_hairline_center[beam] + 5)
+                    hair_min = 0 if hair_min < 0 else hair_min
+                    hair_max = int(spectral_image.shape[0] - 1) if hair_max > spectral_image.shape[0] - 1 else hair_max
+                    spectral_image[hair_min:hair_max, :] = np.nan
+                spectral_skews = spex.spectral_skew(
+                    spectral_image, order=2, slit_reference=0.5
+                )
+                for prof in range(cutout_beams.shape[2]):
+                    cutout_beams[beam, :, prof, :] = scind.shift(
+                        cutout_beams[beam, :, prof, :], (0, spectral_skews[prof]), mode='nearest', order=1
+                    )
+        else:
+            # Default behaviour
+            x1, x2 = 20, 21
+            for spiter in range(5):
+                order = 2 if spiter < 2 else 2
+                for beam in range(2):
+                    spectral_image = cutout_beams[
+                                    beam, 0, :, int(self.spinor_line_cores[0] - x1):int(self.spinor_line_cores[0] + x2)
+                                    ].copy()
+                    # Deskew function is written to cope with NaNs.
+                    # It is NOT written to deal with a hairline.
+                    # Mask hairlines
+                    hair_min = int(hairline_center[beam] - 4)
+                    hair_max = int(hairline_center[beam] + 5)
+                    hair_min = 0 if hair_min < 0 else hair_min
+                    hair_max = int(spectral_image.shape[0] - 1) if hair_max > spectral_image.shape[0] - 1 else hair_max
+                    spectral_image[hair_min:hair_max, :] = np.nan
+                    # FLIR may not have another set of hairlines.
+                    if self.hairlines.shape[1] > 1:
+                        hair_min = int(upper_hairline_center[beam] - 4)
+                        hair_max = int(upper_hairline_center[beam] + 5)
+                        hair_min = 0 if hair_min < 0 else hair_min
+                        hair_max = int(spectral_image.shape[0] - 1) if hair_max > spectral_image.shape[0] - 1 else hair_max
+                        spectral_image[hair_min:hair_max, :] = np.nan
+                    spectral_skews = spex.spectral_skew(
+                        spectral_image, order=order, slit_reference=0.5
+                    )
+                    for prof in range(cutout_beams.shape[2]):
+                        cutout_beams[beam, :, prof, :] = scind.shift(
+                            cutout_beams[beam, :, prof, :], (0, spectral_skews[prof]), mode='nearest', order=1
+                        )
+                x1 -= 3
+                x2 -= 3
         # Find bulk spectral line center for full alignment
         spectral_center = (
             spex.find_line_core(
