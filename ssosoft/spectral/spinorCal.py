@@ -281,8 +281,13 @@ class SpinorCal:
                 analysis_ranges = self.analysis_ranges
                 if self.manual_hairline_selection and self.hair_align_ranges is not None:
                     hair_align_ranges = self.hair_align_ranges
+                else:
+                    hair_align_ranges = None
                 if self.manual_alignment_selection and self.align_range is not None:
                     align_range = self.align_range
+                else:
+                    align_range = None
+
 
             self.__init__(self.camera, self.config_file)
             self.spinor_configure_run()
@@ -297,9 +302,9 @@ class SpinorCal:
                 self.fts_line_cores = fts_line_cores
                 self.flip_wave = flip_wave
                 self.analysis_ranges = analysis_ranges
-                if self.manual_hairline_selection:
+                if self.manual_hairline_selection and hair_align_ranges is not None:
                     self.hair_align_ranges = hair_align_ranges
-                if self.manual_alignment_selection:
+                if self.manual_alignment_selection and align_range is not None:
                     self.align_range = align_range
             self.reduce_spinor_maps(index)
         return
