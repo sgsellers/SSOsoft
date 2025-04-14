@@ -1795,6 +1795,8 @@ class SpinorCal:
                         ),
                         mode='nearest', order=1
                     )
+                    norm_factor = np.mean(science_beams[0, 0, 50:-50]) / np.mean(science_beams[1, 0, 50:-50])
+                    science_beams[1] *= norm_factor
 
                     combined_beams = np.zeros(science_beams.shape[1:])
                     combined_beams[0] = np.nanmean(science_beams[:, 0, :, :], axis=0)
