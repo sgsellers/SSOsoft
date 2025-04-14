@@ -2018,7 +2018,7 @@ class SpinorCal:
             first_step = True
             hairline_minimum = self.hair_align_ranges[0]
             hairline_maximum = self.hair_align_ranges[1]
-            difference = int(np.mean(hairline_maximum - hairline_minimum) / 2)
+            difference = int(np.mean(hairline_maximum - hairline_minimum) / 2) + 1
             # Tweak the ranges for beam drift
             line_centers = [
                 int(spex.find_line_core(np.median(dual_beams[i, :, hairline_minimum[i]:hairline_maximum[i]], axis=0)))
