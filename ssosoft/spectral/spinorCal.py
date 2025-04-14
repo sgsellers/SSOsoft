@@ -2061,7 +2061,7 @@ class SpinorCal:
 
         # Final catch-all fallback option if something is *still* wrong.
         if (
-                (hairline_minimum <= 0).any() or
+                (hairline_minimum < 0).any() or
                 (hairline_minimum >= dual_beams.shape[1]).any() or
                 (hairline_maximum <= 0).any() or
                 (hairline_maximum >= dual_beams.shape[1]).any()
