@@ -2005,6 +2005,13 @@ class SpinorCal:
             hairline_maximum = np.array(
                 [beam0_range[0, 1], beam1_range[0, 1]]
             )
+            difference = int(np.mean(hairline_maximum - hairline_minimum) / 2)
+            if (hairline_minimum <= 0).any():
+                hairline_minimum[np.where(hairline_minimum < 0)[0]] = 0
+            if (hairline_maximum >= dual_beams.shape[1]).any():
+                hairline_maximum[np.where(
+                    hairline_maximum >= dual_beams.shape[1]
+                )[0]] = dual_beams.shape[1]
             self.hair_align_ranges = np.array([hairline_minimum, hairline_maximum])
         elif self.manual_hairline_selection and self.hair_align_ranges is not None and hair_centers is None:
             # Manual hairlines selected on previous iter, using this selection
@@ -2020,11 +2027,11 @@ class SpinorCal:
             hairline_minimum = np.array(line_centers) - difference
             hairline_maximum = np.array(line_centers) + difference
             if (hairline_minimum <= 0).any():
-                hairline_minimum = np.array([0, 0])
-                hairline_maximum = np.array([int(2 * difference), int(2 * difference)])
+                hairline_minimum[np.where(hairline_minimum < 0)[0]] = 0
             if (hairline_maximum >= dual_beams.shape[1]).any():
-                hairline_maximum[:] = dual_beams.shape[1]
-                hairline_minimum[:] = hairline_maximum - 2 * (hairline_maximum - difference)
+                hairline_maximum[np.where(
+                    hairline_maximum >= dual_beams.shape[1]
+                )[0]] = dual_beams.shape[1]
             self.hair_align_ranges = np.array([hairline_minimum, hairline_maximum])
 
         elif hair_centers is None:
