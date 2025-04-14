@@ -2131,7 +2131,7 @@ class SpinorCal:
             # Case: iter 0, select alignment range is set to True
             beam0_profile = cutout_beams[0, 0, :, :].mean(axis=0)
             beam1_profile = cutout_beams[1, 0, :, :].mean(axis=0)
-            beam0_range = beam1_range = spex.select_spans_doublepanel(beam0_profile, beam1_profile, 1)
+            beam0_range, beam1_range = spex.select_spans_doublepanel(beam0_profile, beam1_profile, 1)
             spex_minimum = np.array([beam0_range[0, 0], beam1_range[0, 0]])
             spex_maximum = np.array([beam0_range[0, 1], beam1_range[0, 1]])
             for beam in range(2):
