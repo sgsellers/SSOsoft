@@ -1379,7 +1379,7 @@ class FirsCal:
                         )
                         internal_crosstalk[1, slit, y] = ct_val
                         quv_data[1, slit, y, :] = quv_data[1, slit, y, :] - ct_val * quv_data[2, slit, y, :]
-                internal_crosstalk[1, slit] += bulk_v2q_crosstalk
+                internal_crosstalk[1, slit] += bulk_v2u_crosstalk
         if self.q2v:
             for slit in self.nslits:
                 # Baseline bulk crosstalk first
@@ -2032,5 +2032,70 @@ class FirsCal:
         ]
 
         return firs_line_cores, fts_line_cores
+
+    def set_up_live_plot(
+            self, field_images: np.ndarray, slit_images: np.ndarray,
+            internal_crosstalks: np.ndarray, dy: float, dx: float
+    ) -> tuple:
+        """
+        Initializes live plotting statements for monitoring reduction progress
+
+        Parameters
+        ----------
+        field_images : numpy.ndarray
+            Array of field images. Will be increasingly filled-in with each loop.
+            Shape (nlines, 4, ny, nx)
+        slit_images : numpy.ndarray
+            Array of IQUV slit images. Shape (4, nslits, ny, nlambda).
+            I'm still undecided whether I want to flatten along nslits, or create a new axes subplot for each slit
+        internal_crosstalks : numpy.ndarray
+            Internal crosstalk values for monitoring. Shape (4, nslits, ny), where the 4-axis corresponds to:
+                1.) V->Q
+                2.) V->U
+                3.) Q->V
+                4.) U->V
+        dy : float
+            Plate scale along the slit. Should be ~0.15" for Virgo array in default configuration
+        dx : float
+            Step scale along raster. Default is dense-sampling, but may be different.
+
+        Returns
+        -------
+        field_fig_list : list
+            List of matplotlib figures, with an entry for each line of interest
+        field_i : list
+            List of matplotlib.image.AxesImage with an entry for each line of interest Stokes-I subplot
+        field_q : list
+            List of matplotlib.image.AxesImage with an entry for each line of interest Stokes-Q subplot
+        field_u : list
+            List of matplotlib.image.AxesImage with an entry for each line of interest Stokes-U subplot
+        field_v : list
+            List of matplotlib.image.AxesImage with an entry for each line of interest Stokes-V subplot
+        slit_fig : matplotlib.pyplot.figure
+            Matplotlib figure containing the slit IQUV image. The entire image will be blitted each time
+        slit_i : matplotlib.image.AxesImage
+            Matplotlib axes class containing the slit Stokes-I image
+        slit_q : matplotlib.image.AxesImage
+            Matplotlib axes class containing the slit Stokes-Q image
+        slit_u : matplotlib.image.AxesImage
+            Matplotlib axes class containing the slit Stokes-U image
+        slit_v : matplotlib.image.AxesImage
+            Matplotlib axes class containing the slit Stokes-V image
+        """
+        # Close all figures to reset the plotting landscape
+        plt.close("all")
+        plt.ion()
+        plt.pause(0.005)
+        return
+    def update_live_plot(self):
+        return
+    def package_scan(self):
+        return
+    def package_crosstalks(self):
+        return
+    def package_analysis(self):
+        return
+    def firs_analysis(self):
+        return
 
 
