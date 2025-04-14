@@ -430,7 +430,7 @@ def select_lines_singlepanel(array, nselections, fig_name="Popup Figure"):
             plt.close(fig)
 
     conn = fig.canvas.mpl_connect('button_press_event', onselect)
-    plt.show()
+    plt.show(block=True)
     return np.array(xvals)
 
 
