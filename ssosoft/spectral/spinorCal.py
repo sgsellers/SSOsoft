@@ -1765,8 +1765,15 @@ class SpinorCal:
                         mode='nearest', order=1
                     )
 
-                    # Perform spectral deskew
-                    science_beams, spectral_centers = self.subpixel_spectral_align(science_beams, hairline_centers)
+                    if step_index == 0:
+                        # Perform spectral deskew
+                        science_beams, spectral_centers, spex_ranges = self.subpixel_spectral_align(
+                            science_beams, hairline_centers
+                        )
+                    else:
+                        science_beams, spectral_centers, spex_ranges = self.subpixel_spectral_align(
+                            science_beams, hairline_centers, spectral_ranges=spex_ranges
+                        )
 
                     # Perform bulk spectral alignment on deskewed beams
                     science_beams[1] = scind.shift(
@@ -2079,7 +2086,7 @@ class SpinorCal:
         return hairline_skews, hairline_center
 
     def subpixel_spectral_align(
-            self, cutout_beams: np.ndarray, hairline_center: tuple
+            self, cutout_beams: np.ndarray, hairline_center: tuple, spectral_ranges: np.ndarray or None=None
     ) -> tuple[np.ndarray, float]:
         """
         Performs iterative deskew and align along the spectral axis.
@@ -2090,6 +2097,8 @@ class SpinorCal:
             Cut-out and vertically-aligned
         hairline_center : tuple
             Position of hairline in each beam for masking
+        spectral_ranges : numpy.ndarray or None
+            If provided and manual spectral selection is set to True, sets range of deskew to provided. Shape (2, 2)
 
         Returns
         -------
@@ -2109,7 +2118,7 @@ class SpinorCal:
         else:
             upper_hairline_center = None
 
-        if self.manual_alignment_selection:
+        if self.manual_alignment_selection and spectral_ranges is None:
             # Case: iter 0, select alignment range is set to True
             beam0_profile = cutout_beams[0, 0, :, :].mean(axis=0)
             beam1_profile = cutout_beams[1, 0, :, :].mean(axis=0)
@@ -2138,6 +2147,33 @@ class SpinorCal:
                     cutout_beams[beam, :, prof, :] = scind.shift(
                         cutout_beams[beam, :, prof, :], (0, spectral_skews[prof]), mode='nearest', order=1
                     )
+            spex_range = np.array([spex_minimum, spex_maximum])
+        elif self.manual_alignment_selection and spectral_ranges is not None:
+            spex_minimum = spectral_ranges[0]
+            spex_maximum = spectral_ranges[1]
+            for beam in range(2):
+                spectral_image = cutout_beams[beam, 0, :, spex_minimum[beam]:spex_maximum[beam]].copy()
+                # Mask hairlines
+                hair_min = int(hairline_center[beam] - 4)
+                hair_max = int(hairline_center[beam] + 5)
+                hair_min = 0 if hair_min < 0 else hair_min
+                hair_max = int(spectral_image.shape[0] - 1) if hair_max > spectral_image.shape[0] - 1 else hair_max
+                spectral_image[hair_min:hair_max, :] = np.nan
+                # FLIR may not have another set of hairlines.
+                if self.hairlines.shape[1] > 1:
+                    hair_min = int(upper_hairline_center[beam] - 4)
+                    hair_max = int(upper_hairline_center[beam] + 5)
+                    hair_min = 0 if hair_min < 0 else hair_min
+                    hair_max = int(spectral_image.shape[0] - 1) if hair_max > spectral_image.shape[0] - 1 else hair_max
+                    spectral_image[hair_min:hair_max, :] = np.nan
+                spectral_skews = spex.spectral_skew(
+                    spectral_image, order=2, slit_reference=0.5
+                )
+                for prof in range(cutout_beams.shape[2]):
+                    cutout_beams[beam, :, prof, :] = scind.shift(
+                        cutout_beams[beam, :, prof, :], (0, spectral_skews[prof]), mode='nearest', order=1
+                    )
+            spex_range = np.array([spex_minimum, spex_maximum])
         else:
             # Default behaviour
             x1, x2 = 20, 21
@@ -2171,6 +2207,7 @@ class SpinorCal:
                         )
                 x1 -= 3
                 x2 -= 3
+            spex_range = None
         # Find bulk spectral line center for full alignment
         spectral_center = (
             spex.find_line_core(
@@ -2186,7 +2223,7 @@ class SpinorCal:
                 )
             ) + int(self.spinor_line_cores[0] - 10),
         )
-        return cutout_beams, spectral_center
+        return cutout_beams, spectral_center, spex_range
 
     def solve_spinor_crosstalks(self, iquv_cube: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
