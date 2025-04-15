@@ -2086,15 +2086,165 @@ class FirsCal:
         plt.close("all")
         plt.ion()
         plt.pause(0.005)
+
+        if self.nslits > 1:
+            # Combine multiple slits into single arrays for the purposes of plotting
+            # Field images are already flattened
+            flattened_slit_images = np.concatenate(
+                [slit_images[:, i, :, :] for i in range(slit_images.shape[1])], axis=2
+            )
+        else:
+            flattened_slit_images = slit_images[:, 0, :, :]
+        slit_aspect_ratio = flattened_slit_images.shape[2] / flattened_slit_images.shape[1]
+        slit_fig = plt.figure("Reduced Slit Images", figsize=(5, 5/slit_aspect_ratio))
+        slit_gs = slit_fig.add_gridspec(2, 2, hspace=0.1, wspace=0.1)
+        slit_ax_i = slit_fig.add_subplot(slit_gs[0, 0])
+        slit_i = slit_ax_i.imshow(flattened_slit_images[0], cmap='gray', origin='lower')
+        slit_ax_i.text(10, 10, "I", color='C1')
+        slit_ax_q = slit_fig.add_subplot(slit_gs[0, 1])
+        slit_q = slit_ax_q.imshow(flattened_slit_images[1], cmap='gray', origin='lower')
+        slit_ax_q.text(10, 10, "Q", color='C1')
+        slit_ax_u = slit_fig.add_subplot(slit_gs[1, 0])
+        slit_u = slit_ax_u.imshow(flattened_slit_images[2], cmap='gray', origin='lower')
+        slit_ax_u.text(10, 10, "U", color='C1')
+        slit_ax_v = slit_fig.add_subplot(slit_gs[1, 1])
+        slit_v = slit_ax_v.imshow(flattened_slit_images[3], cmap='gray', origin='lower')
+        slit_ax_v.text(10, 10, "V", color='C1')
+
+        # Now the multiple windows for the multiple lines of interest
+        field_aspect_ratio = (dx * field_images.shape[3]) / (dy * field_images.shape[2])
+
+        field_fig_list = []
+        field_gs = []
+        field_i = []
+        field_q = []
+        field_u = []
+        field_v = []
+        field_i_ax = []
+        field_q_ax = []
+        field_u_ax = []
+        field_v_ax = []
+        for j in range(field_images.shape[0]):
+            field_fig_list.append(
+                plt.figure("Line " + str(j), figsize=(5, 5 / field_aspect_ratio + 1))
+            )
+            field_gs.append(
+                field_fig_list[j].add_gridspec(2, 2, hspace=0.1, wspace=0.1)
+            )
+            field_i_ax.append(
+                field_fig_list[j].add_subplot(field_gs[j][0, 0])
+            )
+            field_i.append(
+                field_i_ax[j].imshow(
+                    field_images[j, 0], origin='lower', cmap='gray',
+                    extent=[0, dx * field_images.shape[3], 0, dy * field_images.shape[2]]
+                )
+            )
+            field_q_ax.append(
+                field_fig_list[j].add_subplot(field_gs[j][0, 1])
+            )
+            field_q.append(
+                field_q_ax[j].imshow(
+                    field_images[j, 1], origin='lower', cmap='gray',
+                    extent=[0, dx * field_images.shape[3], 0, dy * field_images.shape[2]]
+                )
+            )
+            field_u_ax.append(
+                field_fig_list[j].add_subplot(field_gs[j][1, 0])
+            )
+            field_u.append(
+                field_u_ax[j].imshow(
+                    field_images[j, 2], origin='lower', cmap='gray',
+                    extent=[0, dx * field_images.shape[3], 0, dy * field_images.shape[2]]
+                )
+            )
+            field_v_ax.append(
+                field_fig_list[j].add_subplot(field_gs[j][1, 1])
+            )
+            field_v.append(
+                field_v_ax[j].imshow(
+                    field_images[j, 2], origin='lower', cmap='gray',
+                    extent=[0, dx * field_images.shape[3], 0, dy * field_images.shape[2]]
+                )
+            )
+
+            # Beautification; Turn off some x/y tick labels, set titles, axes labels, etc...
+            # Turn off tick labels for all except the first column in y, and the last row in x
+            field_i_ax[j].set_xticklabels([])
+            field_i_ax[j].set_ylabel("Extent [arcsec]")
+            field_i_ax[j].set_title("Line Core  Stokes-I")
+
+            field_q_ax[j].set_yticklabels([])
+            field_q_ax[j].set_xticklabels([])
+            field_q_ax[j].set_title("Integrated Stokes-Q")
+
+            field_u_ax[j].set_ylabel("Extent [arcsec]")
+            field_u_ax[j].set_xlabel("Extent [arcsec]")
+            field_u_ax[j].set_title("Integrated Stokes-U")
+
+            field_v_ax[j].set_yticklabels([])
+            field_v_ax[j].set_xlabel("Extent [arcsec]")
+            field_v_ax[j].set_title("Integrated Stokes-V")
+            
+            if not any((self.v2q, self.v2u, self.q2v, self.u2v)):
+                plt.show(block=False)
+                plt.pause(0.05)
+                return (
+                    field_fig_list,
+                    field_i, field_q, field_u, field_v,
+                    slit_fig,
+                    slit_i, slit_q, slit_u, slit_v,
+                    None, None, None, None, None
+                )
+            else:
+                crosstalk_fig = plt.figure("Internal Crosstalks Along Slit", figsize=(4, 2.5))
+                v2q_ax = crosstalk_fig.add_subplot(141)
+                v2u_ax = crosstalk_fig.add_subplot(142)
+                q2v_ax = crosstalk_fig.add_subplot(143)
+                u2v_ax = crosstalk_fig.add_subplot(144)
+                v2q = v2q_ax.plot(
+                    internal_crosstalks[0, :], np.arange(internal_crosstalks.shape[1]),
+                    color='C1'
+                )
+                v2q_ax.set_xlim(-1.05, 1.05)
+                v2q_ax.set_ylim(0, internal_crosstalks.shape[1])
+                v2q_ax.set_title("V->Q Crosstalk")
+                v2q_ax.set_ylabel("Position Along Slit")
+
+                v2u = v2u_ax.plot(
+                    internal_crosstalks[1, :], np.arange(internal_crosstalks.shape[1]),
+                    color='C1'
+                )
+                v2u_ax.set_xlim(-1.05, 1.05)
+                v2u_ax.set_ylim(0, internal_crosstalks.shape[1])
+                v2u_ax.set_title("V->U Crosstalk")
+                v2u_ax.set_xlabel("Crosstalk Value")
+
+                u2v = u2v_ax.plot(
+                    internal_crosstalks[2, :], np.arange(internal_crosstalks.shape[1]),
+                    color="C1"
+                )
+                u2v_ax.set_xlim(-1.05, 1.05)
+                u2v_ax.set_ylim(0, internal_crosstalks.shape[1])
+                u2v_ax.set_title("U->V Crosstalk [residual]")
+
+                plt.show(block=False)
+                plt.pause(0.05)
+
         return
+
     def update_live_plot(self):
         return
+
     def package_scan(self):
         return
+
     def package_crosstalks(self):
         return
+
     def package_analysis(self):
         return
+
     def firs_analysis(self):
         return
 
