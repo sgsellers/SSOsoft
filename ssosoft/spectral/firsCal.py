@@ -2081,6 +2081,16 @@ class FirsCal:
             Matplotlib axes class containing the slit Stokes-U image
         slit_v : matplotlib.image.AxesImage
             Matplotlib axes class containing the slit Stokes-V image
+        crosstalk_fig : matplotlib.pyplot.figure
+            Figure containing crosstalk values
+        v2q : list
+            List containing per-slit crosstalk plot information
+        v2u : list
+            List containing per-slit crosstalk plot information
+        q2v : list
+            List containing per-slit crosstalk plot information
+        u2v : list
+            List containing per-slit crosstalk plot information
         """
         # Close all figures to reset the plotting landscape
         plt.close("all")
@@ -2202,31 +2212,53 @@ class FirsCal:
                 v2u_ax = crosstalk_fig.add_subplot(142)
                 q2v_ax = crosstalk_fig.add_subplot(143)
                 u2v_ax = crosstalk_fig.add_subplot(144)
-                v2q = v2q_ax.plot(
-                    internal_crosstalks[0, :], np.arange(internal_crosstalks.shape[1]),
-                    color='C1'
-                )
+
+                v2q = []
+                v2u = []
+                q2v = []
+                u2v = []
+
                 v2q_ax.set_xlim(-1.05, 1.05)
-                v2q_ax.set_ylim(0, internal_crosstalks.shape[1])
+                v2q_ax.set_ylim(0, internal_crosstalks.shape[2])
                 v2q_ax.set_title("V->Q Crosstalk")
                 v2q_ax.set_ylabel("Position Along Slit")
 
-                v2u = v2u_ax.plot(
-                    internal_crosstalks[1, :], np.arange(internal_crosstalks.shape[1]),
-                    color='C1'
-                )
                 v2u_ax.set_xlim(-1.05, 1.05)
-                v2u_ax.set_ylim(0, internal_crosstalks.shape[1])
+                v2u_ax.set_ylim(0, internal_crosstalks.shape[2])
                 v2u_ax.set_title("V->U Crosstalk")
                 v2u_ax.set_xlabel("Crosstalk Value")
 
-                u2v = u2v_ax.plot(
-                    internal_crosstalks[2, :], np.arange(internal_crosstalks.shape[1]),
-                    color="C1"
-                )
+                q2v_ax.set_xlim(-1.05, 1.05)
+                q2v_ax.set_ylim(0, internal_crosstalks.shape[2])
+                q2v_ax.set_title("Q->V Crosstalk [residual]")
+
                 u2v_ax.set_xlim(-1.05, 1.05)
-                u2v_ax.set_ylim(0, internal_crosstalks.shape[1])
+                u2v_ax.set_ylim(0, internal_crosstalks.shape[2])
                 u2v_ax.set_title("U->V Crosstalk [residual]")
+
+                for slit in range(self.nslits):
+                    v2q.append(v2q_ax.plot(
+                        internal_crosstalks[0, slit, :], np.arange(internal_crosstalks.shape[2]),
+                        color='C{0}'.format(slit), label="Crosstalk for slit {0} of {1}".format(slit+1, self.nslits)
+                    ))
+
+                    v2u.append(v2u_ax.plot(
+                        internal_crosstalks[1, slit, :], np.arange(internal_crosstalks.shape[2]),
+                        color='C{0}'.format(slit)
+                    ))
+
+                    q2v.append(q2v_ax.plot(
+                        internal_crosstalks[2, slit, :], np.arange(internal_crosstalks.shape[2]),
+                        color='C{0}'.format(slit)
+                    ))
+
+                    u2v.append(u2v_ax.plot(
+                        internal_crosstalks[3, slit, :], np.arange(internal_crosstalks.shape[2]),
+                        color="C{0}".format(slit)
+                    ))
+
+                crosstalk_fig.legend(loc="lower center")
+
 
                 plt.show(block=False)
                 plt.pause(0.05)
