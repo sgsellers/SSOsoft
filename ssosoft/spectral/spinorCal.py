@@ -2147,10 +2147,13 @@ class SpinorCal:
                     cutout_beams[beam, :, prof, :] = scind.shift(
                         cutout_beams[beam, :, prof, :], (0, spectral_skews[prof]), mode='nearest', order=1
                     )
-            spex_range = np.array([spex_minimum, spex_maximum])
+            spex_range = np.array([
+                [spex_minimum[0], spex_maximum[0]],
+                [spex_minimum[1], spex_maximum[1]]
+            ])
         elif self.manual_alignment_selection and spectral_ranges is not None:
-            spex_minimum = spectral_ranges[0]
-            spex_maximum = spectral_ranges[1]
+            spex_minimum = spectral_ranges[:, 0]
+            spex_maximum = spectral_ranges[:, 1]
             for beam in range(2):
                 spectral_image = cutout_beams[beam, 0, :, spex_minimum[beam]:spex_maximum[beam]].copy()
                 # Mask hairlines
@@ -2173,7 +2176,10 @@ class SpinorCal:
                     cutout_beams[beam, :, prof, :] = scind.shift(
                         cutout_beams[beam, :, prof, :], (0, spectral_skews[prof]), mode='nearest', order=1
                     )
-            spex_range = np.array([spex_minimum, spex_maximum])
+            spex_range = np.array([
+                [spex_minimum[0], spex_maximum[0]],
+                [spex_minimum[1], spex_maximum[1]]
+            ])
         else:
             # Default behaviour
             x1, x2 = 20, 21
@@ -2207,21 +2213,21 @@ class SpinorCal:
                         )
                 x1 -= 3
                 x2 -= 3
-            spex_range = None
+            spex_range = np.array([x1, x2], [x1, x2])
         # Find bulk spectral line center for full alignment
         spectral_center = (
             spex.find_line_core(
                 np.nanmedian(
-                    cutout_beams[0, 0, :, int(self.spinor_line_cores[0] - 10): int(self.spinor_line_cores[0] + 10)],
+                    cutout_beams[0, 0, :, int(spex_range[0, 0]): int(spex_range[0, 1])],
                     axis=0
                 )
-            ) + int(self.spinor_line_cores[0] - 10),
+            ) + int(spex_range[0, 0]),
             spex.find_line_core(
                 np.nanmedian(
-                    cutout_beams[1, 0, :, int(self.spinor_line_cores[0] - 10): int(self.spinor_line_cores[0] + 10)],
+                    cutout_beams[1, 0, :, int(spex_range[1, 0]): int(spex_range[1, 1])],
                     axis=0
                 )
-            ) + int(self.spinor_line_cores[0] - 10),
+            ) + int(spex_range[1, 0]),
         )
         return cutout_beams, spectral_center, spex_range
 
