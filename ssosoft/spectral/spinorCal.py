@@ -2213,7 +2213,7 @@ class SpinorCal:
                         )
                 x1 -= 3
                 x2 -= 3
-            spex_range = np.array([[x1, x2], [x1, x2]])
+            spex_range = np.array([[x1, x1], [x2, x2]])
         # Find bulk spectral line center for full alignment
         spectral_center = (
             spex.find_line_core(
