@@ -530,9 +530,11 @@ class InversionPrep:
             stokes_db = input_file.create_dataset('stokes', stokes_norm.shape, dtype=np.float64)
             stokes_db[:] = np.nan_to_num(stokes_norm)
             noise_db = input_file.create_dataset('sigma', stokes_noise.shape, dtype=np.float64)
-            noise_db[:] = np.nan_to_num(stokes_noise)
+            stokes_noise = np.nan_to_num(stokes_noise)
+            stokes_noise[stokes_noise == 0] = np.nanmedian(stokes_noise[stokes_noise != 0])
+            noise_db[:] = stokes_noise
             los_db = input_file.create_dataset("LOS", coord_grid.shape, dtype=np.float64)
-            los_db[:] = np.nan_to_num(coord_grid)
+            los_db[:] = np.nan_to_num(coord_grid, nan=90)
             boundary_db = input_file.create_dataset("boundary", stokes_norm.shape, dtype=np.float64)
             boundary_db[:] = boundary
         if self.verbose:
