@@ -1245,7 +1245,9 @@ class FirsCal:
                 for slit in range(self.nslits):
                     mean_profile = np.nanmean(reduced_data[0, slit], axis=(0, 1))
                     wavelength_grids[slit] = self.tweak_wavelength_calibration(mean_profile)
-                reduced_filename = self.package_scan(reduced_data, wavelength_grids, master_hairline_centers)
+                reduced_filename = self.package_scan(
+                    reduced_data, wavelength_grids, master_hairline_centers, filelist
+                )
                 crosstalk_filename = self.package_crosstalks(
                     complete_i2quv_crosstalk, complete_internal_crosstalks, index, n
                 )
@@ -2196,79 +2198,236 @@ class FirsCal:
             field_v_ax[j].set_xlabel("Extent [arcsec]")
             field_v_ax[j].set_title("Integrated Stokes-V")
             
-            if not any((self.v2q, self.v2u, self.q2v, self.u2v)):
-                plt.show(block=False)
-                plt.pause(0.05)
-                return (
-                    field_fig_list,
-                    field_i, field_q, field_u, field_v,
-                    slit_fig,
-                    slit_i, slit_q, slit_u, slit_v,
-                    None, None, None, None, None
+        if not any((self.v2q, self.v2u, self.q2v, self.u2v)):
+            plt.show(block=False)
+            plt.pause(0.05)
+            return (
+                field_fig_list,
+                field_i, field_q, field_u, field_v,
+                slit_fig,
+                slit_i, slit_q, slit_u, slit_v,
+                None, None, None, None, None
+            )
+        else:
+            crosstalk_fig = plt.figure("Internal Crosstalks Along Slit", figsize=(4, 2.5))
+            v2q_ax = crosstalk_fig.add_subplot(141)
+            v2u_ax = crosstalk_fig.add_subplot(142)
+            q2v_ax = crosstalk_fig.add_subplot(143)
+            u2v_ax = crosstalk_fig.add_subplot(144)
+
+            v2q = []
+            v2u = []
+            q2v = []
+            u2v = []
+
+            v2q_ax.set_xlim(-1.05, 1.05)
+            v2q_ax.set_ylim(0, internal_crosstalks.shape[2])
+            v2q_ax.set_title("V->Q Crosstalk")
+            v2q_ax.set_ylabel("Position Along Slit")
+
+            v2u_ax.set_xlim(-1.05, 1.05)
+            v2u_ax.set_ylim(0, internal_crosstalks.shape[2])
+            v2u_ax.set_title("V->U Crosstalk")
+            v2u_ax.set_xlabel("Crosstalk Value")
+
+            q2v_ax.set_xlim(-1.05, 1.05)
+            q2v_ax.set_ylim(0, internal_crosstalks.shape[2])
+            q2v_ax.set_title("Q->V Crosstalk [residual]")
+
+            u2v_ax.set_xlim(-1.05, 1.05)
+            u2v_ax.set_ylim(0, internal_crosstalks.shape[2])
+            u2v_ax.set_title("U->V Crosstalk [residual]")
+
+            for slit in range(self.nslits):
+                v2q.append(v2q_ax.plot(
+                    internal_crosstalks[0, slit, :], np.arange(internal_crosstalks.shape[2]),
+                    color='C{0}'.format(slit), label="Crosstalk for slit {0} of {1}".format(slit+1, self.nslits)
+                ))
+
+                v2u.append(v2u_ax.plot(
+                    internal_crosstalks[1, slit, :], np.arange(internal_crosstalks.shape[2]),
+                    color='C{0}'.format(slit)
+                ))
+
+                q2v.append(q2v_ax.plot(
+                    internal_crosstalks[2, slit, :], np.arange(internal_crosstalks.shape[2]),
+                    color='C{0}'.format(slit)
+                ))
+
+                u2v.append(u2v_ax.plot(
+                    internal_crosstalks[3, slit, :], np.arange(internal_crosstalks.shape[2]),
+                    color="C{0}".format(slit)
+                ))
+
+            crosstalk_fig.legend(loc="lower center")
+
+            plt.show(block=False)
+            plt.pause(0.05)
+            return (
+                field_fig_list, field_i, field_q, field_u, field_v,
+                slit_fig, slit_i, slit_q, slit_u, slit_v,
+                crosstalk_fig, v2q, v2u, q2v, u2v
+            )
+
+    def update_live_plot(
+            self,
+            field_fig_list: list, field_i: list, field_q: list, field_u: list, field_v: list,
+            slit_fig: matplotlib.pyplot.figure, slit_i: matplotlib.image.AxesImage, slit_q: matplotlib.image.AxesImage,
+            slit_u: matplotlib.image.AxesImage, slit_v: matplotlib.image.AxesImage,
+            crosstalk_fig: matplotlib.pyplot.figure, v2q: list, v2u: list, q2v: list, u2v: list,
+            field_images: np.ndarray, slit_images: np.ndarray, internal_crosstalks: np.ndarray,
+            step: int
+    ) -> None:
+        """
+        Updates the plots created in firsCal.set_up_live_plot()
+
+        Parameters
+        ----------
+        field_fig_list : list
+        field_i : list
+        field_q : list
+        field_u : list
+        field_v : list
+        slit_fig : matplotlib.pyplot.Figure
+        slit_i : matplotlib.image.AxesImage
+        slit_q : matplotlib.image.AxesImage
+        slit_u : matplotlib.image.AxesImage
+        slit_v : matplotlib.image.AxesImage
+        crosstalk_fig : matplotlib.pyplot.Figure
+        v2q : list
+        v2u : list
+        q2v : list
+        u2v : list
+        field_images : numpy.ndarray
+        slit_images : numpy.ndarray
+        internal_crosstalks : numpy.ndarray
+        step : int
+            Step of reduction process. Necessary for normalization.
+
+        Returns
+        -------
+
+        """
+
+        if self.nslits > 1:
+            # Combine multiple slits into single arrays for the purposes of plotting
+            # Field images are already flattened
+            flattened_slit_images = np.concatenate(
+                [slit_images[:, i, :, :] for i in range(slit_images.shape[1])], axis=2
+            )
+        else:
+            flattened_slit_images = slit_images[:, 0, :, :]
+
+        slit_i.set_array(flattened_slit_images[0])
+        slit_i.set_norm(
+            matplotlib.colors.Normalize(
+                vmin=np.mean(slit_images[0]) - 3 * np.std(slit_images[0]),
+                vmax=np.mean(slit_images[0]) + 3 * np.std(slit_images[0])
+            )
+        )
+        slit_q.set_array(flattened_slit_images[1])
+        slit_q.set_norm(
+            matplotlib.colors.Normalize(
+                vmin=np.mean(slit_images[1]) - 3 * np.std(slit_images[1]),
+                vmax=np.mean(slit_images[1]) + 3 * np.std(slit_images[1])
+            )
+        )
+        slit_u.set_array(flattened_slit_images[2])
+        slit_u.set_norm(
+            matplotlib.colors.Normalize(
+                vmin=np.mean(slit_images[2]) - 3 * np.std(slit_images[2]),
+                vmax=np.mean(slit_images[2]) + 3 * np.std(slit_images[2])
+            )
+        )
+        slit_v.set_array(flattened_slit_images[3])
+        slit_v.set_norm(
+            matplotlib.colors.Normalize(
+                vmin=np.mean(slit_images[3]) - 3 * np.std(slit_images[3]),
+                vmax=np.mean(slit_images[3]) + 3 * np.std(slit_images[3])
+            )
+        )
+
+        slit_fig.canvas.draw()
+        slit_fig.canvas.flush_events()
+
+        for j in range(field_images.shape[0]):
+            field_i[j].set_array(field_images[j, 0])
+            field_i[j].set_norm(
+                matplotlib.colors.Normalize(
+                    vmin=np.mean(field_images[j, 0, :, :step]) - 3 * np.std(field_images[j, 0, :, :step]),
+                    vmax=np.mean(field_images[j, 0, :, :step]) + 3 * np.std(field_images[j, 0, :, :step])
                 )
-            else:
-                crosstalk_fig = plt.figure("Internal Crosstalks Along Slit", figsize=(4, 2.5))
-                v2q_ax = crosstalk_fig.add_subplot(141)
-                v2u_ax = crosstalk_fig.add_subplot(142)
-                q2v_ax = crosstalk_fig.add_subplot(143)
-                u2v_ax = crosstalk_fig.add_subplot(144)
+            )
+            field_q[j].set_array(field_images[j, 1])
+            field_q[j].set_norm(
+                matplotlib.colors.Normalize(
+                    vmin=np.mean(field_images[j, 1, :, :step]) - 3 * np.std(field_images[j, 1, :, :step]),
+                    vmax=np.mean(field_images[j, 1, :, :step]) + 3 * np.std(field_images[j, 1, :, :step])
+                )
+            )
+            field_u[j].set_array(field_images[j, 2])
+            field_u[j].set_norm(
+                matplotlib.colors.Normalize(
+                    vmin=np.mean(field_images[j, 2, :, :step]) - 3 * np.std(field_images[j, 2, :, :step]),
+                    vmax=np.mean(field_images[j, 2, :, :step]) + 3 * np.std(field_images[j, 2, :, :step])
+                )
+            )
+            field_v[j].set_array(field_images[j, 3])
+            field_v[j].set_norm(
+                matplotlib.colors.Normalize(
+                    vmin=np.mean(field_images[j, 3, :, :step]) - 3 * np.std(field_images[j, 3, :, :step]),
+                    vmax=np.mean(field_images[j, 3, :, :step]) + 3 * np.std(field_images[j, 3, :, :step])
+                )
+            )
+            field_fig_list[j].canvas.draw()
+            field_fig_list[j].canvas.flush_events()
 
-                v2q = []
-                v2u = []
-                q2v = []
-                u2v = []
-
-                v2q_ax.set_xlim(-1.05, 1.05)
-                v2q_ax.set_ylim(0, internal_crosstalks.shape[2])
-                v2q_ax.set_title("V->Q Crosstalk")
-                v2q_ax.set_ylabel("Position Along Slit")
-
-                v2u_ax.set_xlim(-1.05, 1.05)
-                v2u_ax.set_ylim(0, internal_crosstalks.shape[2])
-                v2u_ax.set_title("V->U Crosstalk")
-                v2u_ax.set_xlabel("Crosstalk Value")
-
-                q2v_ax.set_xlim(-1.05, 1.05)
-                q2v_ax.set_ylim(0, internal_crosstalks.shape[2])
-                q2v_ax.set_title("Q->V Crosstalk [residual]")
-
-                u2v_ax.set_xlim(-1.05, 1.05)
-                u2v_ax.set_ylim(0, internal_crosstalks.shape[2])
-                u2v_ax.set_title("U->V Crosstalk [residual]")
-
-                for slit in range(self.nslits):
-                    v2q.append(v2q_ax.plot(
-                        internal_crosstalks[0, slit, :], np.arange(internal_crosstalks.shape[2]),
-                        color='C{0}'.format(slit), label="Crosstalk for slit {0} of {1}".format(slit+1, self.nslits)
-                    ))
-
-                    v2u.append(v2u_ax.plot(
-                        internal_crosstalks[1, slit, :], np.arange(internal_crosstalks.shape[2]),
-                        color='C{0}'.format(slit)
-                    ))
-
-                    q2v.append(q2v_ax.plot(
-                        internal_crosstalks[2, slit, :], np.arange(internal_crosstalks.shape[2]),
-                        color='C{0}'.format(slit)
-                    ))
-
-                    u2v.append(u2v_ax.plot(
-                        internal_crosstalks[3, slit, :], np.arange(internal_crosstalks.shape[2]),
-                        color="C{0}".format(slit)
-                    ))
-
-                crosstalk_fig.legend(loc="lower center")
-
-
-                plt.show(block=False)
-                plt.pause(0.05)
-
+        if crosstalk_fig is not None:
+            for slit in range(self.nslits):
+                v2q[slit][0].set_data(internal_crosstalks[0, slit], np.arange(internal_crosstalks.shape[2]))
+                v2u[slit][0].set_data(internal_crosstalks[1, slit], np.arange(internal_crosstalks.shape[2]))
+                q2v[slit][0].set_data(internal_crosstalks[2, slit], np.arange(internal_crosstalks.shape[2]))
+                u2v[slit][0].set_data(internal_crosstalks[3, slit], np.arange(internal_crosstalks.shape[2]))
+            crosstalk_fig.canvas.draw()
+            crosstalk_fig.canvas.flush_events()
         return
 
-    def update_live_plot(self):
-        return
+    def package_scan(
+            self, datacube: np.ndarray, wavelength_array: np.ndarray, hairline_centers: tuple, filelist: list
+    ) -> str:
+        """
+        Packages reduced scan into FITS HDUList. HDUList has 7 extensions:
+            1.) Empty data attr with top-level header info
+            2--5.) Stokes-I, Q, U, V
+            6.) Wavelength Array
+            7.) Metadata array, which contains:
+                Pointing Lat/Lon, Timestamp, Scintillation, light level, slit position(s)
 
-    def package_scan(self):
+        Parameters
+        ----------
+        datacube : numpy.ndarray
+            5D reduced Stokes data in shape (4, nslits, ny, nx, nlambda)
+        wavelength_array : numpy.ndarray
+            2D final wavelength grid in shape (nslits, nlambda)
+        hairline_centers : tuple
+            Tuple containing the hairline centers that the datacube was registered to.
+        filelist : list
+            List of Level-0 Science Files. Will need to parse headers for metadata information
+
+        Returns
+        -------
+        filename : str
+        """
+
+        prsteps = [
+            'DARK-SUBTRACTION',
+            'FLATFIELDING',
+            'WAVELENGTH-CALIBRATION',
+            'TELESCOPE-MULLER',
+            'I->QUV CROSSTALK',
+            'FRINGE-CORRECTION'
+        ]
+
         return
 
     def package_crosstalks(self):
