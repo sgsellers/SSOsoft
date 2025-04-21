@@ -1808,7 +1808,9 @@ class SpinorCal:
                     )
                     inv_tmtx = np.linalg.inv(tmtx)
                     for j in range(combined_beams.shape[1]):
-                        combined_beams[:, j, :] = inv_tmtx @ xinv_interp[j, :, :] @ combined_beams[:, j, :]
+                        combined_beams[:, j, :] = np.nan_to_num(
+                            inv_tmtx @ xinv_interp[j, :, :] @ combined_beams[:, j, :]
+                        )
 
                     # Get parallactic angle for QU rotation correction
                     angular_geometry = self.spherical_coordinate_transform(
