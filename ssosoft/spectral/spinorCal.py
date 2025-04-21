@@ -3299,11 +3299,11 @@ class SpinorCal:
                 args=[stokes_v[50:-50], stokes_qu[50:-50]],
                 bounds=[-0.5, 0.5]
             )
+            v2qu_crosstalk = fit_result.x
+
         except ValueError:
             # No fit found; usually happens with NaNs or Infs
-            fit_result = 0
-
-        v2qu_crosstalk = fit_result.x
+            v2qu_crosstalk = 0
 
         corrected_qu = stokes_qu - v2qu_crosstalk * stokes_v
 
