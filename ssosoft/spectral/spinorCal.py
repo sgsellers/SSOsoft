@@ -3292,12 +3292,16 @@ class SpinorCal:
 
             return np.dot(v, qu_corr) / (np.linalg.norm(v) * np.linalg.norm(qu_corr))
 
-        fit_result = scopt.least_squares(
-            error_function,
-            x0=0,
-            args=[stokes_v[50:-50], stokes_qu[50:-50]],
-            bounds=[-0.5, 0.5]
-        )
+        try:
+            fit_result = scopt.least_squares(
+                error_function,
+                x0=0,
+                args=[stokes_v[50:-50], stokes_qu[50:-50]],
+                bounds=[-0.5, 0.5]
+            )
+        except ValueError:
+            # No fit found; usually happens with NaNs or Infs
+            fit_result = 0
 
         v2qu_crosstalk = fit_result.x
 
