@@ -15,6 +15,7 @@ import scipy.io as scio
 import scipy.ndimage as scind
 import scipy.optimize as scopt
 import tqdm
+from ChiantiPy.core.tests.test_Continuum import wavelength_array
 from astropy.coordinates import SkyCoord
 from sunpy.coordinates import frames
 
@@ -157,6 +158,7 @@ class FirsCal:
         self.default_analysis_ranges = np.array(
             [self.default_reference_wavelengths - 1.25, self.default_reference_wavelengths + 1.25]
         )
+        self.default_analysis_names = ["SiI 10827", "HeI 10829", "HeI 10830"]
         self.defringe = "flat" # Construct a fringe template from nearest solar flat series.
         # Future releases will include PCA-based defringe.
 
@@ -1251,12 +1253,18 @@ class FirsCal:
                 crosstalk_filename = self.package_crosstalks(
                     complete_i2quv_crosstalk, complete_internal_crosstalks, index, n
                 )
-                derived_params = self.firs_analysis(
+                parameter_maps, reference_wavelengths, flat_profile, flat_waves = self.firs_analysis(
                     reduced_data, self.analysis_indices
                 )
                 param_filename = self.package_analysis(
-                    *derived_params, reduced_filename
+                    parameter_maps,
+                    reference_wavelengths,
+                    self.analysis_indices,
+                    flat_profile,
+                    flat_waves,
+                    reduced_filename
                 )
+
                 if self.verbose:
                     print("\n\n=====================")
                     print("Saved Reduced Data at: {0}".format(reduced_filename))
@@ -2427,16 +2435,524 @@ class FirsCal:
             'I->QUV CROSSTALK',
             'FRINGE-CORRECTION'
         ]
+        prstep_comments = [
+            "firsCal/SSOSoft",
+            "firsCal/SSOSoft",
+            "1984 FTS Atlas",
+            "2010 Measurements",
+            "firsCal/SSOSoft",
+            "firsCal/SSOSoft"
+        ]
+        if self.v2q:
+            prsteps.append(
+                'V->Q CROSSTALK'
+            )
+            prstep_comments.append(
+                "firsCal/SSOSoft"
+            )
+        if self.v2u:
+            prsteps.append(
+                'V->U CROSSTALK'
+            )
+            prstep_comments.append(
+                "firsCal/SSOSoft"
+            )
+        if self.q2v:
+            prsteps.append(
+                'Q->V CROSSTALK'
+            )
+            prstep_comments.append(
+                "firsCal/SSOSoft"
+            )
+        if self.u2v:
+            prsteps.append(
+                'U->V CROSSTALK'
+            )
+            prstep_comments.append(
+                "firsCal/SSOSoft"
+            )
+        # For the FIRS Virgo 1k, the optical path downstream of the slit is symmetric.
+        # There's the 1524 mm collimator, the grating, the 1524 mm collimator again,
+        # and two 400 mm lenses to extend the beam.
+        # So the camera dy is the same as the slit plate scale.
+        # I do not believe this is true for the old visible arm.
+        # Currently not an issue, as there are no LCVRs for that channel,
+        # But if we ever re-commission it, someone will need to have a switch in here for which arm.
+        firs_plate_scale = self.telescope_plate_scale * self.dst_collimator / self.slit_camera_lens
+        step_startobs = []
+        solar_x = []
+        solar_y = []
+        rotan = []
+        llvl = []
+        scin = []
+        slitpos = []
+        for file in filelist:
+            with fits.open(file) as hdul:
+                # Values we'll only need once:
+                if file == filelist[0]:
+                    exptime = hdul[0].header['EXP_TIME']
+                    xposure = hdul[0].header['SUMS'] * exptime
+                    nsumexp = hdul[0].header['SUMS']
+                    # Step size is set by the slit width in the raw file headers.
+                    # Actual slit width is user-set
+                    stepsize = hdul[0].header['SLITWDTH'] * firs_plate_scale
+                    reqmapsize = hdul[0].header['NO. LOOP'] * stepsize * self.nslits
+                    actmapsize = stepsize * len(filelist) * self.nslits
+                    rsun = hdul[0].header['DST_SDIM'] / 2
+                    camera_name = hdul[0].header['CAMERA']
+                    # Getting the slit position is non-trivial, as the scanning mirror is before the slit camera lens.
+                    # The offset of the FSM is not one-to-one with the displacement on the slit, thanks to the influence
+                    # of the lens. Rather than try to estimate the displacement on the slit through the lens
+                    # (which involves assumptions about the thickness and composition of the lens),
+                    # we can instead back this assumption out of the header, assuming the lateral FSM dx has an eventual
+                    # displacement equal to what the system thinks the slit width is, i.e., slw/dx ==> arcsec/mm of disp
+                    fsm_dx = hdul[0].header['FSM DX']
+                    asec_per_mmdisp = stepsize / fsm_dx
+                step_startobs.append(hdul[0].header['OBS_STAR'])
+                rotan.append(hdul[0].header['DST_GDRN'] - 13.3)
+                llvl.append(hdul[0].header['DST_LLVL'])
+                scin.append(hdul[0].header['DST_SEE'])
+                center_coord = SkyCoord(
+                    hdul[0].header['DST_SLNG'] * u.deg, hdul[0].header['DST_SLAT'] * u.deg,
+                    obstime=hdul[0].header['OBS_STAR'], observer='earth', frame=frames.HeliographicStonyhurst
+                ).transform_to(frames.Helioprojective)
+                solar_x.append(center_coord.Tx.value)
+                solar_y.append(center_coord.Ty.value)
+                slitpos.append(hdul[0].header['FSM CP'] * asec_per_mmdisp)
+        rotan = np.nanmean(rotan)
+        date, time = step_startobs[0].split("T")
+        date = date.replace("-", "")
+        time = str(round(float(time.replace(":", "")), 0)).split(".")[0]
+        outname = self.reduced_file_pattern.format(
+            date, time, datacube.shape[1] * datacube.shape[3]
+        )
+        outfile = os.path.join(self.final_dir, outname)
 
+        # Have to account for offset maps, maps that were aborted partway, etc.
+        if len(slitpos) % 2 == 0:
+            slit_pos_center = (slitpos[int(len(slitpos) / 2) - 1] + slitpos[int(len(slitpos) / 2)]) / 2
+            center_x = (solar_x[int(len(solar_x) / 2) - 1] + solar_x[int(len(solar_x) / 2)]) / 2
+            center_y = (solar_y[int(len(solar_y) / 2) - 1] + solar_y[int(len(solar_y) / 2)]) / 2
+        else:
+            slit_pos_center = slitpos[int(len(slitpos) / 2)]
+            center_x = solar_x[int(len(solar_x) / 2)]
+            center_y = solar_y[int(len(solar_y) / 2)]
+        if round(reqmapsize, 1) != round(actmapsize, 1):
+            dx = slit_pos_center * np.cos((90 - rotan) * np.pi / 180)
+            center_x += dx
+            dy = slit_pos_center * np.sin((90 - rotan) * np.pi / 180)
+            center_y -= dy  # Note sign
+        # Finally, we need to account for the number of slits.
+        # Multi-slit units have slit positions that depend on the slit spacing
+        if self.nslits != 1:
+            res_slit_pos = np.zeros((self.nslits, len(slitpos)))
+            if self.nslits % 2 == 1:
+                # We don't have a tri-slit unit, but I want one, so I'm writing my code with that in mind.
+                # It's aspirational. How shall I to a tri-slit unit aspire?
+                for slit in range(-int(self.nslits / 2), int(self.nslits / 2) + 1):
+                    res_slit_pos[slit + int(self.nslits / 2), :] = (np.array(slitpos) +
+                                                                    slit * self.slit_spacing * firs_plate_scale)
+            else:
+                # Now the trouble -- with a quad or dual-slit unit, the spacings are off by 0.5
+                offsets = np.arange(self.nslits) - 0.5 - (self.nslits / 2 - 1)
+                for slit in range(self.nslits):
+                    res_slit_pos[slit, :] = np.array(slitpos) + offsets[slit]  * self.slit_spacing * firs_plate_scale
+            res_slit_pos = res_slit_pos.flatten()
+        else:
+            res_slit_pos = np.array(slitpos)
+        """
+        Decision time. Do we flatten the number of slits.
+        Pros:
+            - Easier to use a (nstokes, ny, nx, nlambda) data product than an (nstokes, nslits, ny, nx, nlambda) product
+            - Single WCS
+        Cons:
+            - Slit-to-slit differences washed out
+            - Time axis will jump as you proceed across the map 
+        Given the audience for the final data product, I think probably the best thing to do is to flatten it.
+        """
+
+        # Start assembling HDUList
+        ext0 = fits.PrimaryHDU()
+        ext0.header['DATE'] = (np.datetime64('now').astype(str), "File Creation Date and Time (UTC)")
+        ext0.header['ORIGIN'] = 'NMSU/SSOC'
+        ext0.header['TELESCOP'] = ('DST', "Dunn Solar Telescope, Sacramento Peak NM")
+        ext0.header['INSTRUME'] = ("FIRS", "Facility InfraRed Spectropolarimeter")
+        ext0.header['AUTHOR'] = "sellers"
+        ext0.header['CAMERA'] = camera_name
+        ext0.header['DATA_LEV'] = 1.5
+
+        if self.central_wavelength == 10830:
+            ext0.header['WAVEBAND'] = 'Si I 10827, He I 10830'
+
+        ext0.header['STARTOBS'] = step_startobs[0]
+        ext0.header['ENDOBS'] = (np.datetime64(step_startobs[-1]) + np.timedelta64(xposure, 'ms')).astype(str)
+        ext0.header['BTYPE'] = "Intensity"
+        ext0.header['BUNIT'] = 'Corrected DN'
+        ext0.header['EXPTIME'] = (exptime, 'ms for single exposure')
+        ext0.header['XPOSUR'] = (xposure, 'ms for total coadded exposure')
+        ext0.header['NSUMEXP'] = (nsumexp, "Summed images per modulation state")
+        ext0.header['NSLITS'] = (self.nslits, "Number of slits in Field Mask")
+        ext0.header['SLIT_WID'] = (self.slit_width, "[um] FIRS Slit Width")
+        ext0.header['SLIT_ARC'] = (
+            round(firs_plate_scale * self.slit_width / 1000, 2),
+            "[arcsec, approx] FIRS Slit Width"
+        )
+        ext0.header['MAP_EXP'] = (round(reqmapsize, 3), "[arcsec] Requested Map Size")
+        ext0.header['MAP_ACT'] = (round(actmapsize, 3), "[arcsec] Actual Map Size")
+
+        ext0.header['WAVEUNIT'] = (-10, "10^(WAVEUNIT), Angstrom")
+        ext0.header['WAVEREF'] = ("FTS", "Kurucz 1984 Atlas Used in Wavelength Determination")
+        ext0.header['WAVEMIN'] = (round(wavelength_array[0, 0], 3), "[AA] Angstrom")
+        ext0.header['WAVEMAX'] = (round(wavelength_array[0, -1], 3), "[AA], Angstrom")
+        ext0.header['GRPERMM'] = (self.grating_rules, "[mm^-1] Lines per mm of Grating")
+        ext0.header['GRBLAZE'] = (self.blaze_angle, "[degrees] Blaze Angle of Grating")
+        ext0.header['GRANGLE'] = (self.grating_angle, "[degrees] Operating Angle of Grating")
+        ext0.header['SPORDER'] = (self.spectral_order, "Spectral Order")
+        grating_params = spex.grating_calculations(
+            self.grating_rules, self.blaze_angle, self.grating_angle,
+            self.pixel_size, self.central_wavelength, self.spectral_order,
+            collimator=self.spectrograph_collimator, camera=self.camera_lens, slit_width=self.slit_width,
+        )
+        ext0.header['SPEFF'] = (round(float(grating_params['Total_Efficiency']), 3),
+                                'Approx. Total Efficiency of Grating')
+        ext0.header['LITTROW'] = (round(float(grating_params['Littrow_Angle']), 3), '[degrees] Littrow Angle')
+        ext0.header['RESOLVPW'] = (
+            round(np.nanmean(wavelength_array) / (0.001 * float(grating_params['Spectrograph_Resolution'])), 0),
+            "Maximum Resolving Power of Spectrograph"
+        )
+
+        for h in range(len(hairline_centers)):
+            ext0.header['HAIRLIN{0}'.format(h)] = (round(hairline_centers[h], 3), "Center of Registration Hairline")
+        ext0.header['RSUN_ARC'] = rsun
+        ext0.header['XCEN'] = (round(center_x, 2), "[arcsec], Solar-X of Map Center")
+        ext0.header['YCEN'] = (round(center_y, 2), "[arcsec], Solar-Y of Map Center")
+        ext0.header['FOVX'] = (round(actmapsize, 3), "[arcsec], Field-of-view of raster-x")
+        ext0.header['FOVY'] = (
+            round(datacube.shape[2] * firs_plate_scale * self.pixel_size / 1000 , 3),
+            "[arcsec], Field-of-view of raster-y"
+        )
+        ext0.header['ROT'] = (round(rotan, 3), "[degrees] Rotation from Solar-North")
+
+        for i in range(len(prsteps)):
+            ext0.header['PRSTEP{0}'.format(i+1)] = (prsteps[i], prstep_comments[i])
+        ext0.header['COMMENT'] ("Full WCS Information Contained in Individual Data HDUs\n"
+                                "{0} Slits have been flattened".format(self.nslits))
+
+        ext0.header.insert(
+            "DATA_LEV",
+            ('', '======== DATA SUMMARY ========'),
+            after=True
+        )
+        ext0.header.insert(
+            "WAVEUNIT",
+            ('', '======== SPECTROGRAPH CONFIGURATION ========')
+        )
+        ext0.header.insert(
+            "RSUN_ARC",
+            ('', '======== POINTING INFORMATION ========')
+        )
+        ext0.header.insert(
+            "PRSTEP1",
+            ('', '======== CALIBRATION PROCEDURE OUTLINE ========')
+        )
+
+        fits_hdus = [ext0]
+
+        # Stokes-IQUV HDU Construction
+        stokes = ['I', 'Q', 'U', 'V']
+        for i in range(4):
+            if self.nslits == 1:
+                flattened_datacube =  datacube[i, 0, :, :, :]
+            else:
+                flattened_datacube = np.concatenate(
+                    [datacube[i, slit, :, :, :] for slit in range(self.nslits)],
+                    axis=1
+                )
+            ext = fits.ImageHDU(flattened_datacube)
+            ext.header['EXTNAME'] = 'STOKES-' + stokes[i]
+            ext.header['RSUN_ARC'] = rsun
+            ext.header['CDELT1'] = (stepsize, "arcsec")
+            ext.header['CDELT2'] = (round(firs_plate_scale * self.pixel_size / 1000 , 3), "arcsec")
+            ext.header['CDELT3'] = (wavelength_array[0, 1] - wavelength_array[0, 0], "Angstrom")
+            ext.header['CTYPE1'] = 'HPLN-TAN'
+            ext.header['CTYPE2'] = 'HPLT-TAN'
+            ext.header['CTYPE3'] = 'WAVE'
+            ext.header['CUNIT1'] = 'arcsec'
+            ext.header['CUNIT2'] = 'arcsec'
+            ext.header['CUNIT3'] = 'Angstrom'
+            ext.header['CRVAL1'] = (center_x, "Solar-X, arcsec")
+            ext.header['CRVAL2'] = (center_y, "Solar-Y, arcsec")
+            ext.header['CRVAL3'] = (wavelength_array[0, 0], "Angstrom")
+            ext.header['CRPIX1'] = np.mean(np.arange(flattened_datacube.shape[1])) + 1
+            ext.header['CRPIX2'] = np.mean(np.arange(flattened_datacube.shape[0])) + 1
+            ext.header['CRPIX3'] = 1
+            ext.header['CROTA2'] = (rotan, "degrees")
+            for h in range(len(hairline_centers)):
+                ext.header['HAIRLIN{0}'.format(h)] = (round(hairline_centers[h], 3), "Center of registration hairline")
+            fits_hdus.append(ext)
+
+        ext_wvl = fits.ImageHDU(np.mean(wavelength_array, axis=0))
+
+        ext_wvl.header['EXTNAME'] = 'lambda-coordinate'
+        ext_wvl.header['BTYPE'] = 'lambda axis'
+        ext_wvl.header['BUNIT'] = '[AA]'
+
+        fits_hdus.append(ext_wvl)
+
+        # Metadata extension.
+        timestamps = [np.datetime64(t) for t in step_startobs]
+        # Repeat nslits times, since we flattened the datacube
+        timestamps = np.array(timestamps * self.nslits)
+        timedeltas = timestamps - timestamps[0].astype("datetime64[D]")
+        timedeltas = timedeltas.astype("timedelta64[ms]").astype(float) / 1000
+        columns = [
+            fits.Column(
+                name='T_ELAPSED',
+                format='D',
+                unit='SECONDS',
+                array=timedeltas,
+                time_ref_pos=timestamps[0].astype('datetime64[D]').astype(str)
+            ),
+            fits.Column(
+                name='SLIT_POS',
+                format='D',
+                unit='ARCSEC',
+                array=res_slit_pos
+            ),
+            fits.Column(
+                name='TEL_SOLX',
+                format='D',
+                unit='ARCSEC',
+                array=np.array(solar_x * self.nslits)
+            ),
+            fits.Column(
+                name='TEL_SOLY',
+                format='D',
+                unit='ARCSEC',
+                array=np.array(solar_y * self.nslits)
+            ),
+            fits.Column(
+                name='LIGHTLVL',
+                format='D',
+                unit='UNITLESS',
+                array=np.array(llvl * self.nslits)
+            ),
+            fits.Column(
+                name='TELESCIN',
+                format='D',
+                unit='ARCSEC',
+                array=np.array(scin * self.nslits)
+            )
+        ]
+        ext_met = fits.BinTableHDU.from_columns(columns)
+        ext_met.header['EXTNAME'] = 'METADATA'
+        ext_met['COMMENT'] = 'Columns correspond to x-axis in data extensions, which are shape (ny, nx, nlambda)'
+
+        fits_hdus.append(ext_met)
+
+        fits_hdulist = fits.HDUList(fits_hdus)
+        fits_hdulist.writeto(outfile, overwrite=True)
+
+        return outfile
+
+    def firs_analysis(
+            self, datacube: np.ndarray, bound_indices: np.ndarray
+    ) -> tuple[np.ndarray, list, np.ndarray, np.ndarray]:
+        """
+        Performs moment analysis, determines mean circular/linear polarization, and net circular polarization maps
+        for each of the given spectral windows. See Martinez Pillet et. al., 2011 for discussion of mean circular
+        and linear polarization. See Solanki & Montavon, 1993 for net circular polarization.
+
+        Parameters
+        ----------
+        datacube : numpy.ndarray
+            5D datacube of shape (4, nslits, ny, nx, nlambda)
+        bound_indices : numpy.ndarray
+            Array of regions for analysis. Shape (2, nslits, numlines)
+
+        Returns
+        -------
+        parameter_maps : numpy.ndarray
+            Array of derived parameter maps. Has shape (nlines, 6, ny, nx*nslits).
+            6 is from the number of derived parameters: Intensity, velocity, velocity width, net circular polarization,
+            mean circular polarization, mean linear polarization.
+        """
+        parameter_maps = np.zeros((bound_indices.shape[2], 6, datacube.shape[2], datacube.shape[3] * self.nslits))
+        mean_profile = np.nanmean(datacube[0, :, :, :, :], axis=(0, 1, 2))
+        wavelength_array = self.tweak_wavelength_calibration(mean_profile)
+        if self.analysis_ranges != "default":
+            reference_wavelengths = []
+            for i in range(bound_indices.shape[2]):
+                line_core = spex.find_line_core(
+                    mean_profile[int(bound_indices[0, :, i].mean()):int(bound_indices[1, :, i].mean())]
+                ) + int(bound_indices[0, :, i].mean())
+                reference_wavelengths.append(
+                    np.interp(np.arange(len(wavelength_array)), wavelength_array, line_core)
+                )
+        else:
+            reference_wavelengths = self.default_reference_wavelengths
+
+        with tqdm.tqdm(
+            total=parameter_maps.shape[0] * parameter_maps.shape[2] * parameter_maps.shape[3],
+            desc="Constructing Derived Parameter Maps"
+        ) as pbar:
+            for i in range(parameter_maps.shape[0]):
+                for y in range(parameter_maps.shape[2]):
+                    for slit in range(self.nslits):
+                        for x in range(datacube.shape[3]):
+                            spectral_profile = datacube[
+                                0, slit, y, x, bound_indices[0, slit, i]:bound_indices[1, slit, i]
+                            ]
+                            intens, vel, wid = spex.moment_analysis(
+                                wavelength_array[bound_indices[0, slit, i]:bound_indices[1, slit, i]],
+                                spectral_profile,
+                                reference_wavelengths[i]
+                            )
+                            parameter_maps[i, 0:3, y, slit*datacube.shape[3] + x] = np.array([intens, vel, wid])
+                            pseudo_continuum = np.nanmean(
+                                spectral_profile.take([-2, -1, 0, 1])
+                            )
+                            # Net V
+                            parameter_maps[i, 3, y, slit*datacube.shape[3] + x] = pol.net_circular_polarization(
+                                datacube[3, slit, y, x, bound_indices[0, slit, i]:bound_indices[1, slit, i]],
+                                wavelength_array[bound_indices[0, slit, i]:bound_indices[1, slit, i]]
+                            )
+                            # Mean V
+                            parameter_maps[i, 4, y, slit*datacube.shape[3] + x] = pol.mean_circular_polarization(
+                                datacube[3, slit, y, x, bound_indices[0, slit, i]:bound_indices[1, slit, i]],
+                                wavelength_array[bound_indices[0, slit, i]:bound_indices[1, slit, i]],
+                                reference_wavelengths[i],
+                                pseudo_continuum
+                            )
+                            # Mean QU
+                            parameter_maps[i, 5, y, slit*datacube.shape[3] + x] = pol.mean_linear_polarization(
+                                datacube[1, slit, y, x, bound_indices[0, slit, i]:bound_indices[1, slit, i]],
+                                datacube[2, slit, y, x, bound_indices[0, slit, i]:bound_indices[1, slit, i]],
+                                pseudo_continuum
+                            )
+                            pbar.update(1)
+
+        return parameter_maps, reference_wavelengths, mean_profile, wavelength_array
+
+    def package_analysis(
+            self, analysis_maps: np.ndarray, rwvls: list, indices: np.ndarray,
+            mean_profile: np.ndarray, wavelength_array: np.ndarray, reference_file:str
+    ) -> str:
+        """
+        Write FIRS first-order analysis maps to FITS file
+
+        Parameters
+        ----------
+        analysis_maps : numpy.ndarray
+        rwvls : list
+        indices : numpy.ndarray
+        mean_profile : numpy.ndarray
+        wavelength_array : numpy.ndarray
+        reference_file : str
+
+        Returns
+        -------
+
+        """
+        extnames = [
+            "INTENSITY",
+            "VELOCITY",
+            "WIDTH",
+            "NET-CPL",
+            "MEAN-CPL",
+            "MEAN-LPL"
+        ]
+        methods = [
+            "MOMENT-ANALYSIS",
+            "MOMENT-ANALYSIS",
+            "MOMENT-ANALYSIS",
+            "SOLANKI-MONTAVON",
+            "MARTINEZ-PILLET",
+            "MARTINEZ-PILLET"
+        ]
+        method_comments = [
+            "",
+            "",
+            "",
+            "1993",
+            "2011",
+            "2011"
+        ]
+        outfile = ""
+        for i in range(len(rwvls)):
+            with fits.open(reference_file) as hdul:
+                hdr0 = hdul[0].header.copy()
+                hdr1 = hdul[1].header.copy()
+                del hdr1['CDELT3']
+                del hdr1['CTYPE3']
+                del hdr1['CUNIT3']
+                del hdr1['CRVAL3']
+                del hdr1['CRPIX3']
+            ext0 = fits.PrimaryHDU()
+            ext0.header = hdr0
+            ext0.header["BTYPE"] = "Derived"
+            del ext0.header["BUNIT"]
+            prsteps = [x for x in ext0.header.keys() if "PRSTEP" in x]
+            ext0.header.insert(
+                prsteps[-1],
+                ("PRSTEP{0}".format(len(prsteps) + 1), "SPEC-ANALYSIS", "User-Chosen Spectral ROI"),
+                after=True
+            )
+            ext0.header.insert(
+                "WAVEMIN",
+                ("REFWVL", round(rwvls[i], 3), "Reference Wavelength Value")
+            )
+            if self.analysis_ranges == "default":
+                # If we're using default ranges, we must also be at 10830
+                ext0.header['WAVEBAND'] = self.default_analysis_names[i]
+            ext0.header["WAVEMIN"] = (round(wavelength_array[indices[i][0]], 3), "Lower Bound for Analysis")
+            ext0.header["WAVEMAX"] = (round(wavelength_array[indices[i][1]], 3), "Upper Bound for Analysis")
+            ext0.header["COMMENT"] = "File contains derived parameters from moment analysis and polarization analysis"
+            fits_hdus = [ext0]
+            for j in range(analysis_maps.shape[1]):
+                ext = fits.ImageHDU(analysis_maps[i, j, :, :])
+                ext.header = hdr1.copy()
+                ext.header['DATE-OBS'] = ext0.header['STARTOBS']
+                ext.header['DATE-END'] = ext0.header['ENDOBS']
+                dt = (np.datetime64(ext0.header['ENDOBS']) - np.datetime64(ext0.header['STARTOBS'])) / 2
+                date_avg = (np.datetime64(ext0.header['STARTOBS']) + dt).astype(str)
+                ext.header['DATE-AVG'] = (date_avg, "UTC, time at map midpoint")
+                ext.header['EXTNAME'] = extnames[j]
+                ext.header["METHOD"] = (methods[j], method_comments[j])
+                fits_hdus.append(ext)
+
+            ext_wvl = fits.ImageHDU(wavelength_array)
+            ext_wvl.header['EXTNAME'] = 'lambda-coordinate'
+            ext_wvl.header['BTYPE'] = 'lambda axis'
+            ext_wvl.header['BUNIT'] = '[AA]'
+            ext_wvl.header['COMMENT'] = "Reference Wavelength Array. For use with reference profile and WAVEMIN/MAX."
+            fits_hdus.append(ext_wvl)
+
+            ext_ref = fits.ImageHDU(mean_profile)
+            ext_ref.header['EXTNAME'] = 'reference-profile'
+            ext_ref.header['BTYPE'] = 'Intensity'
+            ext_ref.header['BUNIT'] = 'Corrected DN'
+            ext_ref.header['COMMENT'] = "Mean spectral profile. For use with WAVEMIN/MAX."
+            fits_hdus.append(ext_ref)
+
+            date, time = ext0.header['STARTOBS'].split("T")
+            date = date.replace("-", "")
+            time = str(round(float(time.replace(":", "")), 0)).split(".")[0]
+            if self.analysis_ranges == "default":
+                linename = self.default_analysis_names[i].replace(" ", "_")
+            else:
+                linename = "LINE{0}".format(i)
+            outname = self.parameter_map_pattern.format(
+                date,
+                time,
+                linename,
+                round(ext0.header['WAVEMIN'], 2),
+                round(ext0.header['WAVEMAX'], 2)
+            )
+            outfile = os.path.join(self.final_dir, outname)
+            fits_hdu_list = fits.HDUList(fits_hdus)
+            fits_hdu_list.writeto(outfile, overwrite=True)
         return
 
     def package_crosstalks(self):
         return
-
-    def package_analysis(self):
-        return
-
-    def firs_analysis(self):
-        return
-
-
