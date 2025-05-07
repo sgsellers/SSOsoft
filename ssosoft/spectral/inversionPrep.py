@@ -880,8 +880,19 @@ class InversionPrep:
                 """
                 if ('vmac' in param) or ("ff" in param):
                     # vmac is a special case -- no nodes
+                    if len(photosphere[param][0, 0, -1]) == 0:
+                        fill = np.zeros((len(log_tau), nx, ny))
+                        columns.append(
+                            fits.Column(
+                                name=param,
+                                format=str(int(nx * ny)) + "I",
+                                dim='(' + str(fill.shape[2]) + "," + str(fill.shape[1]) + ")",
+                                unit=unit,
+                                array=fill
+                            )
+                        )
                     dummy_arr = np.zeros((len(log_tau), nx, ny))
-                    if 'err' in param:
+                    elif 'err' in param:
                         param_array = photosphere[param][:, 0, -1].reshape(nx, ny)
                         for x in range(err.shape[0]):
                             for y in range(err.shape[1]):
