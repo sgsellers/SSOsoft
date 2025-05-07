@@ -703,8 +703,8 @@ class InversionPrep:
         with fits.open(fits_file) as hdul:
             dx = hdul['STOKES-I'].header['CDELT1'] * bin_slits
             dy = hdul['STOKES-I'].header['CDELT2'] * bin_spatial
-            nx = int((hdul['STOKES-I'].header['NAXIS3'] - 1) / bin_spatial)
-            ny = int((hdul['STOKES-I'].header['NAXIS2'] - 1) / bin_slits)
+            nx = int((hdul['STOKES-I'].header['NAXIS3'] - 1) / bin_spatial) + 1
+            ny = int((hdul['STOKES-I'].header['NAXIS2'] - 1) / bin_slits) + 1
             dlambda = hdul['STOKES-I'].header['CDELT3']
             crval1 = hdul['STOKES-I'].header['CRVAL1']
             crval2 = hdul['STOKES-I'].header['CRVAL2']
