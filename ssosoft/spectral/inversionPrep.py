@@ -823,22 +823,22 @@ class InversionPrep:
                                 array=param_array[np.newaxis, :, :]
                             )
                         )
-                ext = fits.BinTableHDU.from_columns(columns)
-                ext.header['EXTNAME'] = ("CHROMOSPHERE-{0}".format(ctr), "Fit chromospheric params from Hazel2")
-                ext.header['LINE'] = self.central_wavelength
-                ext.header["RSUN_ARC"] = master_header['RSUN_ARC']
-                ext.header['CDELT1'] = (dx, "arcsec")
-                ext.header['CDELT2'] = (dy, "arcsec")
-                ext.header['CTYPE1'] = 'HPLN-TAN'
-                ext.header['CTYPE2'] = 'HPLT-TAN'
-                ext.header['CUNIT1'] = 'arcsec'
-                ext.header['CUNIT2'] = 'arcsec'
-                ext.header['CRVAL1'] = (crval1, "Solar-X, arcsec")
-                ext.header['CRVAL2'] = (crval2, "Solar-Y, arcsec")
-                ext.header['CRPIX1'] = nx/2
-                ext.header['CRPIX2'] = ny/2
-                ext.header['CROTA2'] = (crota2, "degrees")
-                fits_hdulist.append(ext)
+                    ext = fits.BinTableHDU.from_columns(columns)
+                    ext.header['EXTNAME'] = ("CHROMOSPHERE-{0}".format(ctr), "Fit chromospheric params from Hazel2")
+                    ext.header['LINE'] = self.central_wavelength
+                    ext.header["RSUN_ARC"] = master_header['RSUN_ARC']
+                    ext.header['CDELT1'] = (dx, "arcsec")
+                    ext.header['CDELT2'] = (dy, "arcsec")
+                    ext.header['CTYPE1'] = 'HPLN-TAN'
+                    ext.header['CTYPE2'] = 'HPLT-TAN'
+                    ext.header['CUNIT1'] = 'arcsec'
+                    ext.header['CUNIT2'] = 'arcsec'
+                    ext.header['CRVAL1'] = (crval1, "Solar-X, arcsec")
+                    ext.header['CRVAL2'] = (crval2, "Solar-Y, arcsec")
+                    ext.header['CRPIX1'] = nx/2
+                    ext.header['CRPIX2'] = ny/2
+                    ext.header['CROTA2'] = (crota2, "degrees")
+                    fits_hdulist.append(ext)
 
             # Write the FITS file now. As we move forward, we'll be using a bunch of memory.
             # We'll write the file, and then add extensions to it as we go.
