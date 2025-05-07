@@ -878,8 +878,7 @@ class InversionPrep:
                 Which is a problem when you put a while loop in your code.
                 But the "_err" seems to now have the correct length each time, so we're going to go with that.
                 """
-                if ('vmac' in param) or ("ff" in param):
-                    # vmac is a special case -- no nodes
+                if ('vmac' in param) or ('ff' in param):
                     if len(photosphere[param][0, 0, -1]) == 0:
                         fill = np.zeros((len(log_tau), nx, ny))
                         columns.append(
@@ -891,25 +890,24 @@ class InversionPrep:
                                 array=fill
                             )
                         )
-                    elif 'err' in param:
-                        dummy_arr = np.zeros((len(log_tau), nx, ny))
-                        param_array = photosphere[param][:, 0, -1].reshape(nx, ny)
-                        for x in range(err.shape[0]):
-                            for y in range(err.shape[1]):
-                                if len(err[x, y]) != 0:
-                                    dummy_err[:, x, y] += param_array[x, y][0]
                     else:
-                        param_array = photosphere[param][:, 0, -1, 0].reshape(nx, ny)
-                        dummy_arr = np.repeat(param_array[np.newaxis, :, :], dummy_arr.shape[0], axis=0)
-                    columns.append(
-                        fits.Column(
-                            name=param,
-                            format=str(int(nx * ny)) + "D",
-                            dim='(' + str(dummy_arr.shape[2]) + "," + str(dummy_arr.shape[1]) + ")",
-                            unit=unit,
-                            array=dummy_arr
+                        # vmac is a special case -- no nodes
+                        dummy_arr = np.zeros((len(log_tau), nx, ny))
+                        if 'err' in param:
+                            param_array = photosphere[param][:, 0, -1].reshape(nx, ny)
+                            dummy_arr = np.repeat(param_array[np.newaxis, :, :], dummy_arr.shape[0], axis=0)
+                        else:
+                            param_array = photosphere[param][:, 0, -1, 0].reshape(nx, ny)
+                            dummy_arr = np.repeat(param_array[np.newaxis, :, :], dummy_arr.shape[0], axis=0)
+                        columns.append(
+                            fits.Column(
+                                name=param,
+                                format=str(int(nx * ny)) + "D",
+                                dim='(' + str(dummy_arr.shape[2]) + "," + str(dummy_arr.shape[1]) + ")",
+                                unit=unit,
+                                array=dummy_arr
+                            )
                         )
-                    )
                 elif "err" in param:
                     # Case: Parameter not fit
                     if len(photosphere[param][0, 0, -1]) == 0:
@@ -975,7 +973,6 @@ class InversionPrep:
                             array=colarr
                         )
                     )
-
             # Okay, we're back.
             ext = fits.BinTableHDU.from_columns(columns)
             ext.header['EXTNAME'] = ('PHOTOSPHERE', self.inversion_code)
