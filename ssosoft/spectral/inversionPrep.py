@@ -883,7 +883,10 @@ class InversionPrep:
                     dummy_arr = np.zeros((len(log_tau), nx, ny))
                     if 'err' in param:
                         param_array = photosphere[param][:, 0, -1].reshape(nx, ny)
-                        dummy_arr = np.repeat(param_array[np.newaxis, :, :], dummy_arr.shape[0], axis=0)
+                        for x in range(err.shape[0]):
+                            for y in range(err.shape[1]):
+                                if len(err[x, y]) != 0:
+                                    dummy_err[:, x, y] += param_array[x, y][0]
                     else:
                         param_array = photosphere[param][:, 0, -1, 0].reshape(nx, ny)
                         dummy_arr = np.repeat(param_array[np.newaxis, :, :], dummy_arr.shape[0], axis=0)
