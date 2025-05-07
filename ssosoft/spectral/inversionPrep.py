@@ -1111,7 +1111,7 @@ class InversionPrep:
         plt.rcParams.update(params)
 
         with fits.open(filename) as hdul:
-            extnames = [hdul[i].header['EXTNAME'] for i in range(len(hdul))]
+            extnames = [hdul[i].header['EXTNAME'] for i in range(1, len(hdul))]
             chromolist = [i for i in extnames if "CHROMOSPHERE" in i]
             photolist = [i for i in extnames if "PHOTOSPHERE" in i]
             chisq = hdul['CHISQ'].data
