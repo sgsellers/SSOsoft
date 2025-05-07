@@ -675,10 +675,10 @@ class InversionPrep:
         """
         with open(os.path.join(inversion_dir, "prep_parameters.txt"), "r") as prep:
             lines = prep.readlines()
-            initial_file = lines[0].split("=")[1]
-            fits_file = lines[1].split("=")[1]
-            bin_slits = int(lines[2].split("=")[1])
-            bin_spatial = int(lines[3].split("=")[1])
+            initial_file = lines[0].split("=")[1].replace("\n", "")
+            fits_file = lines[1].split("=")[1].replace("\n", "")
+            bin_slits = int(lines[2].split("=")[1].replace("\n", ""))
+            bin_spatial = int(lines[3].split("=")[1].replace("\n", ""))
         if inverted_file is None:
             candidate_list = sorted(glob.glob(os.path.join(inversion_dir, "*.h5")))
             known_slugs = ['reference_chromosphere', 'reference_photosphere', os.path.split(initial_file)[1]]
@@ -709,7 +709,7 @@ class InversionPrep:
             crval1 = hdul['STOKES-I'].header['CRVAL1']
             crval2 = hdul['STOKES-I'].header['CRVAL2']
             crota2 = hdul['STOKES-I'].header['CROTA2']
-            hdul_names = [hdul[i].header['EXTNAME'] for i in range(len(hdul))]
+            hdul_names = [hdul[i].header['EXTNAME'] for i in range(1, len(hdul))]
             if "METADATA" in hdul_names:
                 metadata = hdul['METADATA'].data.copy()
             else:
