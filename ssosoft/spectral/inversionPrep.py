@@ -878,7 +878,7 @@ class InversionPrep:
                 Which is a problem when you put a while loop in your code.
                 But the "_err" seems to now have the correct length each time, so we're going to go with that.
                 """
-                if 'vmac' in param:
+                if ('vmac' in param) or ("ff" in param):
                     # vmac is a special case -- no nodes
                     dummy_arr = np.zeros((len(log_tau), nx, ny))
                     if 'err' in param:
