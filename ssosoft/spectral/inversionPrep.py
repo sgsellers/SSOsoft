@@ -681,7 +681,7 @@ class InversionPrep:
             bin_spatial = int(lines[3].split("=")[1])
         if inverted_file is None:
             candidate_list = sorted(glob.glob(os.path.join(inversion_dir, "*.h5")))
-            known_slugs = ['reference_chromosphere', 'reference_photosphere', os.path.split(initial_file)]
+            known_slugs = ['reference_chromosphere', 'reference_photosphere', os.path.split(initial_file)[1]]
             inverted_file = [
                 i for i in candidate_list if not any([k in i for k in known_slugs])
             ][0]
