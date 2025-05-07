@@ -872,26 +872,33 @@ class InversionPrep:
                         This is vexatious.  
                 Fit parameters can have nans in their nodelist AND empties, which must be accounted for as well
                 vmac in the photosphere also doesn't have a height profile.
+                
+                2025-05-07: Okay, at some point Hazel+SIR changed its file outputs.
+                As of right now, all of the "_nodes" keywords are just empty.
+                Which is a problem when you put a while loop in your code.
+                But the "_err" seems to now have the correct length each time, so we're going to go with that.
                 """
-                node_key = param.split("_")[0] + "_nodes"
-                node_arr = photosphere[node_key][:, 0, -1].reshape(nx, ny)
-                node_count = len(node_arr[0, 0])
-                while node_count == 0:
-                    node_count = len(
-                        node_arr[
-                            np.random.randint(0, nx),
-                            np.random.randint(0, ny)
-                        ]
-                    )
-                node_arr_full = np.zeros((nx, ny, node_count))
-                for x in range(node_arr.shape[0]):
-                    for y in range(node_arr.shape[1]):
-                        if len(node_arr[x, y]) != 0:
-                            node_arr_full[x, y, :] = node_arr[x, y]
-                node_arr_full = np.nan_to_num(node_arr_full)
-                # Case: Parameter isn't fit for. All nans in node array (i.e., 0s)
-                if len(node_arr_full[node_arr_full != 0]) == 0:
+                if 'vmac' in param:
+                    # vmac is a special case -- no nodes
+                    dummy_arr = np.zeros((len(log_tau), nx, ny))
                     if 'err' in param:
+                        param_array = photosphere[param][:, 0, -1].reshape(nx, ny)
+                        dummy_arr = np.repeat(param_array[np.newaxis, :, :], dummy_arr.shape[0], axis=0)
+                    else:
+                        param_array = photosphere[param][:, 0, -1, 0].reshape(nx, ny)
+                        dummy_arr = np.repeat(param_array[np.newaxis, :, :], dummy_arr.shape[0], axis=0)
+                    columns.append(
+                        fits.Column(
+                            name=param,
+                            format=str(int(nx * ny)) + "D",
+                            dim='(' + str(dummy_arr.shape[2]) + "," + str(dummy_arr.shape[1]) + ")",
+                            unit=unit,
+                            array=dummy_arr
+                        )
+                    )
+                elif "err" in param:
+                    # Case: Parameter not fit
+                    if len(photosphere[param][0, 0, -1]) == 0:
                         fill = np.zeros((len(log_tau), nx, ny))
                         columns.append(
                             fits.Column(
@@ -902,111 +909,59 @@ class InversionPrep:
                                 array=fill
                             )
                         )
-                    else:
-                        fill = np.zeros((len(log_tau), nx, ny)) + photosphere[param][0, 0, -1, 0]
+                    elif len(photosphere[param][0, 0, -1] == 1):
+                        # Case: parameter fit with one node. Cast error across tau grid
+                        dummy_err = np.zeros((len(log_tau), nx, ny))
+                        err = photosphere[param][:, 0, -1].reshape(nx, ny)
+                        for x in range(err.shape[0]):
+                            for y in range(err.shape[1]):
+                                if len(err[x, y]) != 0:
+                                    dummy_err[:, x, y] += err[x, y][0]
                         columns.append(
                             fits.Column(
                                 name=param,
-                                format=str(int(nx * ny)) + "I",
-                                dim='(' + str(fill.shape[2]) + "," + str(fill.shape[1]) + ")",
+                                format=str(int(nx * ny)) + "D",
+                                dim='(' + str(dummy_err.shape[2]) + "," + str(dummy_err.shape[1]) + ")",
                                 unit=unit,
-                                array=fill
+                                array=dummy_err
                             )
                         )
-                # Case: Parameter is fit for, but it's vmac which can only be fit with a single node
-                elif 'vmac' in param:
-                    dummy_arr = np.zeros((len(log_tau), nx, ny))
-                    if 'err' in param:
-                        param_array = photosphere[param][:, 0, -1].reshape(nx, ny)
-                        dummy_arr = np.repeat(param_array[np.newaxis, :, :], dummy_arr.shape[0], axis=0)
                     else:
-                        param_array = photosphere[param][:, 0, -1, 0].reshape(nx, ny)
-                        for x in range(param_array.shape[0]):
-                            for y in range(param_array.shape[1]):
-                                if type(param_array[x, y]) is np.ndarray:
-                                    if len(param_array[x, y]) != 0:
-                                        dummy_arr[:, x, y] = param_array[x, y]
-                                else:
-                                    dummy_arr[:, x, y] = param_array[x, y]
+                        # Case: parameter fit with multiple nodes. Interpolate along tau grid
+                        # Would be way easier if the "_nodes" parameter existed to tell me exactly
+                        # where the nodes *were*. Instead, we'll just do a linear interpolation
+                        dummy_err = np.zeros((len(log_tau), nx, ny))
+                        err = photosphere[param][:, 0, -1].reshape(nx, ny)
+                        for x in range(err.shape[0]):
+                            for y in range(err.shape[1]):
+                                dummy_err[:, x, y] = np.interp(
+                                    np.linspace(0, 1, num=len(log_tau)),
+                                    np.linspace(0, 1, num=len(err[x, y])),
+                                    err[x, y]
+                                )
+                        columns.append(
+                            fits.Column(
+                                name=param,
+                                format=str(int(nx * ny)) + "D",
+                                dim='(' + str(dummy_err.shape[2]) + "," + str(dummy_err.shape[1]) + ")",
+                                unit=unit,
+                                array=dummy_err
+                            )
+                        )
+                else:
+                    # Regular parameters
+                    colarr = photosphere[param][:, 0, -1, :].reshape(nx, ny, len(log_tau))
+                    colarr = np.transpose(colarr, (2, 0, 1))
                     columns.append(
                         fits.Column(
                             name=param,
                             format=str(int(nx * ny)) + "D",
-                            dim='(' + str(dummy_arr.shape[2]) + "," + str(dummy_arr.shape[1]) + ")",
+                            dim='(' + str(colarr.shape[2]) + "," + str(colarr.shape[1]) + ")",
                             unit=unit,
-                            array=dummy_arr
+                            array=colarr
                         )
                     )
-                # Case: Fit for, not vmac, but only one node. Param should be fine to cast, but err needs padded out.
-                elif node_count == 1:
-                    if "err" in param:
-                        dummy_err = np.zeros((len(log_tau), nx, ny))
-                        err = photosphere[param][:, 0, -1].reshape(nx, ny)
-                        for x in range(err.shape[0]):
-                            for y in range(err.shape[1]):
-                                if len(err[x, y]) != 0:
-                                    dummy_err[:, x, y] = err[x, y]
-                        columns.append(
-                            fits.Column(
-                                name=param,
-                                format=str(int(nx * ny)) + "D",
-                                dim='(' + str(dummy_err.shape[2]) + "," + str(dummy_err.shape[1]) + ")",
-                                unit=unit,
-                                array=dummy_err
-                            )
-                        )
-                    else:
-                        colarr = photosphere[param][:, 0, -1, :].reshape(nx, ny, len(log_tau))
-                        colarr = np.transpose(colarr, (2, 0, 1))
-                        columns.append(
-                            fits.Column(
-                                name=param,
-                                format=str(int(nx * ny)) + "D",
-                                dim='(' + str(colarr.shape[2]) + "," + str(colarr.shape[1]) + ")",
-                                unit=unit,
-                                array=colarr
-                            )
-                        )
-                # Case: Fit for, multiple nodes. Param cast as normal, err interpolated onto tau grid.
-                else:
-                    if "err" in param:
-                        node_list = node_arr_full[0, 0, :]
-                        while len(node_list[node_list > 0]) == 0:
-                            node_list = node_arr[
-                                np.random.randint(0, nx),
-                                np.random.randint(0, ny)
-                            ]
-                        dummy_err = np.zeros((len(log_tau), nx, ny))
-                        err = photosphere[param][:, 0, -1].reshape(nx, ny)
-                        for x in range(err.shape[0]):
-                            for y in range(err.shape[1]):
-                                if len(err[x, y]) != 0:
-                                    dummy_err[:, x, y] = scinterp.interp1d(
-                                        node_list,
-                                        err[x, y],
-                                        kind='linear'
-                                    )(np.arange(len(log_tau)))
-                        columns.append(
-                            fits.Column(
-                                name=param,
-                                format=str(int(nx * ny)) + "D",
-                                dim='(' + str(dummy_err.shape[2]) + "," + str(dummy_err.shape[1]) + ")",
-                                unit=unit,
-                                array=dummy_err
-                            )
-                        )
-                    else:
-                        colarr = photosphere[param][:, 0, -1, :].reshape(nx, ny, len(log_tau))
-                        colarr = np.transpose(colarr, (2, 0, 1))
-                        columns.append(
-                            fits.Column(
-                                name=param,
-                                format=str(int(nx * ny)) + "D",
-                                dim='(' + str(colarr.shape[2]) + "," + str(colarr.shape[1]) + ")",
-                                unit=unit,
-                                array=colarr
-                            )
-                        )
+
             # Okay, we're back.
             ext = fits.BinTableHDU.from_columns(columns)
             ext.header['EXTNAME'] = ('PHOTOSPHERE', self.inversion_code)
