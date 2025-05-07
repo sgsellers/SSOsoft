@@ -1138,7 +1138,7 @@ class InversionPrep:
                 bzmap = ax_bz.imshow(
                     bz,
                     cmap='PuOr',
-                    extents=plot_exts,
+                    extent=plot_exts,
                     vmin=-3*np.nanstd(np.abs(bz)),
                     vmax=3*np.nanstd(np.abs(bz))
                 )
@@ -1151,7 +1151,7 @@ class InversionPrep:
                 bxmap = ax_bx.imshow(
                     bx,
                     cmap='PuOr',
-                    extents=plot_exts,
+                    extent=plot_exts,
                     vmin=-3 * np.nanstd(np.abs(bx)),
                     vmax=3 * np.nanstd(np.abs(bx))
                 )
@@ -1164,7 +1164,7 @@ class InversionPrep:
                 bymap = ax_by.imshow(
                     by,
                     cmap='PuOr',
-                    extents=plot_exts,
+                    extent=plot_exts,
                     vmin=-3 * np.nanstd(np.abs(by)),
                     vmax=3 * np.nanstd(np.abs(by))
                 )
@@ -1178,7 +1178,7 @@ class InversionPrep:
                 vmap = ax_v.imshow(
                     v,
                     cmap='seismic',
-                    extents=plot_exts,
+                    extent=plot_exts,
                     vmin=-3*np.nanstd(np.abs(v)),
                     vmax=3*np.nanstd(np.abs(v))
                 )
@@ -1196,7 +1196,7 @@ class InversionPrep:
                 tmap = ax_t.imshow(
                     t,
                     cmap='hot',
-                    extents=plot_exts,
+                    extent=plot_exts,
                     vmin=np.nanmean(t) - np.nanstd(t),
                     vmax=np.nanmean(t) + np.nanstd(t)
                 )
