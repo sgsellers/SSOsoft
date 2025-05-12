@@ -2311,13 +2311,12 @@ class SpinorCal:
                         iquv_cube[k, j, :]
                     )
         if self.i2quv_residual:
-            for j in range(iquv_cube.shape[1]):
-                for k in range(1, 4):
-                    iquv_cube[k, j, :], residual_i2quv = self.residual_i2quv_crosstalk(
-                        iquv_cube[0, j, :],
-                        iquv_cube[k, j, :]
-                    )
-                    crosstalk_i2_quv[k - 1, :, j] += residual_i2quv
+            for k in range(1, 4):
+                iquv_cube[k, :, :], residual_i2quv = self.residual_i2quv_crosstalk(
+                    iquv_cube[0, :, :],
+                    iquv_cube[k, :, :]
+                )
+                crosstalk_i2_quv[k - 1, :, :] += residual_i2quv
 
         # V->QU crosstalk correction
         if self.v2q:
@@ -3286,13 +3285,15 @@ class SpinorCal:
         Problem is that 8542 and other chromospheric lines can go into emission.
         So we'll fit the points between the 60th and 95th percentile in Stokes-I,
         then subtract that off of the Stokes-I profile.
+        We'll do this by flattening along the slit, rather than profile-by-profile.
+        This is because, particularly in 6302 or 5250, strong Q/U profiles can skew the fit.
 
         Parameters
         ----------
         stokes_i : numpy.ndarray
-            Stokes-I profile
+            Stokes-I slit image
         stokes_quv : numpy.ndarray
-            Stokes-Q, U, or V profile
+            Stokes-Q, U, or V slit image
 
         Returns
         -------
@@ -3308,10 +3309,20 @@ class SpinorCal:
             arange_cut = arange[~mask]
             profile_cut = profile[~mask]
             pfit = np.polyfit(arange_cut, profile_cut, 1)
-            return profile - ((arange * pfit[0]) + pfit[1])
+            continuum = (arange * pfit[0]) + pfit[1]
+            return profile - continuum, continuum
 
-        continuum_subtracted = subtract_continuum(stokes_i)
-        corrected_quv, residual_crosstalk = self.v2qu_crosstalk(continuum_subtracted, stokes_quv)
+        flattened_stokes_i = stokes_i.mean(axis=0)
+        flattened_stokes_quv = stokes_quv.mean(axis=0)
+
+        continuum_subtracted, continuum = subtract_continuum(flattened_stokes_i)
+        _, residual_crosstalk = self.v2qu_crosstalk(continuum_subtracted, flattened_stokes_quv)
+
+        subtracted_stokes_im = stokes_i.copy()
+        for i in range(subtracted_stokes_im.shape[0]):
+            subd, continuum = subtract_continuum(stokes_i[i])
+            subtracted_stokes_im[i] = subd
+        corrected_quv = stokes_quv - residual_crosstalk * subtracted_stokes_im
 
         return corrected_quv, residual_crosstalk
 
