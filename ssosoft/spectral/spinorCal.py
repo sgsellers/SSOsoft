@@ -398,8 +398,8 @@ class SpinorCal:
         else:
             self.u2v = False
         self.i2quv_residual = config[
-            self.camera['residualCrosstalk'] if "residualcrosstalk" in config[self.camera].keys() else "False"
-        ]
+            self.camera
+        ]['residualCrosstalk'] if "residualcrosstalk" in config[self.camera].keys() else "False"
         if self.i2quv_residual.lower() == "true":
             self.i2quv_residual = True
         else:
