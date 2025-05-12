@@ -3277,8 +3277,7 @@ class SpinorCal:
 
         return corrected_quv, ilinear_params
 
-    @staticmethod
-    def residual_i2quv_crosstalk(stokes_i: np.ndarray, stokes_quv: np.ndarray) -> tuple[np.ndarray, float]:
+    def residual_i2quv_crosstalk(self, stokes_i: np.ndarray, stokes_quv: np.ndarray) -> tuple[np.ndarray, float]:
         """
         Residual crosstalks are becoming a problem in Stokes-Q/U particularly.
         The majority is corrected by the i2quv_crosstalk() function, meaning that
