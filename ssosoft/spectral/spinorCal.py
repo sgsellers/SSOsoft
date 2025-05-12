@@ -18,6 +18,7 @@ from astropy.coordinates import SkyCoord
 from sunpy.coordinates import frames
 
 from . import spectraTools as spex
+from .polarimetryTools import v2qu_crosstalk
 
 
 class SpinorCal:
@@ -183,6 +184,7 @@ class SpinorCal:
         self.v2q = True
         self.v2u = True
         self.u2v = True
+        self.i2quv_residual = False
         self.despike = False
         self.despike_footprint = (1, 5, 1)
         self.plot = False
@@ -395,6 +397,13 @@ class SpinorCal:
             self.u2v = "full"
         else:
             self.u2v = False
+        self.i2quv_residual = config[
+            self.camera['residualCrosstalk'] if "residualcrosstalk" in config[self.camera].keys() else "False"
+        ]
+        if self.i2quv_residual.lower() == "true":
+            self.i2quv_residual = True
+        else:
+            self.i2quv_residual = False
         self.plot = config[self.camera]["plot"] if "plot" in config[self.camera].keys() else "False"
         if "t" in self.plot.lower():
             self.plot = True
@@ -2301,6 +2310,15 @@ class SpinorCal:
                         iquv_cube[0, j, :],
                         iquv_cube[k, j, :]
                     )
+        if self.i2quv_residual:
+            for j in range(iquv_cube.shape[1]):
+                for k in range(1, 4):
+                    iquv_cube[k, j, :], residual_i2quv = self.residual_i2quv_crosstalk(
+                        iquv_cube[0, j, :],
+                        iquv_cube[k, j, :]
+                    )
+                    crosstalk_i2_quv[k - 1, :, j] += residual_i2quv
+
         # V->QU crosstalk correction
         if self.v2q:
             bulk_v2_q_crosstalk = self.internal_crosstalk_2d(
@@ -3260,7 +3278,46 @@ class SpinorCal:
         return corrected_quv, ilinear_params
 
     @staticmethod
-    def v2qu_crosstalk(stokes_v: np.ndarray, stokes_qu: np.ndarray) -> np.ndarray:
+    def residual_i2quv_crosstalk(stokes_i: np.ndarray, stokes_quv: np.ndarray) -> tuple[np.ndarray, float]:
+        """
+        Residual crosstalks are becoming a problem in Stokes-Q/U particularly.
+        The majority is corrected by the i2quv_crosstalk() function, meaning that
+        the continuum is pretty reliably at 0, but line residuals are showing.
+        So for our Stokes-I template, we'll need to subtract off the continuum.
+        Problem is that 8542 and other chromospheric lines can go into emission.
+        So we'll fit the points between the 60th and 95th percentile in Stokes-I,
+        then subtract that off of the Stokes-I profile.
+
+        Parameters
+        ----------
+        stokes_i : numpy.ndarray
+            Stokes-I profile
+        stokes_quv : numpy.ndarray
+            Stokes-Q, U, or V profile
+
+        Returns
+        -------
+        corrected_quv : numpy.ndarray
+            Residual-corrected Stokes-Q, U, or V profile
+        residual_crosstalk : float
+        """
+        def subtract_continuum(profile):
+            arange = np.arange(0, len(profile))
+            pct95 = np.percentile(profile, 95)
+            pct60 = np.percentile(profile, 60)
+            mask = (profile < pct60) | (profile > pct95)
+            arange_cut = arange[~mask]
+            profile_cut = profile[~mask]
+            pfit = np.polyfit(arange_cut, profile_cut, 1)
+            return profile - ((arange * pfit[0]) + pfit[1])
+
+        continuum_subtracted = subtract_continuum(stokes_i)
+        corrected_quv, residual_crosstalk = self.v2qu_crosstalk(continuum_subtracted, stokes_quv)
+
+        return corrected_quv, residual_crosstalk
+
+    @staticmethod
+    def v2qu_crosstalk(stokes_v: np.ndarray, stokes_qu: np.ndarray) -> tuple[np.ndarray, float]:
         """
         Contrary to I->QUV crosstalk, we want the Q/U profiles to be dissimilar to V.
         Q in particular is HEAVILY affected by crosstalk from V.
