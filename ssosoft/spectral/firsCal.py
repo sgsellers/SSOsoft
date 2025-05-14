@@ -577,7 +577,9 @@ class FirsCal:
                 lamp_dark = dark_rate * lamp_exptime
                 lamp_flat = self.average_image_from_list(self.obssum_info['OBSSERIES'][lamp_flat_index])
             cleaned_lamp_flat = self.clean_flat(lamp_flat - lamp_dark)
-            self.lamp_gain = cleaned_lamp_flat / np.nanmedian(cleaned_lamp_flat)
+            lamp_gain = cleaned_lamp_flat / np.nanmedian(cleaned_lamp_flat)
+            lamp_gain[lamp_gain == 0] = 1
+            self.lamp_gain = lamp_gain
             hdu = fits.PrimaryHDU(self.lamp_gain)
             hdu.header['DATE'] = np.datetime64("now").astype(str)
             hdu.header['COMMENT'] = "Created from series {0}".format(self.obssum_info['OBSSERIES'][lamp_flat_index])
@@ -661,7 +663,7 @@ class FirsCal:
                         shifted = scind.shift(
                             rotated, (0, *self.beam_shifts[:, j, k])
                         )
-                        min_shape = (np.amin(self.rotated_beam_sizes[0]), np.amin(self.rotated_beam_sizes[1]))
+                        min_shape = (int(np.amin(self.rotated_beam_sizes[0])), int(np.amin(self.rotated_beam_sizes[1])))
                         clipped = shifted[:, :min_shape[0], :min_shape[1]]
                         polcal_stokes_beams[i, j, k, :, :, :] = clipped
         merged_beams = np.zeros((
