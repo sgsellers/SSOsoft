@@ -299,7 +299,7 @@ class FirsCal:
             self.solar_flat = self.average_image_from_list(self.obssum_info['OBSSERIES'][sflat_index])
             dark_indices = np.where(['DARK' in i for i in self.obssum_info['OBSTYPE']])[0]
             dark_index = spex.find_nearest(dark_indices, sflat_index)
-            self.solar_dark = self.average_image_from_list(self.obssum_info['OBSSERIES'][dark_index])
+            self.solar_dark = self.average_image_from_list(self.obssum_info['OBSSERIES'][dark_indices[dark_index]])
         return
 
     def firs_get_solar_gain(self, index: int) -> None:
@@ -622,8 +622,8 @@ class FirsCal:
             self.nslits, # slit
             2, # beam
             4, # Stokes Vector
-            np.minimum(self.rotated_beam_sizes[0]), # Y-range
-            np.minimum(self.rotated_beam_sizes[1]) # x-range
+            np.amin(self.rotated_beam_sizes[0]), # Y-range
+            np.amin(self.rotated_beam_sizes[1]) # x-range
         ))
         polarizer_angle = np.zeros(len(polcal_files))
         retarder_angle = np.zeros(len(polcal_files))
