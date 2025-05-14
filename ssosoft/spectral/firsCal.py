@@ -622,8 +622,8 @@ class FirsCal:
             self.nslits, # slit
             2, # beam
             4, # Stokes Vector
-            np.amin(self.rotated_beam_sizes[0]), # Y-range
-            np.amin(self.rotated_beam_sizes[1]) # x-range
+            int(np.amin(self.rotated_beam_sizes[0])), # Y-range
+            int(np.amin(self.rotated_beam_sizes[1])) # x-range
         ))
         polarizer_angle = np.zeros(len(polcal_files))
         retarder_angle = np.zeros(len(polcal_files))
