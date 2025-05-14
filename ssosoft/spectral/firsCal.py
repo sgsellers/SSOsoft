@@ -373,7 +373,7 @@ class FirsCal:
             for slit, j in zip(self.slit_edges, range(self.nslits)):
                 image = (self.solar_flat - self.solar_dark)[beam[0]:beam[1], slit[0]:slit[1]]
                 rotations = []
-                for hair, k in zip(self.hairlines[i], range(int(self.nhair/2))):
+                for hair, k in zip(self.hairlines[i] - beam[0], range(int(self.nhair/2))):
                     hair_image = np.rot90(image[int(hair-5):int(hair+7), :])
                     # While we've got it, grab the hairline center from this image
                     hairline_center = spex.find_line_core(
