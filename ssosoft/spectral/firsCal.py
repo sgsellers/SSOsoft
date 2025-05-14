@@ -11,11 +11,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy.integrate as scinteg
 import scipy.interpolate as scinterp
-import scipy.io as scio
 import scipy.ndimage as scind
-import scipy.optimize as scopt
 import tqdm
-from ChiantiPy.core.tests.test_Continuum import wavelength_array
 from astropy.coordinates import SkyCoord
 from sunpy.coordinates import frames
 
@@ -126,6 +123,7 @@ class FirsCal:
         # Some default vaules
         self.nhair = 4
         self.nslits = 1
+        self.slit_spacing = 0
         self.beam_threshold = 0.5
         self.hairline_width = 3
         self.grating_rules = 31.6  # lpmm
@@ -170,8 +168,6 @@ class FirsCal:
         # and the re-imaging lens after the grating. For the IR arm, the beam is then re-collimated
         # By a 400 mm lens, then re-imaged onto the SEIR Virgo 1k array by a 400 mm lens,
         # i.e., these two lenses cancel each other out.
-        # I have never gotten a straight answer and the Zemax files are long lost.
-        # I ~think~ Virgo has 24 um pixels.
         self.spectrograph_collimator = 1524  # mm, f.l., post-slit collimator
         self.camera_lens = 1524  # mm, same as collimator for FIRS
         # (there are beam-extending lenses, but they're symmetric)
@@ -1805,9 +1801,118 @@ class FirsCal:
         average_image /= counter
         return average_image
 
-
     def firs_parse_configfile(self) -> None:
         """Parses config file, sets class variables"""
+        config = configparser.ConfigParser()
+        config.read(self.config_file)
+
+        self.indir = config["FIRS"]["rawFileDirectory"]
+        self.final_dir = config["FIRS"]["reducedFileDirectory"]
+        self.reduced_file_pattern = config["FIRS"]["reducedFilePattern"]
+        self.parameter_map_pattern = config["FIRS"]["reducedParameterMapPattern"]
+        self.t_matrix_file = config['FIRS']['tMatrixFile']
+
+        self.nslits = int(config["FIRS"]["nSlits"]) if "nslits" in config["FIRS"].keys() else self.nslits
+        self.slit_width = int(config["FIRS"]['slitWidth']) if "slitwidth" in config["FIRS"].keys() else self.slit_width
+        self.slit_spacing = float(config['FIRS']['slitSpacing']) if 'slitspacing' in config['FIRS'].keys() \
+            else self.slit_spacing
+        self.grating_angle = float(config["FIRS"]["gratingAngle"]) if "gratingangle" in config["FIRS"].keys() \
+            else self.grating_angle
+        self.grating_rules = float(config["FIRS"]["gratingRules"]) if "gratingrules" in config["FIRS"].keys() \
+            else self.grating_rules
+        self.blaze_angle = float(config["FIRS"]["blazeAngle"]) if "blazeangle" in config["FIRS"].keys() \
+            else self.blaze_angle
+        self.central_wavelength = float(config["FIRS"]["centralWavelength"]) \
+            if "centralwavelength" in config["FIRS"].keys() else self.central_wavelength
+        self.internal_crosstalk_line = float(config["FIRS"]["crosstalkWavelength"]) \
+            if "crosstalkwavelength" in config['FIRS'].keys() else self.internal_crosstalk_line
+        self.crosstalk_range = float(config["FIRS"]["crosstalkRange"]) \
+            if "crosstalkrange" in config["FIRS"].keys() else self.crosstalk_range
+        self.spectral_order = int(config["FIRS"]["spectralOrder"]) if "spectralorder" in config["FIRS"].keys() \
+            else self.spectral_order
+        self.pixel_size = int(config["FIRS"]["pixelSize"]) if "pixelsize" in config["FIRS"].keys() \
+            else self.pixel_size
+        self.nhair = int(config['FIRS']['totalHairlines']) if 'totalhairlines' in config['FIRS'].keys() \
+            else self.nhair
+        self.beam_threshold = float(config['FIRS']['intensityThreshold']) \
+            if "intensitythreshold" in config['FIRS'].keys() else self.beam_threshold
+        self.hairline_width = float(config["FIRS"]["hairlineWidth"]) \
+            if "hairlinewidth" in config["FIRS"].keys() else self.hairline_width
+        self.n_subslits = int(config["FIRS"]['slitDivisions']) if "slitdivisions" in config["FIRS"].keys() \
+            else self.n_subslits
+        self.fringe_frequency = config['FIRS']['fringeFrequency'] if 'fringefrequency' in config['FIRS'].keys() \
+            else self.fringe_frequency
+        if type(self.fringe_frequency) is str:
+            self.fringe_frequency = [float(i) for i in self.fringe_frequency.split(",")]
+        self.verbose = config["FIRS"]['verbose'] if 'verbose' in config['FIRS'].keys() \
+            else self.verbose
+        if type(self.verbose) is str:
+            self.verbose = True if self.verbose.lower() == "true" else False
+        self.v2q = config["FIRS"]["v2q"] if "v2q" in config["FIRS"].keys() \
+            else self.v2q
+        self.v2u = config["FIRS"]["v2q"] if "v2q" in config["FIRS"].keys() \
+            else self.v2q
+        self.q2v = config["FIRS"]["v2q"] if "v2q" in config["FIRS"].keys() \
+            else self.v2q
+        self.u2v = config["FIRS"]["v2q"] if "v2q" in config["FIRS"].keys() \
+            else self.v2q
+        self.despike = config['FIRS']['despike'] if "despike" in config['FIRS'].keys() else self.despike
+        if type(self.despike) is str:
+            self.despike = True if self.despike.lower() == "true" else False
+        self.plot = config["FIRS"]['plot'] if 'plot' in config['FIRS'].keys() \
+            else self.plot
+        if type(self.plot) is str:
+            self.plot = True if self.plot.lower() == "true" else False
+        self.save_figs = config['FIRS']['saveFigs'] if 'savefigs' in config['FIRS'].keys() else self.save_figs
+        if type(self.save_figs) is str:
+            self.save_figs = True if self.save_figs.lower() == "true" else False
+        self.crosstalk_continuum = config['FIRS']['crosstalkContinuum'] \
+            if 'crosstalkcontinuum' in config['FIRS'].keys() else self.crosstalk_continuum
+        if self.crosstalk_continuum is not None:
+            self.crosstalk_continuum = [int(i) for i in self.crosstalk_continuum.split(",")]
+        self.analysis_ranges = config['FIRS']['analysisRanges'] if 'analysisranges' in config['FIRS'].keys() \
+            else self.analysis_ranges
+        self.defringe = config['FIRS']['defringeMethod'] if 'defringemethod' in config['FIRS'].keys() \
+            else self.defringe
+        self.slit_camera_lens = float(config["FIRS"]["slitCameraLens"]) if "slitcameralens" in config['FIRS'].keys() \
+            else self.slit_camera_lens
+        self.telescope_plate_scale = float(config["FIRS"]["telescopePlateScale"]) \
+            if "telescopeplatescale" in config["FIRS"].keys() else self.telescope_plate_scale
+        self.dst_collimator = float(config["FIRS"]["DSTCollimator"]) \
+            if "dstcollimator" in config["FIRS"].keys() else self.dst_collimator
+        self.spectrograph_collimator = float(config["FIRS"]["spectrographCollimator"]) \
+            if "spectrographcollimator" in config["FIRS"].keys() else self.spectrograph_collimator
+        self.camera_lens = float(config['FIRS']['cameraLens']) if "cameralens" in config['FIRS'].keys() \
+            else self.camera_lens
+        self.site_latitude = float(config['FIRS']['siteLatitude']) if "sitelatitude" in config['FIRS'].keys() \
+            else self.site_latitude
+        self.cal_retardance = float(config['FIRS']['calRetardance']) if "calretardance" in config['FIRS'].keys() \
+            else self.cal_retardance
+        self.ilimit = config['FIRS']['polcalClipThreshold'] if 'polcalclipthreshold' in config['FIRS'].keys() \
+            else self.ilimit
+        if type(self.ilimit) is str:
+            self.ilimit = [float(i) for i in self.ilimit.split(",")]
+        self.polcal_processing = config['FIRS']['polcalProcessing'] if "polcalprocessing" in config['FIRS'].keys() \
+            else self.polcal_processing
+        if type(self.polcal_processing) is str:
+            self.polcal_processing = True if self.polcal_processing.lower() == "true" else False
+
+        if (
+            ("qmodulationpattern" in config['FIRS'].keys()) and
+            ("umodulationpattern" in config['FIRS'].keys()) and
+            ("vmodulationpattern" in config['FIRS'].keys()) and
+            ("polnorm" in config['FIRS'].keys())
+        ):
+            qmod = [int(mod) for mod in config["FIRS"]["qModulationPattern"].split(",")]
+            umod = [int(mod) for mod in config["FIRS"]["uModulationPattern"].split(",")]
+            vmod = [int(mod) for mod in config["FIRS"]["vModulationPattern"].split(",")]
+            self.pol_demod = np.array([
+                [1, 1, 1, 1],
+                qmod,
+                umod,
+                vmod
+            ], dtype=int)
+            self.pol_norm = [float(i) for i in config['FIRS']['polNorm'].split(",")]
 
         return
 
@@ -2954,5 +3059,73 @@ class FirsCal:
             fits_hdu_list.writeto(outfile, overwrite=True)
         return
 
-    def package_crosstalks(self):
+    def package_crosstalks(
+            self,
+            i2quv_crosstalks: np.ndarray, internal_crosstalks: np.ndarray,
+            index: int, repeat: int
+    ) -> str:
+        """
+
+        Parameters
+        ----------
+        i2quv_crosstalks : numpy.ndarray
+            Array of shape (3, 2, nslits, ny, nx) of I->QUV parameters
+            2-axis is because the crosstalks are a linear fit
+        internal_crosstalks : numpy.ndarray
+            Array of shape (4, nslits, ny, nx) of internal crosstalks.
+            Order is V->Q, V->U, Q->V, U->V
+        index : int
+            Observation number
+        repeat : int
+            Index of map within an observation
+
+        Returns
+        -------
+        crosstalk_file : str
+            Name of file where crosstalk parameters are stored
+
+        """
+        ext0 = fits.PrimaryHDU()
+        ext0.header['DATE'] = (np.datetime64('now').astype(str), "File Creation Date and Time")
+        ext0.header['ORIGIN'] = "NMSU/SSOC"
+        if self.crosstalk_continuum is not None:
+            ext0.header['I2QUV'] = ("CONST", "0-D I2QUV Crosstalk")
+        else:
+            ext0.header['I2QUV'] = ("1DFIT", "1-D I2QUV Crosstalk")
+        ext0.header['V2Q'] = (self.v2q, "True=by slit, Full=by slit and row")
+        ext0.header['V2U'] = (self.v2u, "True=by slit, Full=by slit and row")
+        ext0.header['Q2V'] = (self.q2v, "True=by slit, Full=by slit and row")
+        ext0.header['U2V'] = (self.u2v, "True=by slit, Full=by slit and row")
+        ext0.header['COMMENT'] = "Crosstalks applied in order:"
+        ext0.header['COMMENT'] = "I->QUV"
+        ext0.header['COMMENT'] = "V->Q"
+        ext0.header['COMMENT'] = "V->U"
+        ext0.header['COMMENT'] = "Q->V"
+        ext0.header['COMMENT'] = "U->V"
+
+        i2quv_ext = fits.ImageHDU(i2quv_crosstalks)
+        i2quv_ext.header['EXTNAME'] = "I2QUV"
+        i2quv_ext.header[""] = "<QUV> = <QUV> - (coef[0]*[0, 1, ... nlambda] + coef[1]) * I"
+
+        v2q_ext = fits.ImageHDU(internal_crosstalks[0])
+        v2q_ext.header['EXTNAME'] = "V2Q"
+        v2q_ext.header[""] = "Q = Q - coef*V"
+
+        v2u_ext = fits.ImageHDU(internal_crosstalks[1])
+        v2u_ext.header['EXTNAME'] = "V2U"
+        v2u_ext.header[""] = "U = U - coef*V"
+
+        q2v_ext = fits.ImageHDU(internal_crosstalks[2])
+        q2v_ext.header['EXTNAME'] = "Q2V"
+        q2v_ext.header[""] = "V = V - coef*Q"
+
+        u2v_ext = fits.ImageHDU(internal_crosstalks[3])
+        u2v_ext.header['EXTNAME'] = "U2V"
+        u2v_ext.header[""] = "V = V - coef*U"
+
+        hdul = fits.HDUList([ext0, i2quv_ext, v2q_ext, v2u_ext, q2v_ext, u2v_ext])
+        filename = "{0}_MAP_{1}_REPEAT_{2}_CROSSTALKS.fits".format(self.camera, index, repeat)
+        crosstalk_file = os.path.join(self.final_dir, filename)
+        hdul.writeto(crosstalk_file, overwrite=True)
+
         return
