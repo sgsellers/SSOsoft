@@ -434,6 +434,7 @@ class FirsCal:
         for beam in self.beam_edges:
             for slit in self.slit_edges:
                 image = cleaned_solar_flat[beam[0]:beam[1], slit[0]:slit[1]]
+                image = np.nan_to_num(image, nan=np.nanmedian(image))
                 gain, coarse, _ = spex.create_gaintables(
                     image,
                     [self.firs_line_cores[0] - 7, self.firs_line_cores[0] + 9],
@@ -660,7 +661,7 @@ class FirsCal:
                         shifted = scind.shift(
                             rotated, (0, *self.beam_shifts[:, j, k])
                         )
-                        min_shape = (np.minimum(self.rotated_beam_sizes[0]), np.minimum(self.rotated_beam_sizes[1]))
+                        min_shape = (np.amin(self.rotated_beam_sizes[0]), np.amin(self.rotated_beam_sizes[1]))
                         clipped = shifted[:, :min_shape[0], :min_shape[1]]
                         polcal_stokes_beams[i, j, k, :, :, :] = clipped
         merged_beams = np.zeros((
@@ -982,22 +983,22 @@ class FirsCal:
                         print("Remaking file with current correction configuration. This may take some time.")
 
             reduced_data = np.zeros((
-                4, self.nslits, np.minimum(self.rotated_beam_sizes[0]),
+                4, self.nslits, np.amin(self.rotated_beam_sizes[0]),
                 len(filelist),
-                np.minimum(self.rotated_beam_sizes[1])
+                np.amin(self.rotated_beam_sizes[1])
             ))
             complete_i2quv_crosstalk = np.zeros((
-                3, 2, self.nslits, np.minimum(self.rotated_beam_sizes[0]), len(filelist)
+                3, 2, self.nslits, np.amin(self.rotated_beam_sizes[0]), len(filelist)
             ))
             complete_internal_crosstalks = np.zeros((
                 4,
-                self.nslits, np.minimum(self.rotated_beam_sizes[0]), len(filelist)
+                self.nslits, np.amin(self.rotated_beam_sizes[0]), len(filelist)
             ))
             xinv_interp = scinterp.CubicSpline(
-                np.linspace(0, np.minimum(self.rotated_beam_sizes[0]), self.n_subslits),
+                np.linspace(0, np.amin(self.rotated_beam_sizes[0]), self.n_subslits),
                 self.txmatinv,
                 axis=0
-            )(np.arange(0, np.minimum(self.rotated_beam_sizes[0])))
+            )(np.arange(0, np.amin(self.rotated_beam_sizes[0])))
             step_ctr = 0
             with tqdm.tqdm(total=len(filelist), desc="Reducing Science Map") as pbar:
                 for file in filelist:
@@ -1007,14 +1008,14 @@ class FirsCal:
                         )
                         science_beams = np.zeros((
                             2, 4, self.nslits,
-                            np.minimum(self.rotated_beam_sizes[0]), np.minimum(self.rotated_beam_sizes[1])
+                            np.amin(self.rotated_beam_sizes[0]), np.amin(self.rotated_beam_sizes[1])
                         ))
                         # Reference image for hairline/spectral line deskew. Don't do full gain correction,
                         # as this will result in hairline residuals.
                         ibeam = (np.mean(hdul[0].data, axis=0) - self.solar_dark) / self.lamp_gain
                         alignment_beams = np.zeros((
                             2, self.nslits,
-                            np.minimum(self.rotated_beam_sizes[0]), np.minimum(self.rotated_beam_sizes[1])
+                            np.amin(self.rotated_beam_sizes[0]), np.amin(self.rotated_beam_sizes[1])
                         ))
                         for i in range(2): # Beams
                             for j in range(self.nslits): # Slits
@@ -1026,7 +1027,7 @@ class FirsCal:
                                             self.slit_edges[j, 0]:self.slit_edges[j, 1]
                                         ], self.beam_rotation[i, j], axis=(1, 2)
                                     ), (0, *self.beam_shifts[:, j, i])
-                                )[:, :np.minimum(self.rotated_beam_sizes[0]), :np.minimum(self.rotated_beam_sizes[1])]
+                                )[:, :np.amin(self.rotated_beam_sizes[0]), :np.amin(self.rotated_beam_sizes[1])]
                                 alignment_beams[i, j, :, :] = scind.shift(
                                     scind.rotate(
                                         ibeam[
@@ -1034,7 +1035,7 @@ class FirsCal:
                                             self.slit_edges[j, 0]:self.slit_edges[j, 1]
                                         ], self.beam_rotation[i, j], axis=(0, 1)
                                     ), self.beam_shifts[:, j, i]
-                                )[:np.minimum(self.rotated_beam_sizes[0]), :np.minimum(self.rotated_beam_sizes[1])]
+                                )[:np.amin(self.rotated_beam_sizes[0]), :np.amin(self.rotated_beam_sizes[1])]
                         if step_ctr == 0:
                             hairline_skews, hairline_centers = self.subpixel_hairline_align(
                                 alignment_beams, hair_centers=None
