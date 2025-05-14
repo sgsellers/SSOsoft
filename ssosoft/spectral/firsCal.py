@@ -242,6 +242,33 @@ class FirsCal:
         """
         self.firs_parse_configfile()
         self.firs_parse_directory()
+        self.firs_organize_directory()
+
+        return
+
+    def firs_organize_directory(self):
+        """
+        Matches cal files and sets up code expectation
+        """
+        solar_flat_start_times = self.obssum_info['STARTTIME'][self.obssum_info['OBSTYPE'] == 'SFLT']
+        science_start_times = self.obssum_info['STARTTIME'][self.obssum_info['OBSTYPE'] == 'SCAN']
+        nearest_flat_indices = [
+            spex.find_nearest(solar_flat_start_times, x) for x in science_start_times
+        ]
+        self.solar_gain_reduced = [
+            os.path.join(
+                self.final_dir,
+                "FIRS_{0}_SOLARGAIN.fits"
+            ).format(x) for x in nearest_flat_indices
+        ]
+        self.lamp_gain_reduced = os.path.join(
+            self.final_dir,
+            "FIRS_LAMPGAIN.fits"
+        )
+        self.tx_matrix_reduced = os.path.join(
+            self.final_dir,
+            "FIRS_POLCAL.fits"
+        )
 
         return
 
@@ -279,7 +306,7 @@ class FirsCal:
         """
         Creates or loads a solar gain file.
         """
-        if (self.solar_gain_reduced is not None) and (os.path.exists(self.solar_gain_reduced[index])):
+        if os.path.exists(self.solar_gain_reduced[index]):
             with fits.open(self.solar_gain_reduced[index]) as hdul:
                 self.combined_coarse_gain_table = hdul['COARSE-GAIN'].data
                 self.combined_gain_table = hdul['GAIN'].data
