@@ -377,7 +377,7 @@ class FirsCal:
                     hair_image = np.rot90(image[int(hair-5):int(hair+7), :])
                     # While we've got it, grab the hairline center from this image
                     hairline_center = spex.find_line_core(
-                        hair_image[:, int(hair_image.shape[1]/2 - 20):int(hair_image.shape[1]/2 - 20)].mean(axis=1)
+                        hair_image[:, int(hair_image.shape[1]/2 - 20):int(hair_image.shape[1]/2 + 20)].mean(axis=1)
                     ) + hair - 5
                     self.full_hairlines[j, i, k] = hairline_center
                     skews = spex.spectral_skew(hair_image[25:-25], order=1) # Clip the edges of the slit a bit
