@@ -209,7 +209,7 @@ class FirsCal:
                 "\n{1}\nReduced files will be saved to:\n{2}".format(
                     len(self.science_series_list), self.indir, self.final_dir
             ))
-        for index in self.science_series_list:
+        for index in range(len(self.science_series_list)):
             self.__init__(self.config_file)
             self.firs_configure_run()
             self.science_series_list = np.where(
