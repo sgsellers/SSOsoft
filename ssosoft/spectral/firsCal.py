@@ -279,7 +279,7 @@ class FirsCal:
         """
         Creates or loads a solar gain file.
         """
-        if os.path.exists(self.solar_gain_reduced[index]):
+        if (self.solar_gain_reduced is not None) and (os.path.exists(self.solar_gain_reduced[index])):
             with fits.open(self.solar_gain_reduced[index]) as hdul:
                 self.combined_coarse_gain_table = hdul['COARSE-GAIN'].data
                 self.combined_gain_table = hdul['GAIN'].data
