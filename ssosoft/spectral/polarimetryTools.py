@@ -238,7 +238,8 @@ def check_mueller_physicality(mueller_mtx: np.ndarray) -> tuple[bool, float, flo
 
 
 def get_dst_matrix(
-        telescope_geometry: list, central_wavelength: float, reference_frame: float, matrix_file: str
+        telescope_geometry: list, central_wavelength: float,
+        reference_frame: float, matrix_file: str
 ) -> np.ndarray:
     """
     Gets DST telescope matrix from IDL save (2010 matrix) or numpy save (TBD, hopefully we measure it in the future)
@@ -251,9 +252,10 @@ def get_dst_matrix(
     central_wavelength : float
         In angstrom, wavelength to interpolate measured values to
     reference_frame : float
-        In degrees, the orientation of the reference frame relative to the telescope matrix.
+        Reference angle of the spectroplarimeter relative to TMatrix file
     matrix_file : str
         Path to telescope matrix file
+
 
     Returns
     -------
@@ -387,9 +389,9 @@ def spherical_coordinate_transform(telescope_angles: list, site_latitude: float)
     sin_x = -cos_el * sin_az
     cos_x = sin_el * cos_lat - cos_el * cos_az * sin_lat
 
-    sin_y = sin_el * sin_lat + cos_el * cos_az * cos_lat
+    sin_y = sin_el * sin_lat + cos_el * cos_az * sin_lat
     sin_z = cos_lat * sin_az
-    cos_z = sin_lat * cos_el - sin_el * cos_lat * cos_az
+    cos_z = sin_lat * cos_el - sin_el * sin_lat * cos_az
 
     x = np.arctan(sin_x / cos_x)
     y = np.arcsin(sin_y)
@@ -646,3 +648,65 @@ def select_fringe_freq(wvl: np.ndarray, profile: np.ndarray, init_period: float)
     period_slider.on_changed(update)
     plt.show()
     return 1 / period_slider.val
+
+def net_circular_polarization(stokes_v, wavelength, abs_value=False):
+    """
+    Just integrates the V-profile. Solanki & Montavon (1993)
+    Parameters
+    ----------
+    stokes_v: numpy.ndarray
+        Stokes-V
+    wavelength: numpy.ndarray
+        Wavelengths
+    abs_value: bool
+        True to integrate the absolute value of V
+    Returns
+    -------
+    float
+        Net circular polarizaed light.
+    """
+    if abs_value:
+        return scint.simpson(np.abs(stokes_v), x=wavelength)
+    else:
+        return scint.simpson(stokes_v, x=wavelength)
+
+def mean_circular_polarization(stokes_v, wavelength, reference_wavelength, continuum_i):
+    """
+    Computes mean circular polarization as described by Martinez Pillet (2011).
+    Adapted for many spectral positions.
+    Parameters
+    ----------
+    stokes_v : numpy.ndarray
+    wavelength : numpy.ndarray
+    reference_wavelength : float
+    continuum_i : float
+
+    Returns
+    -------
+    mcp : float
+    """
+    sign_vector = np.array([1 if x > reference_wavelength else -1 for x in wavelength])
+
+    mcp = (1 / (len(wavelength) * continuum_i)) * np.nansum(
+        sign_vector * np.abs(stokes_v)
+    )
+    return mcp
+
+def mean_linear_polarization(stokes_q, stokes_u, continuum_i):
+    """
+    Computes mean linear polarization as described by Martinez Pillet (2011).
+    Parameters
+    ----------
+    stokes_q : numpy.ndarray
+        Stokes-Q profile
+    stokes_u : numpy.ndarray
+        Stokes-U profile
+    continuum_i : float
+        Mean Stokes-I continuum intensity
+
+    Returns
+    -------
+    float
+        Mean linear polarization
+    """
+    return (1 / (len(stokes_q) * continuum_i)) * np.nansum(np.sqrt(stokes_q ** 2 + stokes_u ** 2))
