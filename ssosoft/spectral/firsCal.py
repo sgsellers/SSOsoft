@@ -489,7 +489,7 @@ class FirsCal:
         bsizes = fits.ImageHDU(self.rotated_beam_sizes)
         bsizes.header['EXTNAME'] = 'BEAM-SIZES'
 
-        hdul = fits.HDUList([phdu, flat, dark, cgain, fgain, bedge, hairs, slits, rotat, shifts])
+        hdul = fits.HDUList([phdu, flat, dark, cgain, fgain, bedge, hairs, slits, rotat, shifts, bsizes])
         hdul.writeto(self.solar_gain_reduced[index], overwrite=True)
 
         return
