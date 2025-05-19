@@ -558,21 +558,21 @@ class FirsCal:
         # Create new lamp gain and save to file:
         elif any(["LFLT" in i for i in self.obssum_info["OBSTYPE"]]):
             if any(["LDRK" in i for i in self.obssum_info['OBSTYPE']]):
-                lamp_dark_index = np.where(self.obssum_info['OBSSERIES'] == 'LDRK')[0][0]
+                lamp_dark_index = np.where(self.obssum_info['OBSTYPE'] == 'LDRK')[0][0]
                 lamp_dark = self.average_image_from_list(self.obssum_info['OBSSERIES'][lamp_dark_index])
-                lamp_flat_index = np.where(self.obssum_info['OBSSERIES'] == 'LFLT')[0][0]
+                lamp_flat_index = np.where(self.obssum_info['OBSTYPE'] == 'LFLT')[0][0]
                 lamp_flat = self.average_image_from_list(self.obssum_info['OBSSERIES'][lamp_flat_index])
             else:
                 # Need to kludge a dark file together from the solar dark.
                 # Grab the last solar dark taken in the day, make an average dark image
-                solar_dark_index = np.where(self.obssum_info['OBSSERIES'] == 'DARK')[0][0]
+                solar_dark_index = np.where(self.obssum_info['OBSTYPE'] == 'DARK')[0][0]
                 average_dark = self.average_image_from_list(self.obssum_info['OBSSERIES'][solar_dark_index])
                 dark_exptime = (self.obssum_info['EXPTIME'][solar_dark_index] *
                                 self.obssum_info['COADD'][solar_dark_index])
                 # Need to create an average dark rate. Then we can get a sensible estimate of the dark current
                 # at the lamp flat exposure time.
                 dark_rate = average_dark / dark_exptime
-                lamp_flat_index = np.where(self.obssum_info['OBSSERIES'] == 'LFLT')[0][0]
+                lamp_flat_index = np.where(self.obssum_info['OBSTYPE'] == 'LFLT')[0][0]
                 lamp_exptime = (self.obssum_info['EXPTIME'][lamp_flat_index] *
                                 self.obssum_info['COADD'][lamp_flat_index])
                 lamp_dark = dark_rate * lamp_exptime
