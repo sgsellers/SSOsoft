@@ -315,6 +315,7 @@ class FirsCal:
                 self.slit_edges = hdul["SLIT-EDGES"].data
                 self.beam_rotation = hdul["BEAM-ROTATION"].data
                 self.beam_shifts = hdul['BEAM-SHIFTS'].data[0]
+                self.rotated_beam_sizes = hdul['BEAM-SIZES'].data
                 self.firs_line_cores = [hdul[0].header['LC1'], hdul[0].header['LC2']]
                 self.fts_line_cores = [hdul[0].header['FTSLC1'], hdul[0].header['FTSLC2']]
         else:
@@ -485,6 +486,8 @@ class FirsCal:
         rotat.header['EXTNAME'] = 'BEAM-ROTATION'
         shifts = fits.ImageHDU(self.beam_shifts)
         shifts.header['EXTNAME'] = 'BEAM-SHIFTS'
+        bsizes = fits.ImageHDU(self.rotated_beam_sizes)
+        bsizes.header['EXTNAME'] = 'BEAM-SIZES'
 
         hdul = fits.HDUList([phdu, flat, dark, cgain, fgain, bedge, hairs, slits, rotat, shifts])
         hdul.writeto(self.solar_gain_reduced[index], overwrite=True)
@@ -654,7 +657,7 @@ class FirsCal:
                         stokes_image = dmod_data[
                             :,
                             self.beam_edges[k, 0]:self.beam_edges[k, 1],
-                            self.slit_edges[j, 0]:self.slit_edges[j, 0]
+                            self.slit_edges[j, 0]:self.slit_edges[j, 1]
                         ]
                         rotated = scind.rotate(
                             stokes_image,
