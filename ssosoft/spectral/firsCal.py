@@ -723,7 +723,7 @@ class FirsCal:
             init_stokes = tmtx @ init_stokes
             # Mult by 2 since we normalized intensities earlier...
             init_stokes = 2 * pol.linear_analyzer_polarizer(
-                polarizer_angle * np.pi/180.,
+                polarizer_angle[i] * np.pi/180.,
                 px=1,
                 py=0.005 # estimate
             ) @ init_stokes
