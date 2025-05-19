@@ -700,7 +700,7 @@ class FirsCal:
             masked_subarray = subarrays[i]
             masked_subarray[~submasks[i]] = np.nan
             # Normalize QUV curve by I
-            self.calcurves[:, :, 0, i] = np.nanmean(masked_subarray[:, :, 0, :, :], axis=(3, 4))
+            self.calcurves[:, :, 0, i] = np.nanmean(masked_subarray[:, :, 0, :, :], axis=(2, 3))
             self.calcurves[:, :, 1:, i] = np.nanmean(
                 masked_subarray[:, :, 1:, :, :] / np.repeat(
                     masked_subarray[:, :, 0, :, :][:, :, np.newaxis, :, :], 3, axis=2
