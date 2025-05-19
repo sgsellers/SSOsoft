@@ -372,6 +372,7 @@ class FirsCal:
         for beam, i in zip(self.beam_edges, range(2)):
             for slit, j in zip(self.slit_edges, range(self.nslits)):
                 image = (self.solar_flat - self.solar_dark)[beam[0]:beam[1], slit[0]:slit[1]]
+                image[image == 0] = np.nanmedian(image)
                 rotations = []
                 for hair, k in zip(self.hairlines[i] - beam[0], range(int(self.nhair/2))):
                     hair_image = np.rot90(image[int(hair-5):int(hair+7), :])
@@ -435,10 +436,11 @@ class FirsCal:
             for slit in self.slit_edges:
                 image = cleaned_solar_flat[beam[0]:beam[1], slit[0]:slit[1]]
                 image = np.nan_to_num(image, nan=np.nanmedian(image))
+                image[image == 0] = np.nanmedian(image)
                 gain, coarse, _ = spex.create_gaintables(
                     image,
                     [self.firs_line_cores[0] - 7, self.firs_line_cores[0] + 9],
-                    neighborhood=12,
+                    neighborhood=24,
                     hairline_width=self.hairline_width / 2
                 )
                 self.combined_gain_table[beam[0]:beam[1], slit[0]:slit[1]] = gain
