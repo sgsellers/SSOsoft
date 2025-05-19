@@ -394,15 +394,15 @@ class FirsCal:
                     master_clipped = master_image[tuple(slice(s) for s in min_shape)]
                     rotate_clipped = rotated_image[tuple(slice(s) for s in min_shape)]
                     xshift = np.correlate(
-                        (np.nanmean(master_clipped, axis=0) - np.nanmean(master_clipped))[10:-10],
-                        (np.nanmean(rotate_clipped, axis=0) - np.nanmean(rotate_clipped))[10:-10],
+                        (np.nanmean(master_clipped, axis=0) - np.nanmean(master_clipped)),
+                        (np.nanmean(rotate_clipped, axis=0) - np.nanmean(rotate_clipped)),
                         mode='full'
-                    ).argmax() - master_clipped.shape[1] - 20
+                    ).argmax() - master_clipped.shape[1]
                     yshift = np.correlate(
-                        (np.nanmean(master_clipped, axis=1) - np.nanmean(master_clipped))[10:-10],
-                        (np.nanmean(rotate_clipped, axis=1) - np.nanmean(rotate_clipped))[10:-10],
+                        (np.nanmean(master_clipped, axis=1) - np.nanmean(master_clipped)),
+                        (np.nanmean(rotate_clipped, axis=1) - np.nanmean(rotate_clipped)),
                         mode='full'
-                    ).argmax() - master_clipped.shape[0] - 20
+                    ).argmax() - master_clipped.shape[0]
                     self.beam_shifts[:, j, i] = (yshift, xshift)
 
         cleaned_solar_flat = self.clean_flat(self.solar_flat.copy())
