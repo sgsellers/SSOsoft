@@ -212,9 +212,9 @@ class FirsCal:
         for index in range(len(self.science_series_list)):
             self.__init__(self.config_file)
             self.firs_configure_run()
-            self.science_series_list = np.where(
+            self.science_series_list = self.obssum_info['OBSSERIES'][np.where(
                 np.char.find(self.obssum_info['OBSTYPE'], "SCAN") != -1
-            )[0]
+            )[0]]
             self.firs_get_cal_images(index)
             if self.plot:
                 # Need to clear out previous plot instances
@@ -707,6 +707,12 @@ class FirsCal:
                 ),
                 axis=(3, 4)
             )
+            # Normalize I curve
+            self.calcurves[:, :, 0, i] /= np.repeat(
+                np.nanmean(self.calcurves[:, :, 0, i], axis=0)[np.newaxis, :], self.calcurves.shape[0], axis=0
+            )
+            # Divide by 2 for linear polarizer
+            self.calcurves[:, :, 0, i] /= 2
         # Catch any edge cases where an array was all NaN
         self.calcurves = np.nan_to_num(self.calcurves)
         # Create the input Stokes vectors from telescope matrix plus pt4 cal unit params
@@ -722,7 +728,7 @@ class FirsCal:
             )
             init_stokes = tmtx @ init_stokes
             # Mult by 2 since we normalized intensities earlier...
-            init_stokes = 2 * pol.linear_analyzer_polarizer(
+            init_stokes = pol.linear_analyzer_polarizer(
                 polarizer_angle[i] * np.pi/180.,
                 px=1,
                 py=0.005 # estimate
