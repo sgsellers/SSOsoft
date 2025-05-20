@@ -719,13 +719,6 @@ class FirsCal:
         input_stokes = np.zeros((self.calcurves.shape[0], 4))
         for i in range(self.calcurves.shape[0]):
             init_stokes = np.array([1, 0, 0, 0])
-            #tmtx = pol.get_dst_matrix(
-            #    [azimuth[i], elevation[i], table_angle[i]],
-            #    self.central_wavelength,
-            #    90,
-            #    self.t_matrix_file
-            #)
-            #init_stokes = tmtx @ init_stokes
             init_stokes = pol.linear_analyzer_polarizer(
                 polarizer_angle[i] * np.pi/180.,
                 px=1,
@@ -753,7 +746,7 @@ class FirsCal:
                 xmat /= xmat[0, 0]
                 self.txmat[i, j] = xmat
                 self.txmatinv[i, j] = np.linalg.inv(xmat)
-                efficiencies = np.sqrt(np.sum(xmat ** 2, axis=1))
+                efficiencies = pol.muller_efficiencies(xmat)
                 #
                 # Measurement of retardance from +-QU measurements
                 # Since FIRS polcals are taken with polarizer at 0/45 degrees, there's no -Q, -U
@@ -797,9 +790,11 @@ class FirsCal:
                     print(self.txmatinv[i, j])
                     print("Efficiencies:")
                     print(
+                        "I: " + str(round(efficiencies[0], 4)),
                         "Q: " + str(round(efficiencies[1], 4)),
                         "U: " + str(round(efficiencies[2], 4)),
-                        "V: " + str(round(efficiencies[3], 4))
+                        "V: " + str(round(efficiencies[3], 4)),
+                        "QUV: " + str(round(efficiencies[4], 4))
                     )
                     print("Average Deviation of cal vectors: ", np.sqrt(self.txchi[i, j]) / 4)
                     print("===========================\n\n")
@@ -974,7 +969,7 @@ class FirsCal:
                     "\nSeries: {3}".format(n+1, nrepeat, len(filelist), self.obssum_info['OBSSERIES'][index])
                 )
             with fits.open(filelist[0]) as hdul:
-                date, time = hdul[1].header['OBS_STAR'].split("T")
+                date, time = hdul[0].header['OBS_STAR'].split("T")
                 date = date.replace("-", "")
                 time = str(round(float(time.replace(":", "")), 0)).split(".")[0]
                 outname = self.reduced_file_pattern.format(

@@ -236,6 +236,30 @@ def check_mueller_physicality(mueller_mtx: np.ndarray) -> tuple[bool, float, flo
 
     return True, master_imin, master_pmin
 
+def muller_efficiencies(matrix: np.ndarray):
+    """
+    Compute the IQUV efficiencies of a Muller matrix
+
+    Parameters
+    ----------
+    matrix: numpy.ndarray
+        4x4 Muller matrix
+
+    Returns
+    -------
+    efficiencies: numpy.ndarray
+        Efficiencies of I, Q, U, V, total(QUV)
+    """
+    u, s, vh = np.linalg.svd(matrix)
+    s2d = np.zeros((s.shape[0], s.shape[0]))
+    for i in range(s.shape[0]):
+        s2d[i, i] = 1/s[i]
+    inv1 = vh@ s2d @ u.T
+    eps = 1./matrix.shape[0]/np.sum(inv1 * inv1, axis=0)
+    eps1 = np.sqrt(eps)
+    efficiencies = np.array([*eps1, np.sqrt(np.sum(eps[1:]))])
+    return efficiencies
+
 
 def get_dst_matrix(
         telescope_geometry: list, central_wavelength: float,
