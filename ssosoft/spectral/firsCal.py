@@ -1104,7 +1104,7 @@ class FirsCal:
                             for profile in range(reduced_data.shape[2]):
                                 reduced_data[:, slit, profile, step_ctr, :] = (
                                     inv_tmtx @
-                                    xinv_interp[slit, profile, :, :] @
+                                    xinv_interp[profile, slit, :, :] @
                                     reduced_data[:, slit, profile, step_ctr, :]
                                 )
                         # Parallactic angle for QU rotation correction
