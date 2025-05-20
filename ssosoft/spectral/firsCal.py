@@ -986,11 +986,11 @@ class FirsCal:
                         return reduced_data
                     elif ("r" in remake_file.lower()) and self.verbose:
                         print("Remaking file with current correction configuration. This may take some time.")
-
+            self.rotated_beam_sizes = self.rotated_beam_sizes.astype(int)
             reduced_data = np.zeros((
-                4, self.nslits, int(np.amin(self.rotated_beam_sizes[0])),
+                4, self.nslits, np.amin(self.rotated_beam_sizes[0]),
                 len(filelist),
-                int(np.amin(self.rotated_beam_sizes[1]))
+                np.amin(self.rotated_beam_sizes[1])
             ))
             complete_i2quv_crosstalk = np.zeros((
                 3, 2, self.nslits, np.amin(self.rotated_beam_sizes[0]), len(filelist)
