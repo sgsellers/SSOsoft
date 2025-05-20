@@ -736,7 +736,7 @@ class FirsCal:
                 retarder_angle[i] * np.pi/180,
                 self.cal_retardance * np.pi/180
             ) @ init_stokes
-            input_stokes[i, :] = init_stokes
+            input_stokes[i, :] = init_stokes / init_stokes[0]
         self.input_stokes = np.nan_to_num(input_stokes)
         self.txmat = np.zeros((self.n_subslits, self.nslits, 4, 4))
         self.txchi = np.zeros((self.n_subslits, self.nslits))
