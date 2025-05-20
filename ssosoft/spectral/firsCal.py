@@ -1141,7 +1141,7 @@ class FirsCal:
                     for slit in range(self.nslits):
                         # The wavelength calibration should really be done for each slit, just in case...
                         wavelength_array = self.tweak_wavelength_calibration(
-                            np.nanmean(reduced_data[0, slit, :, :step_ctr, :], axis=(0, 1))
+                            np.nanmean(reduced_data[0, slit, :, :step_ctr + 1, :], axis=(0, 1))
                         )
                         wavegrid[slit, :] = wavelength_array
                         reduced_data[0, slit, :, step_ctr, :] = self.prefilter_correction(
