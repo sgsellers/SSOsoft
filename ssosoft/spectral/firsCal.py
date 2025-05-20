@@ -316,6 +316,7 @@ class FirsCal:
                 self.beam_rotation = hdul["BEAM-ROTATION"].data
                 self.beam_shifts = hdul['BEAM-SHIFTS'].data
                 self.rotated_beam_sizes = hdul['BEAM-SIZES'].data
+                self.full_hairlines = hdul['FULL-HAIR'].data
                 self.firs_line_cores = [hdul[0].header['LC1'], hdul[0].header['LC2']]
                 self.fts_line_cores = [hdul[0].header['FTSLC1'], hdul[0].header['FTSLC2']]
         else:
@@ -488,8 +489,10 @@ class FirsCal:
         shifts.header['EXTNAME'] = 'BEAM-SHIFTS'
         bsizes = fits.ImageHDU(self.rotated_beam_sizes)
         bsizes.header['EXTNAME'] = 'BEAM-SIZES'
+        fhair = fits.ImageHDU(self.full_hairlines)
+        fhair.header['EXTNAME'] = 'FULL-HAIR'
 
-        hdul = fits.HDUList([phdu, flat, dark, cgain, fgain, bedge, hairs, slits, rotat, shifts, bsizes])
+        hdul = fits.HDUList([phdu, flat, dark, cgain, fgain, bedge, hairs, slits, rotat, shifts, bsizes, fhair])
         hdul.writeto(self.solar_gain_reduced[index], overwrite=True)
 
         return
