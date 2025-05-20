@@ -1030,7 +1030,7 @@ class FirsCal:
                                         iquv[:,
                                             self.beam_edges[i, 0]:self.beam_edges[i, 1],
                                             self.slit_edges[j, 0]:self.slit_edges[j, 1]
-                                        ], self.beam_rotation[i, j], axis=(1, 2)
+                                        ], self.beam_rotation[i, j], axes=(1, 2)
                                     ), (0, *self.beam_shifts[:, j, i])
                                 )[:, :np.amin(self.rotated_beam_sizes[0]), :np.amin(self.rotated_beam_sizes[1])]
                                 alignment_beams[i, j, :, :] = scind.shift(
@@ -1038,7 +1038,7 @@ class FirsCal:
                                         ibeam[
                                             self.beam_edges[i, 0]:self.beam_edges[i, 1],
                                             self.slit_edges[j, 0]:self.slit_edges[j, 1]
-                                        ], self.beam_rotation[i, j], axis=(0, 1)
+                                        ], self.beam_rotation[i, j], axes=(0, 1)
                                     ), self.beam_shifts[:, j, i]
                                 )[:np.amin(self.rotated_beam_sizes[0]), :np.amin(self.rotated_beam_sizes[1])]
                         if step_ctr == 0:
