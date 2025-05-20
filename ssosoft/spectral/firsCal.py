@@ -624,6 +624,7 @@ class FirsCal:
             polcal_files += sorted(glob.glob(
                 os.path.join(self.indir, self.obssum_info['OBSSERIES'][index]+"*")
             ))
+        self.polcal_file_list = polcal_files
         polcal_stokes_beams = np.zeros((
             len(polcal_files), # pcal stage
             self.nslits, # slit
@@ -711,8 +712,6 @@ class FirsCal:
             self.calcurves[:, :, 0, i] /= np.repeat(
                 np.nanmean(self.calcurves[:, :, 0, i], axis=0)[np.newaxis, :], self.calcurves.shape[0], axis=0
             )
-            # Divide by 2 for linear polarizer
-            self.calcurves[:, :, 0, i] /= 2
         # Catch any edge cases where an array was all NaN
         self.calcurves = np.nan_to_num(self.calcurves)
         # Create the input Stokes vectors from telescope matrix plus pt4 cal unit params
@@ -727,7 +726,6 @@ class FirsCal:
                 self.t_matrix_file
             )
             init_stokes = tmtx @ init_stokes
-            # Mult by 2 since we normalized intensities earlier...
             init_stokes = pol.linear_analyzer_polarizer(
                 polarizer_angle[i] * np.pi/180.,
                 px=1,
