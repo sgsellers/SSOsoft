@@ -1505,7 +1505,7 @@ class FirsCal:
                 )
                 ft_cut1 = fft_frequencies >= max(self.fringe_frequency)
                 ft_cut2 = fft_frequencies <= min(self.fringe_frequency)
-                medfilt_flat = scind.median_filter(mean_flat[:, slit, :, :], size=(0, 32, 16))
+                medfilt_flat = scind.median_filter(mean_flat[:, slit, :, :], size=(1, 32, 16))
                 for y in range(medfilt_flat.shape[1]):
                     for stoke in range(1, 4):
                         quv_ft = np.fft.fft(medfilt_flat[stoke, y, :])
