@@ -1669,7 +1669,7 @@ class FirsCal:
                 if hairline_maximum > alignment_image.shape[2]:
                     hairline_maximum = alignment_image.shape[2] - 1
                 medfilt_hairline_image = scind.median_filter(
-                    alignment_image[i, j, hairline_minimum:hairline_maximum, :],
+                    alignment_image[i, j, int(hairline_minimum):int(hairline_maximum), :],
                     size=(2, 25)
                 )
                 hairline_skews[i, j, :] = spex.spectral_skew(
