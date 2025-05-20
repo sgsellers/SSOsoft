@@ -1075,7 +1075,7 @@ class FirsCal:
                                 # Perform bulk shift to 0th beam, 0th slit, 0th step
                                 science_beams[beam, :, slit, :, :] = scind.shift(
                                     science_beams[beam, :, slit, :, :],
-                                    (0, -(hairline_centers[beam, slit] - master_hairline_centers[0, 0]), 0),
+                                    (0, -(hairline_centers[beam, slit] - master_hairline_centers[0]), 0),
                                     mode='nearest', order=1
                                 )
                         # Perform spectral deskew and registration
