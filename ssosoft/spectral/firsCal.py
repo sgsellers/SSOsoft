@@ -1689,7 +1689,7 @@ class FirsCal:
         return hairline_skews, hairline_centers
 
     def subpixel_spectral_align(
-            self, cutout_beams: np.ndarray, lower_hairline_center: float
+            self, cutout_beams: np.ndarray, hairline_centers: np.ndarray
     ) -> tuple[np.ndarray, float]:
         """
         Performs iterative deskew and align along the spectral axis.
@@ -1699,8 +1699,8 @@ class FirsCal:
         ----------
         cutout_beams : numpy.ndarray
             Array containing the hairline-aligned beams. Shape (2, 4, nslits, ny, nx, nlambda)
-        lower_hairline_center : float
-            Center of the lower hairline. Beams should all be registered to this common hairline.
+        hairline_centers : numpy.ndarray
+            Center of hairlines. Beams should all be registered to this common hairline.
 
         Returns
         -------
@@ -1709,19 +1709,19 @@ class FirsCal:
         spectral_centers : numpy.ndarray
             Center of the per beam, per slit spectral line used for registration. Shape (2, nslits)
         """
-        upper_hairline_center = lower_hairline_center + np.diff(self.full_hairlines[0, 0])
         x1, x2 = 20, 21
         spectral_centers = np.zeros((2, self.nslits))
         for iternum in range(5):
             order = 1 if iternum < 2 else 2
             for beam in range(cutout_beams.shape[0]):
                 for slit in range(cutout_beams.shape[2]):
+                    upper_hairline_center = hairline_centers[beam, slit] + np.diff(self.full_hairlines[0, 0])
                     spectral_image = cutout_beams[
                         beam, 0, slit, :, int(self.firs_line_cores[0] - x1):int(self.firs_line_cores[0] + x2)
                     ]
                     # Replace hairlines with NaNs to keep them from throwing off the skews
-                    hair_min = int(lower_hairline_center - 4)
-                    hair_max = int(lower_hairline_center + 5)
+                    hair_min = int(hairline_centers[beam, slit] - 4)
+                    hair_max = int(hairline_centers[beam, slit] + 5)
                     hair_min = 0 if hair_min < 0 else hair_min
                     spectral_image[hair_min:hair_max] = np.nan
                     hair_min = int(upper_hairline_center - 4)
