@@ -1718,7 +1718,7 @@ class FirsCal:
                     upper_hairline_center = hairline_centers[beam, slit] + np.diff(self.full_hairlines[0, 0])
                     spectral_image = cutout_beams[
                         beam, 0, slit, :, int(self.firs_line_cores[0] - x1):int(self.firs_line_cores[0] + x2)
-                    ]
+                    ].copy()
                     # Replace hairlines with NaNs to keep them from throwing off the skews
                     hair_min = int(hairline_centers[beam, slit] - 4)
                     hair_max = int(hairline_centers[beam, slit] + 5)
