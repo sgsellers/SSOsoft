@@ -1089,6 +1089,11 @@ class FirsCal:
                                     science_beams[beam, :, slit, :, :],
                                     (0, 0, -(spectral_centers[beam, slit] - master_spectral_center))
                                 )
+                        norm_factor = np.mean(
+                            science_beams[0, 0, :, 50:-50, :], axis=(1, 2)
+                        ) / np.mean(science_beams[1, 0, :, 50:-50, :], axis=(1, 2))
+                        for slit in range(self.nslits):
+                            science_beams[1, :, slit, :, :] *= norm_factor[slit]
                         reduced_data[0, :, :,step_ctr, :] = np.nanmean(science_beams[:, 0, :, :, :], axis=0)
                         reduced_data[1:, :, :, step_ctr, :] = (
                             science_beams[0, 1:, :, :, :] - science_beams[1, 1:, :, :, :]
