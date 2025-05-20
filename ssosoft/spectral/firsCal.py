@@ -1681,7 +1681,7 @@ class FirsCal:
                         mode='nearest', order=1
                     )
                 hairline_centers[i, j] = spex.find_line_core(
-                    np.nanmedian(deskewed_image[hairline_minimum:hairline_maximum, 50:-50], axis=1)
+                    np.nanmedian(deskewed_image[int(hairline_minimum):int(hairline_maximum), 50:-50], axis=1)
                 ) + hairline_minimum
         return hairline_skews, hairline_centers
 
