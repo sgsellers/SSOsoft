@@ -467,7 +467,7 @@ class FirsCal:
         phdu.header['LC1'] = self.firs_line_cores[0]
         phdu.header['LC2'] = self.firs_line_cores[1]
         phdu.header['FTSLC1'] = self.fts_line_cores[0]
-        phdu.header['FTSLC2'] = self.fts_line_cores[0]
+        phdu.header['FTSLC2'] = self.fts_line_cores[1]
 
         flat = fits.ImageHDU(self.solar_flat)
         flat.header['EXTNAME'] = 'SOLAR-FLAT'
