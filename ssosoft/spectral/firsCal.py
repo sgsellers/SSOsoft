@@ -643,7 +643,7 @@ class FirsCal:
             with fits.open(file) as hdul:
                 # Grab the angles we need to form the polcal model
                 polarizer_angle[i] = hdul[0].header['PT4_POL']
-                retarder_angle[i] = hdul[0].header['PT4_POL']
+                retarder_angle[i] = hdul[0].header['PT4_RET']
                 llvl[i] = hdul[0].header['DST_LLVL']
                 azimuth[i] = hdul[0].header['DST_AZ']
                 elevation[i] = hdul[0].header['DST_EL']
@@ -719,13 +719,13 @@ class FirsCal:
         input_stokes = np.zeros((self.calcurves.shape[0], 4))
         for i in range(self.calcurves.shape[0]):
             init_stokes = np.array([1, 0, 0, 0])
-            tmtx = pol.get_dst_matrix(
-                [azimuth[i], elevation[i], table_angle[i]],
-                self.central_wavelength,
-                90,
-                self.t_matrix_file
-            )
-            init_stokes = tmtx @ init_stokes
+            #tmtx = pol.get_dst_matrix(
+            #    [azimuth[i], elevation[i], table_angle[i]],
+            #    self.central_wavelength,
+            #    90,
+            #    self.t_matrix_file
+            #)
+            #init_stokes = tmtx @ init_stokes
             init_stokes = pol.linear_analyzer_polarizer(
                 polarizer_angle[i] * np.pi/180.,
                 px=1,
