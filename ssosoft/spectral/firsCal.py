@@ -1576,7 +1576,7 @@ class FirsCal:
             wavelength_array, medfilt_divided, axis=-1, extrapolate=True
         )(degraded_wavelengths)
         pfc = scinterp.CubicSpline(
-            degraded_wavelengths, scind.median_filter(degraded_medfilt, size=(0, rolling_window)),
+            degraded_wavelengths, scind.median_filter(degraded_medfilt, size=(1, rolling_window)),
             axis=-1, extrapolate=True
         )(wavelength_array)
         pfc /= np.repeat(np.nanmax(pfc, axis=0)[np.newaxis, :], pfc.shape[1], axis=0)
