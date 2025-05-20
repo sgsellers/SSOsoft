@@ -1571,7 +1571,7 @@ class FirsCal:
         fts_spec_firs_res = np.interp(wavelength_array, fts_wave, fts_spec)
         degraded_wavelengths = np.linspace(wavelength_array[0], wavelength_array[-1], num=degrade_to)
         # Median filter along spatial direction
-        medfilt_divided = scind.median_filter(data_slice, size=(25, 0)) / fts_spec_firs_res
+        medfilt_divided = scind.median_filter(data_slice, size=(25, 1)) / fts_spec_firs_res
         degraded_medfilt = scinterp.CubicSpline(
             wavelength_array, medfilt_divided, axis=-1, extrapolate=True
         )(degraded_wavelengths)
