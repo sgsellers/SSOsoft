@@ -223,9 +223,9 @@ class FirsCal:
             fringe_template = None
             if self.defringe == "flat":
                 fringe_template = self.firs_get_fringe_template(index)
-
+            obs_index = np.where(self.obssum_info["OBSSERIES"] == self.science_series_list[index])[0][0]
             self.reduce_firs_maps(
-                index, overview=self.plot, write=True, fringe_template=fringe_template,
+                obs_index, overview=self.plot, write=True, fringe_template=fringe_template,
                 v2q=self.v2q, v2u=self.v2u, q2v=self.q2v, u2v=self.u2v
             )
         return
@@ -282,7 +282,8 @@ class FirsCal:
         Loads or creates fringe template from reduced flat field
         """
         solar_flat_start_times = self.obssum_info['STARTTIME'][self.obssum_info['OBSTYPE'] == 'SFLT']
-        science_start_time = self.obssum_info['STARTTIME'][index]
+        obs_index = np.where(self.science_series_list[index] == self.obssum_info["OBSSERIES"])[0][0]
+        science_start_time = self.obssum_info['STARTTIME'][obs_index]
         nearest_flat_index = spex.find_nearest(solar_flat_start_times, science_start_time)
         sflat_index = np.where(self.obssum_info["STARTTIME"] == solar_flat_start_times[nearest_flat_index])[0][0]
         sflat_start = self.obssum_info['STARTTIME'][sflat_index]
@@ -315,7 +316,8 @@ class FirsCal:
         else:
             sflt_indices = np.where(["SFLT" in i for i in self.obssum_info['OBSTYPE']])[0]
             sflt_starts = self.obssum_info['STARTTIME'][sflt_indices]
-            obs_start = self.obssum_info['STARTTIME'][index]
+            obs_index = np.where(self.obssum_info["OBSSERIES"] == self.science_series_list[index])[0][0]
+            obs_start = self.obssum_info['STARTTIME'][obs_index]
             sflat_index = sflt_indices[spex.find_nearest(sflt_starts, obs_start)]
             self.solar_flat = self.average_image_from_list(self.obssum_info['OBSSERIES'][sflat_index])
             dark_indices = np.where(['DARK' in i for i in self.obssum_info['OBSTYPE']])[0]
@@ -1405,7 +1407,7 @@ class FirsCal:
         """
         internal_crosstalk = np.zeros((4, self.nslits, quv_data.shape[2]))
         if self.v2q:
-            for slit in self.nslits:
+            for slit in range(self.nslits):
                 # Baseline bulk crosstalk first
                 bulk_v2q_crosstalk = pol.internal_crosstalk_2d(
                     quv_data[0, slit, :, :], quv_data[2, slit, :, :]
@@ -1427,7 +1429,7 @@ class FirsCal:
                         quv_data[0, slit, y, :] = quv_data[0, slit, y, :] - ct_val * quv_data[2, slit, y, :]
                 internal_crosstalk[0, slit] += bulk_v2q_crosstalk
         if self.v2u:
-            for slit in self.nslits:
+            for slit in range(self.nslits):
                 # Baseline bulk crosstalk first
                 bulk_v2u_crosstalk = pol.internal_crosstalk_2d(
                     quv_data[1, slit, :, :], quv_data[2, slit, :, :]
@@ -1449,7 +1451,7 @@ class FirsCal:
                         quv_data[1, slit, y, :] = quv_data[1, slit, y, :] - ct_val * quv_data[2, slit, y, :]
                 internal_crosstalk[1, slit] += bulk_v2u_crosstalk
         if self.q2v:
-            for slit in self.nslits:
+            for slit in range(self.nslits):
                 # Baseline bulk crosstalk first
                 bulk_q2v_crosstalk = pol.internal_crosstalk_2d(
                     quv_data[2, slit, :, :], quv_data[0, slit, :, :]
@@ -1471,7 +1473,7 @@ class FirsCal:
                         quv_data[2, slit, y, :] = quv_data[2, slit, y, :] - ct_val * quv_data[0, slit, y, :]
                 internal_crosstalk[2, slit] += bulk_q2v_crosstalk
         if self.u2v:
-            for slit in self.nslits:
+            for slit in range(self.nslits):
                 # Baseline bulk crosstalk first
                 bulk_u2v_crosstalk = pol.internal_crosstalk_2d(
                     quv_data[2, slit, :, :], quv_data[1, slit, :, :]
