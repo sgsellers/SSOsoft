@@ -220,15 +220,9 @@ class FirsCal:
                 # Need to clear out previous plot instances
                 plt.pause(2)
                 plt.close("all")
-            self.science_file_list = sorted(glob.glob(self.science_series_list[index] + "*"))
             fringe_template = None
             if self.defringe == "flat":
-                sflt_indices = np.where(["SFLT" in i for i in self.obssum_info['OBSTYPE']])[0]
-                sflt_starts = self.obssum_info['STARTTIME'][sflt_indices]
-                obs_start = self.obssum_info['STARTTIME'][index]
-                sflat_index = sflt_indices[spex.find_nearest(sflt_starts, obs_start)]
-                reduced_flat = self.reduce_firs_maps(sflat_index, write=False, overview=False, fringe_template=None)
-                fringe_template = self.construct_fringe_template_from_flat(reduced_flat)
+                fringe_template = self.firs_get_fringe_template(index)
 
             self.reduce_firs_maps(
                 index, overview=self.plot, write=True, fringe_template=fringe_template,
@@ -282,6 +276,33 @@ class FirsCal:
         self.firs_get_polcal()
 
         return
+
+    def firs_get_fringe_template(self, index: int):
+        """
+        Loads or creates fringe template from reduced flat field
+        """
+        solar_flat_start_times = self.obssum_info['STARTTIME'][self.obssum_info['OBSTYPE'] == 'SFLT']
+        science_start_time = self.obssum_info['STARTTIME'][index]
+        nearest_flat_index = spex.find_nearest(solar_flat_start_times, science_start_time)
+        sflat_index = np.where(self.obssum_info["STARTTIME"] == solar_flat_start_times[nearest_flat_index])[0][0]
+        sflat_start = self.obssum_info['STARTTIME'][sflat_index]
+        date, time = str(sflat_start).split("T")
+        date = date.replace("-", "")
+        time = str(round(float(time.replace(":", "")), 0)).split(".")[0]
+        fringe_template_filename = "FIRS_FRINGETEMPLATE_{0}_{1}.fits".format(
+            date, time
+        )
+        fringe_template_path = os.path.join(self.final_dir, fringe_template_filename)
+        if os.path.exists(fringe_template_path):
+            with fits.open(fringe_template_path) as hdul:
+                fringe_template = hdul[0].data
+        else:
+            reduced_flat = self.reduce_firs_maps(sflat_index, write=False, overview=False, fringe_template=None)
+            fringe_template = self.construct_fringe_template_from_flat(reduced_flat)
+            hdu = fits.PrimaryHDU(fringe_template)
+            hdul = fits.HDUList(hdu)
+            hdul.writeto(fringe_template_filename, overwrite=True)
+        return fringe_template
 
     def firs_get_solar_flat(self, index: int) -> None:
         """
@@ -1159,7 +1180,7 @@ class FirsCal:
                     if fringe_template is not None:
                         # Subtract fringes
                         reduced_data[1:, :, :, step_ctr, :] = self.defringe_from_template(
-                            reduced_data[1:, :, :, step_ctr, :], fringe_template[:, :, :, step_ctr, :]
+                            reduced_data[1:, :, :, step_ctr, :], fringe_template
                         )
                     if any((v2q, v2u, q2v, u2v)):
                         # Internal Crosstalk
@@ -2089,11 +2110,13 @@ class FirsCal:
         names = [
             "OBSSERIES", "STARTTIME", "ENDTIME", "EXPTIME", "COADD", "NREPEAT", "NFILES", "OBSTYPE"
         ]
+        time_sort = np.argsort(np.array(final_starttime))
         self.obssum_info = np.rec.fromarrays(
             [
-                np.array(final_obsseries), np.array(final_starttime), np.array(final_endtime),
-                np.array(final_exptime), np.array(final_coadd), np.array(final_repeats),
-                np.array(final_nfiles), np.array(final_obstype)
+                np.array(final_obsseries)[time_sort], np.array(final_starttime)[time_sort],
+                np.array(final_endtime)[time_sort], np.array(final_exptime)[time_sort],
+                np.array(final_coadd)[time_sort], np.array(final_repeats)[time_sort],
+                np.array(final_nfiles)[time_sort], np.array(final_obstype)[time_sort]
             ],
             names=names
         )
