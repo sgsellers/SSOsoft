@@ -1916,12 +1916,17 @@ class FirsCal:
             self.verbose = True if self.verbose.lower() == "true" else False
         self.v2q = config["FIRS"]["v2q"] if "v2q" in config["FIRS"].keys() \
             else self.v2q
+        self.v2q = False if self.v2q.lower() == "false" else self.v2q
         self.v2u = config["FIRS"]["v2q"] if "v2q" in config["FIRS"].keys() \
             else self.v2q
+        self.v2u = False if self.v2u.lower() == "false" else self.v2u
         self.q2v = config["FIRS"]["v2q"] if "v2q" in config["FIRS"].keys() \
             else self.v2q
+        self.q2v = False if self.q2v.lower() == "false" else self.q2v
         self.u2v = config["FIRS"]["v2q"] if "v2q" in config["FIRS"].keys() \
             else self.v2q
+        self.u2v = False if self.u2v.lower() == "false" else self.u2v
+
         self.despike = config['FIRS']['despike'] if "despike" in config['FIRS'].keys() else self.despike
         if type(self.despike) is str:
             self.despike = True if self.despike.lower() == "true" else False
