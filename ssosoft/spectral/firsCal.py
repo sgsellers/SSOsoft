@@ -1952,7 +1952,8 @@ class FirsCal:
             else self.defringe
         self.spectral_transmission = config['FIRS']['spectralTransmission'] \
             if 'spectraltransmission' in config['FIRS'].keys() else self.spectral_transmission
-        self.spectral_transmission = 'True' if self.spectral_transmission.lower() == "true" else False
+        if type(self.spectral_transmission) is str:
+            self.spectral_transmission = True if self.spectral_transmission.lower() == "true" else False
         self.slit_camera_lens = float(config["FIRS"]["slitCameraLens"]) if "slitcameralens" in config['FIRS'].keys() \
             else self.slit_camera_lens
         self.telescope_plate_scale = float(config["FIRS"]["telescopePlateScale"]) \
