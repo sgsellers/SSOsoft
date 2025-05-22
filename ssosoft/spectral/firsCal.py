@@ -1240,6 +1240,9 @@ class FirsCal:
                                 self.analysis_indices[0, slit, line] = spex.find_nearest(
                                     wavegrid[slit], self.default_analysis_ranges[0, line]
                                 )
+                                self.analysis_indices[1, slit, line] = spex.find_nearest(
+                                    wavegrid[slit], self.default_analysis_ranges[1, line]
+                                )
                                 line_core_arr[slit, line] = spex.find_nearest(
                                     wavegrid[slit], self.default_reference_wavelengths[line]
                                 )
@@ -2323,9 +2326,15 @@ class FirsCal:
         field_u_ax = []
         field_v_ax = []
         for j in range(field_images.shape[0]):
-            field_fig_list.append(
-                plt.figure("Line " + str(j), figsize=(5, 5 / field_aspect_ratio + 1))
-            )
+            if self.analysis_ranges == "default":
+                field_fig_list.append(
+                    plt.figure(self.default_analysis_ranges[j], figsize=(5, 5 / field_aspect_ratio + 1))
+                )
+                field_fig_list[-1].suptitle(self.default_analysis_ranges[j])
+            else:
+                field_fig_list.append(
+                    plt.figure("Line " + str(j), figsize=(5, 5 / field_aspect_ratio + 1))
+                )
             field_gs.append(
                 field_fig_list[j].add_gridspec(2, 2, hspace=0.1, wspace=0.1)
             )
