@@ -2328,9 +2328,9 @@ class FirsCal:
         for j in range(field_images.shape[0]):
             if self.analysis_ranges == "default":
                 field_fig_list.append(
-                    plt.figure(self.default_analysis_ranges[j], figsize=(5, 5 / field_aspect_ratio + 1))
+                    plt.figure(self.default_analysis_names[j], figsize=(5, 5 / field_aspect_ratio + 1))
                 )
-                field_fig_list[-1].suptitle(self.default_analysis_ranges[j])
+                field_fig_list[-1].suptitle(self.default_analysis_names[j])
             else:
                 field_fig_list.append(
                     plt.figure("Line " + str(j), figsize=(5, 5 / field_aspect_ratio + 1))
