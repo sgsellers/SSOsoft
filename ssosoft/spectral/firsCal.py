@@ -2809,7 +2809,7 @@ class FirsCal:
                                 'Approx. Total Efficiency of Grating')
         ext0.header['LITTROW'] = (round(float(grating_params['Littrow_Angle']), 3), '[degrees] Littrow Angle')
         ext0.header['RESOLVPW'] = (
-            round(np.nanmean(wavelength_array) / (0.001 * float(grating_params['Spectrograph_Resolution'])), 0),
+            round(self.central_wavelength / (0.001 * float(grating_params['Spectrograph_Resolution'])), 0),
             "Maximum Resolving Power of Spectrograph"
         )
 
