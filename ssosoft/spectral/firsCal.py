@@ -1283,12 +1283,12 @@ class FirsCal:
                             map_dx = slit_plate_scale * slit_width
                             plot_params = self.set_up_live_plot(
                                 field_images, reduced_data[:, :, :, step_ctr, :],
-                                complete_internal_crosstalks[:, :, :, :, step_ctr],
+                                complete_internal_crosstalks[:, :, :, step_ctr],
                                 camera_dy, map_dx
                             )
                         self.update_live_plot(
                             *plot_params, field_images, reduced_data[:, :, :, step_ctr, :],
-                            complete_internal_crosstalks[:, :, :, :, step_ctr], step_ctr
+                            complete_internal_crosstalks[:, :, :, step_ctr], step_ctr
                         )
                     step_ctr += 1
                     pbar.update(1)
