@@ -140,6 +140,7 @@ class FirsCal:
         self.n_subslits = 10
         self.fringe_frequency = [-0.4, 0.4] # In angstrom, the assumed threshold for high-frequency noise to filter out
         self.verbose = False
+        self.spectral_transmission = False
         self.v2q = True
         self.v2u = True
         self.q2v = False
@@ -1167,9 +1168,10 @@ class FirsCal:
                             np.nanmean(reduced_data[0, slit, :, :step_ctr + 1, :], axis=(0, 1))
                         )
                         wavegrid[slit, :] = wavelength_array
-                        reduced_data[0, slit, :, step_ctr, :] = self.prefilter_correction(
-                            reduced_data[0, slit, :, step_ctr, :], wavelength_array
-                        )
+                        if self.spectral_transmission:
+                            reduced_data[0, slit, :, step_ctr, :] = self.prefilter_correction(
+                                reduced_data[0, slit, :, step_ctr, :], wavelength_array
+                            )
                     # I -> QUV crosstalk correction
                     reduced_data[
                         1:, :, :, step_ctr, :
@@ -1607,7 +1609,7 @@ class FirsCal:
             degraded_wavelengths, scind.median_filter(degraded_medfilt, size=(1, rolling_window)),
             axis=-1, extrapolate=True
         )(wavelength_array)
-        pfc /= np.repeat(np.nanmax(pfc, axis=0)[np.newaxis, :], pfc.shape[0], axis=0)
+        pfc /= np.repeat(np.nanmax(pfc, axis=1)[:, np.newaxis], pfc.shape[1], axis=1)
 
         return data_slice/pfc
 
@@ -1948,6 +1950,9 @@ class FirsCal:
             else self.analysis_ranges
         self.defringe = config['FIRS']['defringeMethod'] if 'defringemethod' in config['FIRS'].keys() \
             else self.defringe
+        self.spectral_transmission = config['FIRS']['spectralTransmission'] \
+            if 'spectraltransmission' in config['FIRS'].keys() else self.spectral_transmission
+        self.spectral_transmission = 'True' if self.spectral_transmission.lower() == "true" else False
         self.slit_camera_lens = float(config["FIRS"]["slitCameraLens"]) if "slitcameralens" in config['FIRS'].keys() \
             else self.slit_camera_lens
         self.telescope_plate_scale = float(config["FIRS"]["telescopePlateScale"]) \
