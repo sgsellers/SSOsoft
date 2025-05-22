@@ -1186,9 +1186,11 @@ class FirsCal:
                         )
                     if any((v2q, v2u, q2v, u2v)):
                         # Internal Crosstalk
-                        reduced_data[1:, :, :, step_ctr, :] = self.detrend_internal_crosstalk(
+                        crosstalk_results = self.detrend_internal_crosstalk(
                             reduced_data[1:, :, :, step_ctr, :], wavegrid
                         )
+                        reduced_data[1:, :, :, step_ctr, :] = crosstalk_results[0]
+                        complete_internal_crosstalks[:, :, :, step_ctr] = crosstalk_results[1]
                     # Grab analysis lines if they're not the default.
                     # Skip if overview set to false, i.e., reducing a flat field
                     if (step_ctr == 0) and (self.analysis_ranges == "choose") and overview:
