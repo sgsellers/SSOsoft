@@ -1259,7 +1259,7 @@ class FirsCal:
                             for slit in range(self.nslits):
                                 field_images[
                                     line, 0, :, step_ctr+slit*len(filelist)
-                                ] = reduced_data[0, slit, :, step_ctr, line_core_arr[slit, line]]
+                                ] = reduced_data[0, slit, :, step_ctr, int(line_core_arr[slit, line])]
                                 for k in range(1, 4):
                                     field_images[line, k, :, step_ctr+slit*len(filelist)] = scinteg.trapezoid(
                                         np.nan_to_num(np.abs(
