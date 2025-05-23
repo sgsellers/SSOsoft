@@ -300,14 +300,14 @@ class FirsCal:
             with fits.open(fringe_template_path) as hdul:
                 fringe_template = hdul[0].data
         else:
-            reduced_flat, flat_hairlines, flat_alignment = self.reduce_firs_maps(
+            reduced_flat = self.reduce_firs_maps(
                 sflat_index, write=False, overview=False, fringe_template=None
             )
             fringe_template = self.construct_fringe_template_from_flat(reduced_flat)
             hdu = fits.PrimaryHDU(fringe_template)
             hdul = fits.HDUList(hdu)
             hdul.writeto(fringe_template_filename, overwrite=True)
-        return fringe_template, flat_hairlines, flat_alignment
+        return fringe_template
 
     def firs_get_solar_flat(self, index: int) -> None:
         """
