@@ -2829,8 +2829,8 @@ class FirsCal:
 
         for i in range(len(prsteps)):
             ext0.header['PRSTEP{0}'.format(i+1)] = (prsteps[i], prstep_comments[i])
-        ext0.header['COMMENT'] = ("Full WCS Information Contained in Individual Data HDUs\n"
-                                "{0} Slits have been flattened".format(self.nslits))
+        ext0.header['COMMENT'] = "Full WCS Information Contained in Individual Data HDUs"
+        ext0.header['COMMENT'] = "{0} Slits have been flattened".format(self.nslits)
 
         ext0.header.insert(
             "DATA_LEV",
@@ -2940,7 +2940,8 @@ class FirsCal:
         ]
         ext_met = fits.BinTableHDU.from_columns(columns)
         ext_met.header['EXTNAME'] = 'METADATA'
-        ext_met['COMMENT'] = 'Columns correspond to x-axis in data extensions, which are shape (ny, nx, nlambda)'
+        ext_met['COMMENT'] = 'Columns correspond to x-axis in data extensions'
+        ext_met['COMMENT'] = 'Columns are shape (ny, nx, nlambda)'
 
         fits_hdus.append(ext_met)
 
