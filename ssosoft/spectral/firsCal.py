@@ -2815,7 +2815,8 @@ class FirsCal:
         )
 
         for h in range(len(hairline_centers)):
-            ext0.header['HAIRLIN{0}'.format(h)] = (round(hairline_centers[h], 3), "Center of Registration Hairline")
+            ext0.header['HAIRLIN{0}'.format(h)] = (round(float(hairline_centers[h]), 3),
+                                                   "Center of Registration Hairline")
         ext0.header['RSUN_ARC'] = rsun
         ext0.header['XCEN'] = (round(center_x, 2), "[arcsec], Solar-X of Map Center")
         ext0.header['YCEN'] = (round(center_y, 2), "[arcsec], Solar-Y of Map Center")
@@ -2828,7 +2829,7 @@ class FirsCal:
 
         for i in range(len(prsteps)):
             ext0.header['PRSTEP{0}'.format(i+1)] = (prsteps[i], prstep_comments[i])
-        ext0.header['COMMENT'] ("Full WCS Information Contained in Individual Data HDUs\n"
+        ext0.header['COMMENT'] = ("Full WCS Information Contained in Individual Data HDUs\n"
                                 "{0} Slits have been flattened".format(self.nslits))
 
         ext0.header.insert(
