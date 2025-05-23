@@ -222,11 +222,15 @@ class FirsCal:
                 plt.pause(2)
                 plt.close("all")
             fringe_template = None
+            fringe_hairlines = None
+            fringe_alignment = None
             if self.defringe == "flat":
-                fringe_template = self.firs_get_fringe_template(index)
+                fringe_template, fringe_hairlines, fringe_alignment = self.firs_get_fringe_template(index)
+
             obs_index = np.where(self.obssum_info["OBSSERIES"] == self.science_series_list[index])[0][0]
-            self.reduce_firs_maps(
+            _ = self.reduce_firs_maps(
                 obs_index, overview=self.plot, write=True, fringe_template=fringe_template,
+                fringe_hairlines=fringe_hairlines, fringe_alignment=fringe_alignment,
                 v2q=self.v2q, v2u=self.v2u, q2v=self.q2v, u2v=self.u2v
             )
         return
@@ -298,13 +302,24 @@ class FirsCal:
         if os.path.exists(fringe_template_path):
             with fits.open(fringe_template_path) as hdul:
                 fringe_template = hdul[0].data
+                flat_alignment = hdul[0].header['SPALIGN']
+                flat_hairlines = tuple(
+                    sorted(
+                        [hdul[0].header[key] for key in hdul[0].header.keys() if "HAIRLIN" in key]
+                    )
+                )
         else:
-            reduced_flat = self.reduce_firs_maps(sflat_index, write=False, overview=False, fringe_template=None)
+            reduced_flat, flat_hairlines, flat_alignment = self.reduce_firs_maps(
+                sflat_index, write=False, overview=False, fringe_template=None
+            )
             fringe_template = self.construct_fringe_template_from_flat(reduced_flat)
             hdu = fits.PrimaryHDU(fringe_template)
+            for h in range(len(flat_hairlines)):
+                hdu.header['HAIRLIN{0}'.format(h)] = flat_hairlines[h]
+            hdu.header['SPALIGN'] = flat_alignment
             hdul = fits.HDUList(hdu)
             hdul.writeto(fringe_template_filename, overwrite=True)
-        return fringe_template
+        return fringe_template, flat_hairlines, flat_alignment
 
     def firs_get_solar_flat(self, index: int) -> None:
         """
@@ -946,6 +961,7 @@ class FirsCal:
     def reduce_firs_maps(
             self,
             index: int, overview: bool=False, write: bool=True, fringe_template: None or np.ndarray=None,
+            fringe_hairlines: None or tuple=None, fringe_alignment: None or float=None,
             v2q: bool or str=False, v2u: bool or str=False, q2v: bool or str=False, u2v: bool or str=False
     ) -> np.ndarray:
         """
@@ -967,6 +983,10 @@ class FirsCal:
             Whether to write files to disk
         fringe_template : None or numpy.ndarray, optional
             If provided, uses an array of shape (4, nslits, ny, nx, nlambda) to subtract off polarimetric fringes
+        fringe_hairlines : None or tuple, optional
+            If provided, should be a tuple with the centers of the hairlines found in the fringe template reduction
+        fronge_alignment : None or float, optional
+            If provided, should be the center of the spectral line used for fringe template registration
         v2q : bool or str, optional
             If true, determines single crosstalk value V->Q. If "full", determines profile-by-profile crosstalk
         v2u : bool or str, optional
@@ -1074,7 +1094,7 @@ class FirsCal:
                             )
                             master_hairline_centers = (
                                 hairline_centers[0, 0], # Slit 0, Beam 0 lower hairline
-                                hairline_centers[0, 0] + np.diff(self.full_hairlines[0, 0]) # Based on original spacing.
+                                hairline_centers[0, 0] + np.diff(self.full_hairlines[0, 0])[0] # Based on original spacing.
                             )
                         else:
                             hairline_skews, hairline_centers = self.subpixel_hairline_align(
@@ -1182,6 +1202,16 @@ class FirsCal:
                     )
                     # Next up; sub off fringe template, perform crosstalk correction, set up overviews.
                     if fringe_template is not None:
+                        if fringe_hairlines is not None and fringe_alignment is not None:
+                            nearest_fringe_hair = fringe_hairlines[spex.find_nearest(
+                                np.array(fringe_hairlines), master_hairline_centers[0]
+                            )]
+                            fringe_template = scind.shift(
+                                fringe_template,
+                                (0,
+                                 -(nearest_fringe_hair - master_hairline_centers[0]),
+                                 -(fringe_alignment - master_spectral_center))
+                            )
                         # Subtract fringes
                         reduced_data[1:, :, :, step_ctr, :] = self.defringe_from_template(
                             reduced_data[1:, :, :, step_ctr, :], fringe_template
@@ -1341,7 +1371,7 @@ class FirsCal:
                 if overview:
                     plt.pause(2)
                     plt.close("all")
-        return reduced_data
+        return reduced_data, master_hairline_centers, master_spectral_center
 
 
     def detrend_i_crosstalk(
@@ -2940,8 +2970,8 @@ class FirsCal:
         ]
         ext_met = fits.BinTableHDU.from_columns(columns)
         ext_met.header['EXTNAME'] = 'METADATA'
-        ext_met['COMMENT'] = 'Columns correspond to x-axis in data extensions'
-        ext_met['COMMENT'] = 'Columns are shape (ny, nx, nlambda)'
+        ext_met.header['COMMENT'] = 'Columns correspond to x-axis in data extensions'
+        ext_met.header['COMMENT'] = 'Columns are shape (ny, nx, nlambda)'
 
         fits_hdus.append(ext_met)
 
