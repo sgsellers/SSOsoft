@@ -1208,7 +1208,7 @@ class FirsCal:
                             )]
                             fringe_template = scind.shift(
                                 fringe_template,
-                                (0, 0
+                                (0, 0,
                                  -(nearest_fringe_hair - master_hairline_centers[0]),
                                  -(fringe_alignment - master_spectral_center))
                             )
