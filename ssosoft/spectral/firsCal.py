@@ -1530,7 +1530,7 @@ class FirsCal:
             # Fringe template likely varies for each slit
             for slit in range(self.nslits):
                 wavelength_array = self.tweak_wavelength_calibration(
-                    np.mean(mean_flat[0, slit, 50:-50, :], axis=(0))
+                    np.mean(mean_flat[0, slit, 50:-50, :], axis=0)
                 )
                 fft_frequencies = np.fft.fftfreq(
                     len(wavelength_array),
@@ -3217,7 +3217,7 @@ class FirsCal:
         u2v_ext.header[""] = "V = V - coef*U"
 
         hdul = fits.HDUList([ext0, i2quv_ext, v2q_ext, v2u_ext, q2v_ext, u2v_ext])
-        filename = "{0}_MAP_{1}_REPEAT_{2}_CROSSTALKS.fits".format(self.camera, index, repeat)
+        filename = "FIRS_MAP_{0}_REPEAT_{1}_CROSSTALKS.fits".format(index, repeat)
         crosstalk_file = os.path.join(self.final_dir, filename)
         hdul.writeto(crosstalk_file, overwrite=True)
 
