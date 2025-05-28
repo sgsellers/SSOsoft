@@ -2999,10 +2999,10 @@ class FirsCal:
                     for slit in range(self.nslits):
                         for x in range(datacube.shape[3]):
                             spectral_profile = datacube[
-                                0, slit, y, x, bound_indices[0, slit, i]:bound_indices[1, slit, i]
+                                0, slit, y, x, int(bound_indices[0, slit, i]):int(bound_indices[1, slit, i])
                             ]
                             intens, vel, wid = spex.moment_analysis(
-                                wavelength_array[bound_indices[0, slit, i]:bound_indices[1, slit, i]],
+                                wavelength_array[int(bound_indices[0, slit, i]):int(bound_indices[1, slit, i])],
                                 spectral_profile,
                                 reference_wavelengths[i]
                             )
@@ -3012,20 +3012,20 @@ class FirsCal:
                             )
                             # Net V
                             parameter_maps[i, 3, y, slit*datacube.shape[3] + x] = pol.net_circular_polarization(
-                                datacube[3, slit, y, x, bound_indices[0, slit, i]:bound_indices[1, slit, i]],
-                                wavelength_array[bound_indices[0, slit, i]:bound_indices[1, slit, i]]
+                                datacube[3, slit, y, x, int(bound_indices[0, slit, i]):int(bound_indices[1, slit, i]]),
+                                wavelength_array[int(bound_indices[0, slit, i]):int(bound_indices[1, slit, i])]
                             )
                             # Mean V
                             parameter_maps[i, 4, y, slit*datacube.shape[3] + x] = pol.mean_circular_polarization(
-                                datacube[3, slit, y, x, bound_indices[0, slit, i]:bound_indices[1, slit, i]],
-                                wavelength_array[bound_indices[0, slit, i]:bound_indices[1, slit, i]],
+                                datacube[3, slit, y, x, int(bound_indices[0, slit, i]):int(bound_indices[1, slit, i])],
+                                wavelength_array[int(bound_indices[0, slit, i]):int(bound_indices[1, slit, i])],
                                 reference_wavelengths[i],
                                 pseudo_continuum
                             )
                             # Mean QU
                             parameter_maps[i, 5, y, slit*datacube.shape[3] + x] = pol.mean_linear_polarization(
-                                datacube[1, slit, y, x, bound_indices[0, slit, i]:bound_indices[1, slit, i]],
-                                datacube[2, slit, y, x, bound_indices[0, slit, i]:bound_indices[1, slit, i]],
+                                datacube[1, slit, y, x, int(bound_indices[0, slit, i]):int(bound_indices[1, slit, i])],
+                                datacube[2, slit, y, x, int(bound_indices[0, slit, i]):int(bound_indices[1, slit, i])],
                                 pseudo_continuum
                             )
                             pbar.update(1)
@@ -3103,8 +3103,8 @@ class FirsCal:
             if self.analysis_ranges == "default":
                 # If we're using default ranges, we must also be at 10830
                 ext0.header['WAVEBAND'] = self.default_analysis_names[i]
-            ext0.header["WAVEMIN"] = (round(wavelength_array[indices[i][0]], 3), "Lower Bound for Analysis")
-            ext0.header["WAVEMAX"] = (round(wavelength_array[indices[i][1]], 3), "Upper Bound for Analysis")
+            ext0.header["WAVEMIN"] = (round(wavelength_array[int(indices[i][0])], 3), "Lower Bound for Analysis")
+            ext0.header["WAVEMAX"] = (round(wavelength_array[int(indices[i][1])], 3), "Upper Bound for Analysis")
             ext0.header["COMMENT"] = "File contains derived parameters from moment analysis and polarization analysis"
             fits_hdus = [ext0]
             for j in range(analysis_maps.shape[1]):
