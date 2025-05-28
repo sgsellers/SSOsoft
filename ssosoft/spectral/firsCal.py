@@ -3012,7 +3012,7 @@ class FirsCal:
                             )
                             # Net V
                             parameter_maps[i, 3, y, slit*datacube.shape[3] + x] = pol.net_circular_polarization(
-                                datacube[3, slit, y, x, int(bound_indices[0, slit, i]):int(bound_indices[1, slit, i]]),
+                                datacube[3, slit, y, x, int(bound_indices[0, slit, i]):int(bound_indices[1, slit, i])],
                                 wavelength_array[int(bound_indices[0, slit, i]):int(bound_indices[1, slit, i])]
                             )
                             # Mean V
