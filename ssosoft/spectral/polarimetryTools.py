@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+import scipy.integrate as scint
 import scipy.interpolate as scinterp
 import scipy.io as scio
 import scipy.ndimage as scind
