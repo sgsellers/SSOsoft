@@ -480,6 +480,73 @@ def internal_crosstalk_2d(base_image: np.ndarray, contamination_image: np.ndarra
 
     return crosstalk_value
 
+def internal_crosstalk_2d_ordered(
+        base_image: np.ndarray, contamination_image: np.ndarray,
+        order: int=1
+):
+    """
+    Determines a crosstalk range along the y-direction by minimizing the linear correlation between
+    the base image and a polynomial of a given order * the contamination image (in the y-direction).
+
+    Parameters
+    ----------
+    base_image : numpy.ndarray
+        2D array of the image affected by crosstalk
+    contamination_image : numpy.ndarray
+        2D array of the image that is the crosstalk source
+    order : int
+        Either 1 or 2
+
+    Returns
+    -------
+    crosstalk_coeffs : numpy.ndarray
+        Array of length order+1 containing the coefficients of the polynomial fit
+
+    """
+    def model_function(coeffs, contam, img):
+        """Fit model"""
+        yrange = np.arange(contam.shape[0])
+        yprofile = np.zeros(contam.shape[0])
+        for i in range(len(coeffs)):
+            yprofile += coeffs[i] * yrange ** i
+        yprofile = np.repeat(yprofile[:, np.newaxis], contam.shape[1], axis=1)
+        return img - yprofile * contam
+
+    def error_function(param, contam, img):
+        """Error function
+        """
+        contam_corr = model_function(param, contam, img)
+        lin_corr = np.nansum(contam_corr * contam) / np.sqrt(np.nansum(contam_corr ** 2) * np.nansum(contam ** 2))
+
+        return lin_corr
+
+    if order == 0:
+        crosstalk_coeffs = np.array([internal_crosstalk_2d(base_image, contamination_image)])
+    elif order == 1:
+        # Clean up array for correlation
+        base_image = np.abs(base_image) - np.nanmean(np.abs(base_image))
+        contamination_image = np.abs(contamination_image) - np.nanmean(np.abs(contamination_image))
+        fit_result = scopt.least_squares(
+            error_function,
+            x0=[0, 0],
+            args=[contamination_image[50:-50, 50:-50], base_image[50:-50, 50:-50]],
+            bounds=([-0.25, -0.25], [0.25, 0.25])
+        )
+        crosstalk_coeffs = fit_result.x
+    elif order == 2:
+        # Clean up array for correlation
+        base_image = np.abs(base_image) - np.nanmean(np.abs(base_image))
+        contamination_image = np.abs(contamination_image) - np.nanmean(np.abs(contamination_image))
+        fit_result = scopt.least_squares(
+            error_function,
+            x0=[0, 0, 0],
+            args=[contamination_image[50:-50, 50:-50], base_image[50:-50, 50:-50]],
+            bounds=([-0.25, -0.25, -0.25], [0.25, 0.25, 0.25])
+        )
+        crosstalk_coeffs = fit_result.x
+    else:
+        raise ValueError("Supported orders are 0, 1, 2")
+    return crosstalk_coeffs
 
 def i2quv_crosstalk(stokes_i: np.ndarray, stokes_quv: np.ndarray) -> np.ndarray:
     """

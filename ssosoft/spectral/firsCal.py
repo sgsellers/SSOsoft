@@ -831,7 +831,7 @@ class FirsCal:
 
                 # Check physicality & Efficiencies:
                 if np.nanmax(efficiencies[1:]) > 0.866:
-                    name = ['Q ', 'U ', 'V ']
+                    name = ['Q ', 'U ', 'V ', 'QUV ']
                     warnings.warn(
                         str(name[efficiencies[1:].argmax()]) +
                         "is likely too high with a value of " +
@@ -2426,21 +2426,21 @@ class FirsCal:
 
             v2q_ax.set_xlim(-1.05, 1.05)
             v2q_ax.set_ylim(0, internal_crosstalks.shape[2])
-            v2q_ax.set_title("V->Q Crosstalk")
+            v2q_ax.set_title("V->Q")
             v2q_ax.set_ylabel("Position Along Slit")
 
             v2u_ax.set_xlim(-1.05, 1.05)
             v2u_ax.set_ylim(0, internal_crosstalks.shape[2])
-            v2u_ax.set_title("V->U Crosstalk")
+            v2u_ax.set_title("V->U")
             v2u_ax.set_xlabel("Crosstalk Value")
 
             q2v_ax.set_xlim(-1.05, 1.05)
             q2v_ax.set_ylim(0, internal_crosstalks.shape[2])
-            q2v_ax.set_title("Q->V Crosstalk [residual]")
+            q2v_ax.set_title("Q->V")
 
             u2v_ax.set_xlim(-1.05, 1.05)
             u2v_ax.set_ylim(0, internal_crosstalks.shape[2])
-            u2v_ax.set_title("U->V Crosstalk [residual]")
+            u2v_ax.set_title("U->V")
 
             for slit in range(self.nslits):
                 v2q.append(v2q_ax.plot(
