@@ -3103,8 +3103,8 @@ class FirsCal:
             if self.analysis_ranges == "default":
                 # If we're using default ranges, we must also be at 10830
                 ext0.header['WAVEBAND'] = self.default_analysis_names[i]
-            ext0.header["WAVEMIN"] = (round(wavelength_array[int(indices[i][0])], 3), "Lower Bound for Analysis")
-            ext0.header["WAVEMAX"] = (round(wavelength_array[int(indices[i][1])], 3), "Upper Bound for Analysis")
+            ext0.header["WAVEMIN"] = (round(wavelength_array[int(indices[0, 0, i])], 3), "Lower Bound for Analysis")
+            ext0.header["WAVEMAX"] = (round(wavelength_array[int(indices[1, 0, i])], 3), "Upper Bound for Analysis")
             ext0.header["COMMENT"] = "File contains derived parameters from moment analysis and polarization analysis"
             fits_hdus = [ext0]
             for j in range(analysis_maps.shape[1]):
