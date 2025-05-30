@@ -1420,7 +1420,7 @@ class FirsCal:
             for slit in range(self.nslits):
                 # Baseline bulk crosstalk first
                 bulk_v2q_crosstalk = pol.internal_crosstalk_2d(
-                    quv_data[0, slit, :, :], quv_data[2, slit, :, :]
+                    quv_data[0, slit, :, :], quv_data[2, slit, :, :], bounds=[-0.2, 0.2]
                 )
                 quv_data[0, slit, :, :] = quv_data[0, slit, :, :] - bulk_v2q_crosstalk * quv_data[2, slit, :, :]
                 if self.v2q == "full":
@@ -1442,7 +1442,7 @@ class FirsCal:
             for slit in range(self.nslits):
                 # Baseline bulk crosstalk first
                 bulk_v2u_crosstalk = pol.internal_crosstalk_2d(
-                    quv_data[1, slit, :, :], quv_data[2, slit, :, :]
+                    quv_data[1, slit, :, :], quv_data[2, slit, :, :], bounds=[-0.2, 0.2]
                 )
                 quv_data[1, slit, :, :] = quv_data[1, slit, :, :] - bulk_v2u_crosstalk * quv_data[2, slit, :, :]
                 if self.v2u == "full":
@@ -1464,7 +1464,7 @@ class FirsCal:
             for slit in range(self.nslits):
                 # Baseline bulk crosstalk first
                 bulk_q2v_crosstalk = pol.internal_crosstalk_2d(
-                    quv_data[2, slit, :, :], quv_data[0, slit, :, :]
+                    quv_data[2, slit, :, :], quv_data[0, slit, :, :], bounds=[-0.2, 0.2]
                 )
                 quv_data[2, slit, :, :] = quv_data[2, slit, :, :] - bulk_q2v_crosstalk * quv_data[0, slit, :, :]
                 if self.q2v == "full":
@@ -1486,7 +1486,7 @@ class FirsCal:
             for slit in range(self.nslits):
                 # Baseline bulk crosstalk first
                 bulk_u2v_crosstalk = pol.internal_crosstalk_2d(
-                    quv_data[2, slit, :, :], quv_data[1, slit, :, :]
+                    quv_data[2, slit, :, :], quv_data[1, slit, :, :], bounds=[-0.2, 0.2]
                 )
                 quv_data[2, slit, :, :] = quv_data[2, slit, :, :] - bulk_u2v_crosstalk * quv_data[1, slit, :, :]
                 if self.u2v == "full":

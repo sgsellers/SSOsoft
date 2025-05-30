@@ -427,7 +427,10 @@ def spherical_coordinate_transform(telescope_angles: list, site_latitude: float)
     return coordinate_angles
 
 
-def internal_crosstalk_2d(base_image: np.ndarray, contamination_image: np.ndarray) -> float:
+def internal_crosstalk_2d(
+        base_image: np.ndarray, contamination_image: np.ndarray,
+        bounds: list=[-1, 1]
+) -> float:
     """
     Determines a single crosstalk value for a pair of 2D images.
     Minimizes the linear correlation between:
@@ -445,6 +448,8 @@ def internal_crosstalk_2d(base_image: np.ndarray, contamination_image: np.ndarra
         2D image of a spatially-resolved Stokes vector
     contamination_image : numpy.ndarray
         2D image of a different spatially-resolved Stokes vector that is contaminating baseImage
+    bounds: list
+        Bounds on crosstalk parameter value. Default is -1, 1, i.e., unbounded.
 
     Returns
     -------
@@ -473,7 +478,7 @@ def internal_crosstalk_2d(base_image: np.ndarray, contamination_image: np.ndarra
         error_function,
         x0=0,
         args=[contamination_image[50:-50, 50:-50], base_image[50:-50, 50:-50]],
-        bounds=[-1, 1]
+        bounds=bounds
     )
 
     crosstalk_value = fit_result.x
