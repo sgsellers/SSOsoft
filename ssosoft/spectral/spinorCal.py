@@ -437,7 +437,7 @@ class SpinorCal:
         ) else self.camera_lens
         if "polcalclipthreshold" in config[self.camera].keys():
             if config[self.camera]['polcalClipThreshold'] != "":
-                self.ilimit = [float(frac) for frac in config[self.camera]["polcalClipThresold"].split(",")]
+                self.ilimit = [float(frac) for frac in config[self.camera]["polcalClipThreshold"].split(",")]
         self.polcal_processing = config[self.camera]["polcalProcessing"] if (
                 "polcalProcessing" in config[self.camera].keys()
         ) else "True"
