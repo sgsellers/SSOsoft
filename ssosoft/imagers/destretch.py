@@ -95,7 +95,7 @@ class rosaZylaDestretch:
         self.hdrList = []
         self.burstNum = ""
         self.experimental = experimental
-        self.repair_tolerance = 0
+        self.repair_tolerance = 0.5
         self.wave = ""
         self.exptime = ''
         # New as of 2024-01-05, list of translations required to get images pointed north.
@@ -254,19 +254,8 @@ class rosaZylaDestretch:
         # Fully optional keyword, defaults to 0.3
         # If you're seeing a lot of flows "snapping" in your final product, maybe increase this value
         if 'repairTolerance' in [configPair[0] for configPair in config.items(self.channel)]:
-            if config[self.channel]['repairTolerance'] == '':
-                if "ZYLA" in self.channel:
-                    self.repair_tolerance = 0.4
-                elif "ROSA" in self.channel:
-                    self.repair_tolerance = 0.3
-                else:
-                    self.repair_tolerance = 0.3
-            else:
+            if config[self.channel]['repairTolerance'] != '':
                 self.repair_tolerance = float(config[self.channel]['repairTolerance'])
-        elif "ZYLA" in self.channel:
-            self.repair_tolerance = 0.4
-        elif "ROSA" in self.channel:
-            self.repair_tolerance = 0.3
         return
 
     def speckleToFits(self):

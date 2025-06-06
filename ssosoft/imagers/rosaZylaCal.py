@@ -158,6 +158,10 @@ class rosaZylaCal:
         self.DCSSGdran = np.array([])
         self.DCSSSdim = np.array([])
 
+        self.correct_time = False
+
+        return
+
     def rosa_zyla_average_image_from_list(self, fileList):
         """
         Computes an average image from a list of image files.
@@ -319,6 +323,9 @@ class rosaZylaCal:
         self.plateScaleY = config[self.instrument]['kisipArcsecPerPixY']
         if "SHARED" in list(config.keys()):
             self.DCSSLog = config['SHARED']['DCSSLog']
+        if "correcttime" in config[self.instrument].keys():
+            if config[self.instrument]['correctTime'].lower() == "true":
+                self.correct_time = True
 
         self.preSpeckleBase = os.path.join(self.workBase, 'preSpeckle')
         self.speckleBase = os.path.join(self.workBase, 'speckle')
@@ -1014,6 +1021,8 @@ class rosaZylaCal:
                         burstCube[i, :, :] = rosa_zyla_flatfield_correction(hduExt.data)
                         if i == 0:
                             startdate = hduExt.header['DATE']
+                            if self.correct_time:
+                                startdate = (np.datetime64(startdate) - np.timedelta64(1, "h")).astype(str)
                         i += 1
                         header_index += 1
                         if i == self.burstNumber:

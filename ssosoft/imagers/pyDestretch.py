@@ -1,7 +1,5 @@
 import numpy as np
-import scipy.ndimage as scindi
-import scipy.signal as scisig
-
+from scipy import ndimage
 
 class ToleranceException(Exception):
     """Exception raised for solutions outside the allowed tolerances.
@@ -17,592 +15,437 @@ class ToleranceException(Exception):
         self.message = message
         super().__init__(self.message, self.tolerance)
 
-
-def _image_align(image, reference, tolerance=None, trim=50):
+def _window_apod(tile_size: int, fraction: float) -> np.ndarray:
     """
-    Wraps Scipy's fftconvolve function to return an aligned image to a given reference.
-    If the tolerance values are exceeded, attempt instead to align on the inverse image and reference.
-    Currently, no derotation is implemented or planned. Get a better telescope if that's an issue for you.
+    Creates an apodization window for normalizing prior to cross-correlation
 
-    Parameters:
-    -----------
-    image : array-like
-        2D image to align
-    reference : array-like
-        2D reference image to align to
-    tolerance : None or 2-tuple with (ytolerance,xtolerance).
-        Maximum allowable shift before an error is thrown
-    trim : int
-        Trims edges of image and reference by the given amount.
+    Parameters
+    ----------
+    tile_size : int
+        Size of the subfield tile
+    fraction : float
+        Fraction of tile the function should be wide
 
-    Returns:
-    --------
-    aligned_image : array-like
-        Aligned image
+    Returns
+    -------
+    window : numpy.ndarray
+        2D window function
     """
-    originalImage = image.copy()
-    image = image[trim:-trim, trim:-trim]
-    reference = reference[trim:-trim, trim:-trim]
+    apodization_size = int(tile_size*fraction + 0.5)
+    x = np.arange(apodization_size) / apodization_size * np.pi/2.
+    y = np.sin(x)**2
+    z = np.ones(tile_size)
+    z[:apodization_size] = y
+    z[-apodization_size:] = np.flip(y)
 
-    y0 = image.shape[0] / 2.
-    x0 = image.shape[0] / 2.
+    window = np.outer(z, z)
+    return window
 
-    y0_ref = reference.shape[0] / 2.
-    x0_ref = reference.shape[1] / 2.
+def _image_align(
+        image: np.ndarray, reference: np.ndarray,
+        tolerance: float or None=None, subtile: list or None=None
+) -> tuple[np.ndarray, list]:
+    """
+    Align image to reference using a subtile for alignment.
+    By default, chooses the central 256 pixels, with a tolerance of 128 pixels.
 
-    shifts = np.empty(2)
-    aligned_image = np.zeros(originalImage.shape)
+    Parameters
+    ----------
+    image : numpy.ndarray
+        Image to align
+    reference : numpy.ndarray
+        Reference image for alignment
+    tolerance : float
+        Max number of acceptable pixels for shift
+    subtile : list
+        If given, should be of format [y0, x0, size], defines the subfield to use for alignment
 
-    img = image - np.nanmean(image)
-    ref = reference - np.nanmean(reference)
+    Raises
+    ------
+    ToleranceError
+        If xshift or yshift falls outside the acceptable range
 
-    correlation_map = scisig.fftconvolve(img, ref[::-1, ::-1], mode='same')
+    Returns
+    -------
+    aligned : numpy.ndarray
+        Pixel-aligned image
+    shifts : list
+        Of format [yshift, xshift]
+    """
+    if subtile is None and tolerance is None:
+        tolerance = 128
+        subtile = [image.shape[0]//2-128, image.shape[1]//2-128, 256]
+    elif subtile is not None and tolerance is None:
+        tolerance = subtile[2]
+    elif tolerance is not None and subtile is None:
+        subtile = [image.shape[0]//2-128, image.shape[1]//2-128, 256]
+        tolerance = subtile[2]//2 if tolerance > subtile[2] - 1 else tolerance
+    window = _window_apod(subtile[2], 0.4375)
+    window /= np.mean(window)
 
-    y, x = np.unravel_index(np.argmax(correlation_map), correlation_map.shape)
-    shifts[0] = (y0 - y - (y0 - y0_ref))
-    shifts[1] = (x0 - x - (x0 - x0_ref))
+    # Clip to the subtile to be used for alignment
+    ref = reference[subtile[0]:subtile[0]+subtile[2], subtile[1]:subtile[1]+subtile[2]]
+    img = image[subtile[0]:subtile[0] + subtile[2], subtile[1]:subtile[1] + subtile[2]]
+    # Normalization statistics
+    mean_ref = np.mean(ref)
+    std_ref = np.std(ref)
+    mean_img = np.mean(img)
+    std_img = np.std(img)
 
-    if tolerance is not None:
-        if (shifts[0] > tolerance[0]) or (shifts[1] > tolerance[1]):
-            im_inv = img
-            ref_inv = ref
+    # Correlation
+    ref_ft = np.fft.rfft2((ref-mean_ref)/std_ref * window)
+    img_ft = np.fft.rfft2((img - mean_img)/std_img * window)
+    # Shift zero-frequencies to center of spectrum
+    xcorr = np.fft.fftshift(
+        np.fft.irfft2(
+            np.conj(img_ft) * ref_ft
+        )
+    ) / (ref.shape[0] * ref.shape[1])
+    # Integer shift
+    max_idx = np.argmax(xcorr)
+    yshift = max_idx // xcorr.shape[0] - xcorr.shape[0]//2
+    xshift = max_idx % xcorr.shape[0] - xcorr.shape[1]//2
 
-            corr_map_inv = scisig.fftconvolve(im_inv, ref_inv[::-1, ::-1], mode='same')
-
-            y, x = np.unravel_index(np.argmax(corr_map_inv), corr_map_inv.shape)
-            shifts[0] = (y0 - y - (y0 - y0_ref))
-            shifts[1] = (x0 - x - (x0 - x0_ref))
-
-            if (shifts[0] > tolerance[0]) or (shifts[1] > tolerance[1]):
-                raise ToleranceException(tolerance)
-
-    scindi.shift(originalImage, shifts, output=aligned_image, mode='constant', cval=image[0, 0])
-
-    return aligned_image, shifts
-
+    if (np.abs(yshift) > tolerance) or (np.abs(xshift) > tolerance):
+        raise ToleranceException(tolerance)
+    aligned = np.roll(image, (yshift, xshift))
+    shifts = [yshift, xshift]
+    return aligned, shifts
 
 class Destretch:
-    def __init__(self, destretch_target, reference_image, kernel_sizes,
-                 warp_vectors=None, return_vectors=False, repair_tolerance=0.3):
-        """Initializing the destretch class WITHOUT a reference image.
-        The reference image can be provided later, but does not have to be, as the class expects warp_params.
+    def __init__(
+            self,
+            destretch_target: np.ndarray, reference_image: np.ndarray,
+            kernel_size: list, warp_vectors: None or np.ndarray=None,
+            return_vectors: bool=False, repair_tolerance: float=0.5,
+            overlap: bool=True, shift_smooth: int=3
+    ) -> None:
+        """
+        Initializes destretch class.
 
-        Parameters:
-        -----------
-        destretch_target : array-like
-            The 2d image to be destretched. Any looping must be done outside the class. I'll provide an example script.
-        kernel_sizes : list
-            The series of kernel sizes that the destretch is run over.
-            A leading zeros indicates that fine aligment should be performed.
-        reference_image : array-like
-            If warp_vectors is provided, reference_image is used for alignment purposes.
-            Else, reference_image is used to calculate warp_vectors.
-        warp_vectors : None or array-like
-            If an array, assumed to be an arroy of valid warp vectors.
-            If none, then reference_image should be provided.
-            If both are none, then an error is raised
+        Parameters
+        ----------
+        destretch_target : numpy.ndarray
+            2D numpy array containing image to destretch
+        reference_image : numpy.ndarray
+            2D numpy array containing reference image for destretch
+        kernel_size : list
+            List of kernel/subfield sizes. Will iterate over multiple kernel sizes.
+            If a leading 0 is provided, performed global image alignment
+        warp_vectors : None or numpy.ndarray
+            If provided with the coordinate warp grid, will warp destretch_target by grid instead
+            of determining the grid from reference_image, which is instead used for determining global shift
         return_vectors : bool
-            If true, return a list of vector arrays used in the destretch algorithm.
+            If True, returns the (non-interpolated) warp grid for saving.
+        repair_tolerance : float
+            Fraction of a given window that sets the maximum shift of a subfield
+        overlap : bool
+            If true, subfields overlap
+        shift_smooth : int
+            Width of median filter on tile shift array
         """
         self.reference_image = reference_image
         self.destretch_target = destretch_target
-        self.kernel = kernel_sizes
+        self.kernel_sizes = kernel_size
         self.target_size = self.destretch_target.shape
-        if (type(self.kernel) is int) or (type(self.kernel) is float):
-            self.kernel_size = self.kernel
-        else:
-            self.kernel_size = None
         self.warp_vectors = warp_vectors
         self.return_vectors = return_vectors
-        self.wxy = None
-        self.bound_size = None
-        self.control_size = None
-        self.destretch_image = self.destretch_target
-        self.reference_control_points = []
-        self.target_control_points = []
-        self.shifts = None
         self.repair_tolerance = repair_tolerance
+        self.overlap = overlap
+        self.shift_smooth = shift_smooth
+        self.shifts = None
+        self.kernel = None
+
         return
 
-    """Omnibus class for image destretching. Copied or adapted in large part from Sunspot's image destretch IDL tools
-    from the 90's. See original reg.pro for details of individual functions.
-    Can be parallelized when using affine transformation.
-
-    Attributes:
-    -----------
-        reference_image (array-like) -- image used as a reference for calculating destretch vectors
-        destretch_target (array-like) -- image to warp
-        kernel_sizes (list of int or int) -- kernel size(s) to use in destretch. List is done sequentially.
-            A leading 0 indicates that the image should be fine-aligned.
-        warp_vectors (list of ndarray) -- list of destretch control points, 
-            for destretching one image relative to another
-        ncores (int) -- Used in affine transform destretch for parallelization
-        return_vectors (bool) -- If True, returns the list of destretch coordinates
-    """
-
     def perform_destretch(self):
-        """Perform image b-spline driven destretch. There are several cases to account for here:
-        1.  Reference image and either single kernel size or list thereof are provided.
-            In this case, perform iterative destretch as normal.
-        2.  Warp vectors are provided.
-            In this case, perform just the coordinate remapping using scipy
-        """
         if self.warp_vectors is None:
-            if self.kernel_size is not None:
-                if self.kernel_size == 0:
-                    self.destretch_target, shifts = _image_align(
+            warp_vectors = []
+            for kernel in self.kernel_sizes:
+                self.kernel = kernel
+                if self.kernel == 0:
+                    self.destretch_target, self.shifts = _image_align(
                         self.destretch_target,
                         self.reference_image,
-                        tolerance=(self.target_size[0] / 4., self.target_size[1] / 4.))
-                    self.shifts = shifts
-                else:
-                    rcps = self.mkcps()
-                    tcps = self.cps(rcps)
-                    self.reference_control_points.append(rcps)
-                    self.target_control_points.append(tcps)
-                    wv = self.contruct_bspline(rcps, tcps)
-                    self.destretch_image = scindi.map_coordinates(
-                        self.destretch_target,
-                        wv,
-                        order=1,
-                        mode='constant',
-                        prefilter=False,
-                        cval=self.destretch_target[0, 0]
                     )
+                    warp_vectors.append(self.shifts)
+                else:
+                    ntiles, tile_corners = self.tile_coords()
+                    ref_cube = self.segment_image(self.reference_image, ntiles, tile_corners)
+                    img_cube = self.segment_image(self.destretch_target, ntiles, tile_corners)
+                    correlation = self.compute_per_tile_correlation(ref_cube, img_cube)
+                    tile_shifts = self.interpolate_peak(correlation)
+                    registration = self.compute_registration_grid(tile_shifts, ntiles)
+                    distortion_grid = self.compute_distortion_grid(registration, ntiles, tile_corners)
+                    self.warp_image(distortion_grid)
+                    warp_vectors.append(registration)
+            if self.return_vectors:
+                return self.destretch_target, warp_vectors
             else:
-                for i in range(len(self.kernel)):
-                    if self.kernel[i] == 0:
-                        self.destretch_target, shifts = _image_align(
-                            self.destretch_target,
-                            self.reference_image,
-                            tolerance=(self.target_size[0] / 4., self.target_size[1] / 4.)
-                        )
-                        self.shifts = shifts
-                    else:
-                        self.kernel_size = self.kernel[i]
-                        rcps = self.mkcps()
-                        tcps = self.cps(rcps)
-                        self.reference_control_points.append(rcps)
-                        self.target_control_points.append(tcps)
-                        wv = self.contruct_bspline(rcps, tcps)
-                        self.destretch_image = scindi.map_coordinates(
-                            self.destretch_target,
-                            wv,
-                            order=1,
-                            mode='constant',
-                            prefilter=False,
-                            cval=self.destretch_target[0, 0]
-                        )
-                        mask = self.destretch_image == 0.
-                        self.destretch_image[mask] = self.destretch_target[mask]
-                        self.destretch_target = self.destretch_image
-
-        # Rewrote self.warp_vectors to be a list of numpy arrays,
-        # corresponding to two even-length sequential lists of reference then target control points
-        # With a leading shifts if necessary. Only way to get a len(self.warp_vector) = 1 is shifts only
+                return self.destretch_target
         else:
-            if len(self.warp_vectors) == 1:
-                # Edge case where there's a destretch array that corresponds only to a bulk shift
-                self.destretch_target = scindi.shift(
-                    self.destretch_target,
-                    self.warp_vectors[0],
-                    mode='constant',
-                    cval=self.destretch_target[0, 0]
-                )
-            elif len(self.warp_vectors) % 2 == 0:
-                # Case where no bulk shifts were performed
-                self.reference_control_points = self.warp_vectors[:int(len(self.warp_vectors) / 2)]
-                self.target_control_points = self.warp_vectors[int(len(self.warp_vectors) / 2):]
-            elif len(self.warp_vectors) % 2 != 0:
-                self.destretch_target = scindi.shift(
-                    self.destretch_target,
-                    self.warp_vectors[0],
-                    mode='constant',
-                    cval=self.destretch_target[0, 0]
-                )
-                self.reference_control_points = self.warp_vectors[1:int(len(self.warp_vectors) / 2) + 1]
-                self.target_control_points = self.warp_vectors[int(len(self.warp_vectors) / 2) + 1:]
-            for i in range(len(self.reference_control_points)):
-                wv = self.contruct_bspline(self.reference_control_points[i], self.target_control_points[i])
-                self.destretch_image = scindi.map_coordinates(
-                    self.destretch_target,
-                    wv,
-                    order=1,
-                    mode='constant',
-                    prefilter=False,
-                    cval=self.destretch_target[0, 0]
-                )
-
-        mask = self.destretch_image == 0.
-        self.destretch_image[mask] = self.destretch_target[mask]
-        if self.return_vectors:
-            if self.shifts is not None:
-                self.warp_vectors = [self.shifts] + self.reference_control_points + self.target_control_points
+            # Since we need to reconstruct tile sizes, etc., must have kernels corresponding to warp vectors
+            if len(self.kernel_sizes) != len(self.warp_vectors):
+                raise ValueError("Kernel Sizes must correspond to warp vectors!")
+            for i in range(len(self.kernel_sizes)):
+                if self.kernel_sizes[i] == 0:
+                    self.destretch_target, self.shifts = _image_align(
+                        self.destretch_target,
+                        self.reference_image
+                    )
+                else:
+                    self.kernel = self.kernel_sizes[i]
+                    ntiles, tile_corners = self.tile_coords()
+                    distortion_grid = self.compute_distortion_grid(self.warp_vectors[i], ntiles, tile_corners)
+                    self.warp_image(distortion_grid)
+            if self.return_vectors:
+                return self.destretch_target, self.warp_vectors
             else:
-                self.warp_vectors = self.reference_control_points + self.target_control_points
-            return self.destretch_image, self.warp_vectors
+                return self.destretch_target
+
+    def tile_coords(self) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Determines number of tiles in y/x, and corner coords of each tile
+
+        Returns
+        -------
+        ntiles : numpy.ndarray
+            2-array of number of tiles in Y/X, determined from image shape,
+            kernel size, and whether the tiles are requested to be overlapping.
+        tile_corners : numpy.ndarray
+            2D array of tile corner coordinates. Has shape (ntiles[0]*ntiles[1], 2)
+            Tiles will not always be contiguous with the edges of the image.
+            For ROSA cameras in particular, with their 1002x1004 chip size, power-of-2
+            tiles will not be contiguous with the edges
+        """
+        if self.kernel % 2 != 0:
+            # Clean the kernel sizes to be even
+            self.kernel -= 1
+        # Number of tiles without overlap
+        ntiles = np.array(self.destretch_target.shape) // self.kernel
+        # Total padding on both sides of image, i.e., offset from (0, 0) is half this
+        edge_padding = np.array(self.destretch_target.shape) - ntiles*self.kernel
+        if self.overlap:
+            ntiles += ntiles - 1
+            tiles_offset = self.kernel // 2
         else:
-            return self.destretch_image
+            tiles_offset = self.kernel
+        tile_corners = np.empty((ntiles[0] * ntiles[1], 2), dtype=np.int16)
+        ctr = 0
+        for i in range(ntiles[0]):
+            for j in range(ntiles[1]):
+                tile_corners[ctr, :] = (edge_padding[0]//2 + i * tiles_offset,
+                                       edge_padding[1]//2 + j * tiles_offset)
+                ctr += 1
+        return ntiles, tile_corners
 
-    def mkcps(self):
-        """Compute reference image control points given the image size and the size of the desired kernel.
-
-        Parameters:
-        -----------
-        None additional
-
-        Returns:
-        --------
-        rcps : array-like
-            Array of control points for the reference image. Has the shape (2,npointsx,npointsy).
-            This defines a grid in xy corresponding to kernel centers.
-
-        Defines:
-        --------
-        self.wxy : int
-            Wander limits (should be larger than the kernel size)
-        self.bound_size : tuple
-            A 2-tuple containing the boundary x/y size
-        self.control_size : tuple
-            A 2-tuple containing control point size
+    def segment_image(
+            self, image: np.ndarray, ntiles: np.ndarray, tile_corners: np.ndarray
+    ) -> np.ndarray:
         """
+        Segments an image into an array of tiles with size self.kernel.
 
-        a = 40. / np.sqrt(2.)
-        b = 20. / np.log(2.)
+        Parameters
+        ----------
+        image : numpy.ndarray
+            Image to tile
+        ntiles : numpy.ndarray
+            2-array of number of tiles in y/x
+        tile_corners : np.ndarray
+            Y/X coordinates of tile corners of shape (ntiles[0]*ntiles[1], 2)
 
-        self.wxy = int(a * np.exp(-self.kernel_size / b) + self.kernel_size)
-        if self.wxy % 2 == 1:
-            self.wxy += 1
-
-        cpx = (self.target_size[0] - self.wxy + self.kernel_size) / self.kernel_size
-        cpy = (self.target_size[1] - self.wxy + self.kernel_size) / self.kernel_size
-
-        bx = ((self.target_size[0] - self.wxy + self.kernel_size) % self.kernel_size) / 2
-        by = ((self.target_size[1] - self.wxy + self.kernel_size) % self.kernel_size) / 2
-
-        rcps = np.zeros((2, int(cpx), int(cpy)))
-
-        ly = by
-        hy = ly + self.wxy
-
-        for i in range(0, int(cpy)):
-            lx = bx
-            hx = lx + self.wxy
-            for j in range(0, int(cpx)):
-                rcps[0, j, i] = (lx + hx) / 2
-                rcps[1, j, i] = (ly + hy) / 2
-                lx += self.kernel_size
-                hx += self.kernel_size
-            ly += self.kernel_size
-            hy += self.kernel_size
-        self.bound_size = (bx, by)
-        self.control_size = (cpx, cpy)
-
-        return rcps
-
-    def cps(self, reference_control_points):
-        """Compute the offsets for the current image from reference.
-
-        Parameters:
-        -----------
-        reference_control_points : array-like
-            Calculated using self.mkcps(), the control points of the reference image.
-
-        Returns:
-        --------
-        target_control_points : array-like
-            Repaired control points for the target image, corresponding to the same points on the reference grid
+        Returns
+        -------
+        tiled_image : np.ndarray
+            Of shape (ntiles[0]* ntiles[1], self.kernel, self.kernel) containing tiled image.
         """
-        wander_mask = np.ones((self.wxy, self.wxy))
-        win = self.doref(wander_mask)
-        ans = self.cploc(win, wander_mask)
-        target_control_points = self.repair(reference_control_points, ans, self.repair_tolerance)
-        return target_control_points
+        if self.kernel % 2 != 0:
+            # No idea how you get here with an incorrect kernel size
+            # But just in case, kernels have to be even.
+            self.kernel -= 1
+        tiled_image = np.empty((ntiles[0] * ntiles[1], self.kernel, self.kernel), dtype=np.float32)
+        for i in range(tiled_image.shape[0]):
+            tiled_image[i, :, :] = image[
+                                    tile_corners[i, 0]:tile_corners[i, 0] + self.kernel,
+                                    tile_corners[i, 1]:tile_corners[i, 1] + self.kernel
+                                   ]
+        return tiled_image
 
-    def doref(self, wander_mask):
-        """Within the reference window around a control points, normalize the reference window, calculate the complex
-        conjugate of the 2d FFT of the window for matching against the same value in the target image.
-
-        Parameters:
-        -----------
-        wander_mask: array-like
-            array of ones of the size of the control point plus border
-        Returns:
-        --------
-        reference_window : array-like
-            Complex conjugate of the 2d FFT of the reference image control point window
+    def compute_per_tile_correlation(
+            self, reference_tiles: np.ndarray, target_tiles: np.ndarray
+    ) -> np.ndarray:
         """
-        reference_window = np.zeros(
-            (int(self.wxy),
-             int(self.wxy),
-             int(self.control_size[0]),
-             int(self.control_size[1])),
-            dtype=float)
-        ly = int(self.bound_size[1])
-        hy = ly + self.wxy
-        for j in range(0, int(self.control_size[1])):
-            lx = int(self.bound_size[0])
-            hx = lx + self.wxy
-            for i in range(0, int(self.control_size[0])):
-                z = self.reference_image[lx:hx, ly:hy]
-                z = z - np.sum(z) / (self.wxy ** 2)
-                reference_window[:, :, i, j] = z * wander_mask
-                lx += self.kernel_size
-                hx += self.kernel_size
-            ly += self.kernel_size
-            hy += self.kernel_size
-        return reference_window
+        Compute correlation between each tile of a reference and target image
 
-    def cploc(self, reference_window, wander_mask):
-        """Locate control points on the target image from the reference window
+        Parameters
+        ----------
+        reference_tiles : np.ndarray
+            Cube of tiles in a reference image, shape (ntilesX * ntilesY, self.kernel, self.kernel)
+        target_tiles : np.ndarray
+            Cube of tiles in a target image, shape same as reference_tiles
 
-        Parameters:
-        -----------
-        reference_window : array-like
-            Complex array containing the reference image windows from self.doref.
-            These are the complex conjugi of the FFT of each window.
-        mask : array-like
-            Array of ones determining the size of the wander window
-        Returns:
-        --------
-        estimated_target_control_points : array-like
-            Estimated locations of control points for the target image. Will require repair for fallacious solutions
+        Returns
+        -------
+        correlations : np.ndarray
+            Correlation between target and reference tiles
         """
+        # Step 1, apodization
+        ref_apod = _window_apod(self.kernel, 0.125) # Narrow apodization for reference
+        ref_apod /= np.mean(ref_apod)
+        targ_apod = _window_apod(self.kernel, 0.4375)
+        targ_apod /= np.mean(targ_apod)
 
-        estimated_target_control_points = np.zeros((2, int(self.control_size[0]), int(self.control_size[1])))
+        # Normalization stats
+        ref_mean = np.mean(reference_tiles, axis=(1, 2), keepdims=True)
+        ref_std = np.std(reference_tiles, axis=(1, 2), keepdims=True)
+        targ_mean = np.mean(target_tiles, axis=(1, 2), keepdims=True)
+        targ_std = np.std(target_tiles, axis=(1, 2), keepdims=True)
 
-        # Setup gradient correction
-        # Friedrich Woeger's code
-
-        t1d = (np.arange(0, self.wxy) / (self.wxy - 1) - 0.5) * 2.0
-        tx = np.zeros((self.wxy, self.wxy))
-        for i in range(tx.shape[0]):
-            tx[i, :] = t1d
-        ty = np.zeros((self.wxy, self.wxy))
-        for i in range(ty.shape[1]):
-            ty[:, i] = t1d
-
-        nnx = np.sum(tx * tx)
-        nny = np.sum(ty * ty)
-        ly = int(self.bound_size[1])
-        hy = ly + self.wxy
-        for j in range(0, int(self.control_size[1])):
-            lx = int(self.bound_size[0])
-            hx = lx + self.wxy
-            for i in range(0, int(self.control_size[0])):
-                ss = self.destretch_target[lx:hx, ly:hy]
-                k_tx = np.sum(ss * tx) / nnx
-                k_ty = np.sum(ss * ty) / nny
-                ss = (ss - (k_tx * tx + k_ty * ty)) * wander_mask
-                cc = scindi.shift(
-                    scisig.fftconvolve(
-                        ss, reference_window[:, :, i, j][::-1, ::-1]
-                    ),
-                    [self.wxy / 2, self.wxy / 2],
-                    mode='grid-wrap'
-                )
-                mx = np.amax(cc)
-                mx_loc = np.array([np.where(cc == mx)[0][0], np.where(cc == mx)[1][0]])
-                # Following accounts for fractions of a pixel of shift:
-                if (mx_loc[0] * mx_loc[1] > 0) and (mx_loc[0] < (cc.shape[0] - 1)) and (mx_loc[1] < (cc.shape[1] - 1)):
-                    denom = mx * 2 - cc[mx_loc[0] - 1, mx_loc[1]] - cc[mx_loc[0] + 1, mx_loc[1]]
-                    xfra = (mx_loc[0] - 0.5) + (mx - cc[mx_loc[0] - 1, mx_loc[1]]) / denom
-                    denom = mx * 2 - cc[mx_loc[0], mx_loc[1] - 1] - cc[mx_loc[0], mx_loc[1] + 1]
-                    yfra = (mx_loc[1] - 0.5) + (mx - cc[mx_loc[0], mx_loc[1] - 1]) / denom
-
-                    mx_loc = np.array([xfra, yfra])
-
-                estimated_target_control_points[0, i, j] = lx + mx_loc[0]
-                estimated_target_control_points[1, i, j] = ly + mx_loc[1]
-
-                lx += self.kernel_size
-                hx += self.kernel_size
-            ly += self.kernel_size
-            hy += self.kernel_size
-        return estimated_target_control_points
-
-    def repair(self, rcps, tcps, tolerance=0.3):
-        """Finds and fixes control points in the target image that drifted too far from the reference grid.
-        By "fix" I mean, revert to the reference grid for that point.
-
-        Parameters:
-        -----------
-        rcps : array-like
-            Grid defining the control points on reference image, of size (2,cpx,cpy)
-        tcps : array-like
-            Should be the same shape as rcps, containing corresponding points in the target image
-        tolerance : float, kwarg
-            Allowable offset of reference and target control points. In the IDL version, this was hardcoded.
-            Here, I'm passing it as a keyword argument. May need to be altered in severe flow environments.
-
-        Returns:
-        --------
-        target_control_points : array-like
-            Edited grid of target control point coordinates.
-        """
-        kkx = rcps[0, 1, 0] - rcps[0, 0, 0]
-        kky = rcps[1, 0, 1] - rcps[1, 0, 0]
-        limit = (np.amax(np.abs([kkx, kky])) * tolerance) ** 2
-        difference = tcps - rcps
-
-        bad_points = np.where((difference[0, :, :] ** 2 + difference[1, :, :] ** 2) > limit)
-
-        target_control_points = tcps
-        for i in range(len(bad_points[0])):
-            target_control_points[:, bad_points[0][i], bad_points[1][i]] = rcps[:, bad_points[0][i], bad_points[1][i]]
-        return target_control_points
-
-    def contruct_bspline(self, reference_control_points, target_control_points):
-        """From the IDL reg.pro, construct a b-spline for scene destretch.
-        This was originally adapted from Foley & Van Dam by Phil Wiborg and Thomas Rimmele.
-
-        Args:
-            reference_control_points (array-like): Numpy array of shape (2, x, y) containing control points
-                of the reference image.
-            target_control_points (array-like): Numpy array of shape (2, x, y) containing the
-                corresponding control points of the target image
-
-        Returns:
-            destretch_coordinates (array-like): Numpy array with the same shape as the target image containing
-                the destretch coordinates
-        """
-
-        def extend(rcps, tcps, pad=12):
-            """Extend reference and target displacements to cover entire scene
-
-            Args:
-                rcps (array-like): Reference control points
-                tcps (array-like): Reference control points
-                pad (int): Value to pad the array by. Likely, this should be related to the kernel size
-
-            Returns:
-                ercps (array-like): Expanded reference control points
-                etcps (array-like): Expanded target control points
-            """
-            ns = tcps.shape[0] + pad
-            nt = tcps.shape[1] + pad
-
-            ercps = np.zeros((ns, nt))
-            rdiffs = rcps[1, 0] - rcps[0, 0]
-            rzeroes = rcps[0, 0] - 3 * rdiffs
-
-            zx = np.arange(ns) * rdiffs + rzeroes
-
-            for i in range(nt):
-                ercps[:, i] = zx
-
-            etcps = np.zeros((ns, nt))
-            etcps[int(pad / 2):-int(pad / 2), int(pad / 2):-int(pad / 2)] = tcps - rcps
-
-            x = etcps[:, int(pad / 2)]
-            for i in range(int(pad / 2)):
-                etcps[:, i] = x
-            x = etcps[:, -int((pad / 2) + 1)]
-            for i in range(int(pad / 2)):
-                etcps[:, -(i + 1)] = x
-            etcps = etcps.T
-            x = etcps[:, int(pad / 2)]
-            for i in range(int(pad / 2)):
-                etcps[:, i] = x
-            x = etcps[:, -int((pad / 2) + 1)]
-            for i in range(int(pad / 2)):
-                etcps[:, -(i + 1)] = x
-            etcps = etcps.T
-
-            etcps += ercps
-
-            return ercps, etcps
-
-        def patch(compx, compy, s, t):
-            """Fills in the section of B-spline
-
-            Args:
-                compx: x-coord patch after matrix ops
-                compy: y-coord patch after matric ops
-                s: sequence in y
-                t: sequence in x
-
-            Returns:
-                dstr_patch: minute patch of destretch coordinates
-
-            """
-            dstr_patch = np.zeros((2, len(s), len(t)))
-            ss = np.array(
-                [s ** 3, s ** 2, s, np.ones(len(s))]
-            ).T
-            tt = np.array(
-                [t ** 3, t ** 2, t, np.ones(len(t))]
-            )
-            dstr_patch[0, :, :] = np.matmul(ss, np.matmul(compx, tt))
-            dstr_patch[1, :, :] = np.matmul(ss, np.matmul(compy, tt))
-            return dstr_patch
-
-        # First step, exaggerate the drift of the target control points.
-        # This is apparently a kludge to increase the magnitude of error
-        # since the curve generally doesn't pass through the tie points.
-        # Essentially increases the displacement of every target control point by a factor of 1.1
-        target_control_points = 1.1*(target_control_points - reference_control_points) + reference_control_points
-
-        # ds and dt are distances in x/y between reference control points, as they're an evenly spaced grid
-        ds = reference_control_points[0, 1, 0] - reference_control_points[0, 0, 0]
-        dt = reference_control_points[1, 0, 1] - reference_control_points[1, 0, 0]
-
-        # Expand reference and target control points to cover whole image
-        # The IDL script used a pad of 6. I thought initially this was easily alterable
-        # I'm no longer so certain. It seems to be baked into the way we calculate our splines
-        # Regardless, I've got too many other things to do without dealing with this.
-        ercps_x, etcps_x = extend(reference_control_points[0, :, :],
-                                  target_control_points[0, :, :],
-                                  pad=6)
-        ercps_y, etcps_y = extend(reference_control_points[1, :, :].T,
-                                  target_control_points[1, :, :].T,
-                                  pad=6)
-        ercps = np.zeros((2, ercps_x.shape[0], ercps_x.shape[1]))
-        ercps[0, :, :] = ercps_x
-        ercps[1, :, :] = ercps_y.T
-
-        etcps = np.zeros((2, etcps_x.shape[0], etcps_x.shape[1]))
-        etcps[0, :, :] = etcps_x
-        etcps[1, :, :] = etcps_y.T
-        # Basis matrices for uniform B-splines
-        Ms = np.array(
-            [
-                [-1, 3, -3, 1],
-                [3, -6, 0, 4],
-                [-3, 3, 3, 1],
-                [1, 0, 0, 0]
-            ]
-        ) / 6.
-        MsTrans = Ms.T
-
-        destretch_coords = np.zeros(
-            (
-                2,
-                self.destretch_target.shape[0],
-                self.destretch_target.shape[1]
-            )
+        # Correlation
+        ref_fft = np.fft.rfftn(
+            (reference_tiles - ref_mean)/ref_std * ref_apod[np.newaxis, :, :], axes=(1, 2)
         )
-        for v in range(target_control_points.shape[2] + int(6 / 2)):
-            t0 = ercps[1, 1, v + 1]
-            tn = ercps[1, 1, v + 2]
-            # print(t0, tn)
-            if (tn > 0) and (t0 < destretch_coords.shape[2] - 1):
-                t0 = np.nanmax(np.array([t0, 0]))
-                tn = np.nanmin(np.array([tn, destretch_coords.shape[2] - 1]))
-                t = np.arange((tn - t0)) / dt + (t0 - ercps[1, 1, v + 1]) / dt
-                for u in range(target_control_points.shape[1] + int(6 / 2)):
-                    s0 = ercps[0, u + 1, v + 1]
-                    sn = ercps[0, u + 2, v + 1]
-                    if (sn > 0) and (s0 < destretch_coords.shape[1] - 1):
-                        s0 = np.nanmax([s0, 0])
-                        sn = np.nanmin([sn, destretch_coords.shape[1] - 1])
-                        s = np.arange((sn - s0)) / ds + (s0 - ercps[0, u + 1, v + 1]) / ds
-                        compx = np.matmul(MsTrans, np.matmul(etcps[0, u:u + 4, v:v + 4], Ms)).reshape((4, 4))
-                        compy = np.matmul(MsTrans,
-                                          np.matmul(
-                                              etcps[1, u:u + 4, v:v + 4],
-                                              Ms
-                                          )
-                                          ).reshape((4, 4))
-                        destretch_coords[:, int(s0):int(sn), int(t0):int(tn)] = patch(compx, compy, s, t)
-        return destretch_coords
+        targ_fft = np.fft.rfftn(
+            (target_tiles - targ_mean)/targ_std * targ_apod[np.newaxis, :, :], axes=(1, 2)
+        )
+        correlations = np.fft.fftshift( # centering 0-freq
+            np.fft.irfftn(
+                np.conj(targ_fft) * ref_fft, axes=(1, 2) # correlation
+            ), axes=(1, 2)
+        ) / (self.kernel**2) # Scales as number of pixels in tile, need to norm
+
+        return correlations
+
+    def interpolate_peak(self, correlations: np.ndarray) -> np.ndarray:
+        """
+        Interpolate the peaks of the cross-correlation array.
+        Also cleans up spurious cross-correlation results, i.e., if the solution
+        lies outside self.repair_tolerance * self.kernel pixels away, defaults to no shifts.
+
+        Parameters
+        ----------
+        correlations : numpy.ndarray
+            3D cross-correlation maps. Shape (ntilesY * ntilesX, kernel, kernel)
+
+        Returns
+        -------
+        tile_shifts : numpy.ndarray
+            2D array of per-tile shifts. Shape (ntilesY * ntilesX, 2)
+        """
+        tile_shifts = np.zeros((correlations.shape[0], 2))
+        for i in range(correlations.shape[0]):
+            idx = np.argmax(correlations[i])
+            yidx = idx // correlations.shape[1]
+            xidx = idx % correlations.shape[1]
+            # Check if shifts are outside of repair tolerance, and continue loop if they are
+            if np.any(np.abs(np.array([yidx, xidx]) - self.kernel //2) >= self.repair_tolerance * self.kernel):
+                continue
+            # Interpolate peak
+            yoffset = 0
+            xoffset = 0
+            if 0 < yidx < self.kernel - 1:
+                denom = correlations[i, yidx - 1, xidx] - 2. * correlations[i, yidx, xidx] + correlations[
+                    i, yidx + 1, xidx]
+                yoffset = 0.5 * (correlations[i, yidx - 1, xidx] - correlations[i, yidx + 1, xidx]) / denom
+                if (not np.isfinite(yoffset)) or yoffset > 1.:
+                    yoffset = 0
+            if 0 < xidx < self.kernel - 1:
+                denom = correlations[i, yidx, xidx - 1] - 2. * correlations[i, yidx, xidx] + correlations[
+                    i, yidx, xidx + 1]
+                xoffset = 0.5 * (correlations[i, yidx, xidx - 1] - correlations[i, yidx, xidx + 1]) / denom
+                if (not np.isfinite(xoffset)) or xoffset > 1.:
+                    xoffset = 0
+            tile_shifts[i, :] = (
+                yidx - self.kernel // 2 + yoffset,
+                xidx - self.kernel // 2 + xoffset
+            )
+        return tile_shifts
+
+    def compute_registration_grid(self, shifts: np.ndarray, ntiles: np.ndarray) -> np.ndarray:
+        """
+        Remap shift array to an yshift/xshift grid, then median filter to smooth over the shifts.
+
+        Parameters
+        ----------
+        shifts : numpy.ndarray
+            2D array of shifts, shape (ntilesY * ntilesY, 2)
+        ntiles : numpy.ndarray
+            2-array of number of tiles in Y/X directions on image
+
+        Returns
+        -------
+        registration_grid : numpy.ndarray
+            Shift array remapped to correct dimensions (2, ntilesY, ntilesX)
+        """
+        ygrid = np.reshape(shifts[:, 0], ntiles)
+        xgrid = np.reshape(shifts[:, 1], ntiles)
+        ygrid = ndimage.median_filter(ygrid, size=self.shift_smooth)
+        xgrid = ndimage.median_filter(xgrid, size=self.shift_smooth)
+        registration_grid = np.array([ygrid, xgrid])
+        return registration_grid
+
+    def compute_distortion_grid(
+            self, registration_grid: np.ndarray, ntiles: np.ndarray, tile_coords: np.ndarray
+    ) -> np.ndarray:
+        """
+        Interpolates the coarse y/x shift grid to the original image shape.
+
+        Parameters
+        ----------
+        registration_grid : numpy.ndarray
+            Coarse shift grids, of shape (2, ntilesY, ntilesX)
+        ntiles : numpy.ndarray
+            2-array containing number of tiles in Y and X
+        tile_coords : numpy.ndarray
+            Y/X coordinates of tile corners, of shape (ntilesY * ntilesX, 2)
+
+        Returns
+        -------
+        warp_grid : numpy.ndarray
+            Warp coordinates for full image, shape (2, ny, nx)
+        """
+        # Sizes to interpolate to:
+        y0 = np.min(tile_coords[:, 0])
+        y1 = np.max(tile_coords[:, 0])
+        dy = 2./self.kernel if self.overlap else 1./self.kernel
+        x0 = np.min(tile_coords[:, 1])
+        x1 = np.max(tile_coords[:, 1])
+        dx = 2./self.kernel if self.overlap else 1./self.kernel
+        # Interpolate grid
+        # Mgrid returns more values than the original grid, but less than the
+        # full image shape (because we had to crop for even kernels).
+        meshgrid = np.mgrid[0:ntiles[0]:dy, 0:ntiles[1]:dx]
+        ygrid = ndimage.map_coordinates(registration_grid[0], meshgrid, order=2, mode='nearest')
+        xgrid = ndimage.map_coordinates(registration_grid[1], meshgrid, order=2, mode='nearest')
+        # Center X/Y grids in arrays of the shape of the original image
+        step = self.kernel // 2 if self.overlap else self.kernel
+        warp_grid = np.zeros((2, *self.destretch_target.shape))
+        warp_grid[
+            0,
+            int(y0 + step):int(y1 + step),
+            int(x0 + step):int(x1 + step)
+        ] = ygrid[:-step, :-step]
+        warp_grid[
+            1,
+            int(y0 + step):int(y1 + step),
+            int(x0 + step):int(x1 + step)
+        ] = xgrid[:-step, :-step]
+
+        return warp_grid
+
+    def warp_image(self, warp_grid: np.ndarray) -> None:
+        """
+        Applies warp grid to self.destretch_target
+
+        Parameters
+        ----------
+        warp_grid : numpy.ndarray
+            Interpolated warp grid, shape (2, ny, nx)
+        """
+        image_grid = np.mgrid[:self.destretch_target.shape[0], :self.destretch_target.shape[1]]
+        distortion_grid = image_grid - warp_grid
+        self.destretch_target = ndimage.map_coordinates(
+            self.destretch_target, distortion_grid,
+            order=3, mode='nearest'
+        )
+        return
