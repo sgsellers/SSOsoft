@@ -1293,12 +1293,12 @@ class FirsCal:
                                             ): int(self.analysis_indices[1, slit, line])
                                         ] /
                                         reduced_data[
-                                        0, slit, :, step_ctr, int(
-                                            self.analysis_indices[0, slit, line]
-                                        ): int(self.analysis_indices[1, slit, line])
+                                            0, slit, :, step_ctr, int(
+                                                self.analysis_indices[0, slit, line]
+                                            ): int(self.analysis_indices[1, slit, line])
                                         ]
                                     ), axis=-1
-                                )[:, int(round(line_core_arr[slit, line], 0))]
+                                )[:, int(round(line_core_arr[slit, line] - self.analysis_indices[0, slit, line], 0))]
                         if step_ctr == 0:
                             slit_plate_scale = self.telescope_plate_scale * self.dst_collimator / self.slit_camera_lens
                             camera_dy = slit_plate_scale * self.pixel_size / 1000
