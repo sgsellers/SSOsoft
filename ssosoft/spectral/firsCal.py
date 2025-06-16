@@ -1285,7 +1285,7 @@ class FirsCal:
                                             ]
                                         )), axis=-1
                                     )
-                                field_images[line, 3, step_ctr+slit*len(filelist)] = np.gradient(
+                                field_images[line, 3, :, step_ctr+slit*len(filelist)] = np.gradient(
                                     np.nan_to_num(
                                         reduced_data[
                                             3, slit, :, step_ctr, int(
