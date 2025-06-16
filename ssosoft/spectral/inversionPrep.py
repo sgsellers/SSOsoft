@@ -1027,7 +1027,7 @@ class InversionPrep:
                 synth = synth.reshape(nx, ny, synth.shape[1])
                 ext = fits.ImageHDU(synth)
                 ext.header['EXTNAME'] = (
-                    "SYNTHStokes-{0}/Ic", "Normalized by Quiet Sun, Corrected for position angle".format(names[i])
+                    "SYNTHStokes-{0}/Ic".format(names[i]), "Normalized by Quiet Sun, Corrected for position angle"
                 )
                 ext.header["RSUN_ARC"] = master_header['RSUN_ARC']
                 ext.header['CDELT1'] = (dx, "arcsec")
