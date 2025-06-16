@@ -1268,7 +1268,7 @@ class FirsCal:
                                 field_images[
                                     line, 0, :, step_ctr+slit*len(filelist)
                                 ] = reduced_data[0, slit, :, step_ctr, int(line_core_arr[slit, line])]
-                                for k in range(1, 4):
+                                for k in range(1, 3):
                                     field_images[line, k, :, step_ctr+slit*len(filelist)] = scinteg.trapezoid(
                                         np.nan_to_num(np.abs(
                                             # What a mess.. clean this up!
@@ -1285,6 +1285,20 @@ class FirsCal:
                                             ]
                                         )), axis=-1
                                     )
+                                field_images[line, 3, step_ctr+slit*len(filelist)] = np.gradient(
+                                    np.nan_to_num(
+                                        reduced_data[
+                                            3, slit, :, step_ctr, int(
+                                                self.analysis_indices[0, slit, line]
+                                            ): int(self.analysis_indices[1, slit, line])
+                                        ] /
+                                        reduced_data[
+                                        0, slit, :, step_ctr, int(
+                                            self.analysis_indices[0, slit, line]
+                                        ): int(self.analysis_indices[1, slit, line])
+                                        ]
+                                    ), axis=-1
+                                )[:, int(round(line_core_arr[slit, line], 0))]
                         if step_ctr == 0:
                             slit_plate_scale = self.telescope_plate_scale * self.dst_collimator / self.slit_camera_lens
                             camera_dy = slit_plate_scale * self.pixel_size / 1000
@@ -2400,7 +2414,7 @@ class FirsCal:
 
             field_v_ax[j].set_yticklabels([])
             field_v_ax[j].set_xlabel("Extent [arcsec]")
-            field_v_ax[j].set_title("Integrated Stokes-V")
+            field_v_ax[j].set_title("Stokes-V Derivative at Line Core")
             
         if not any((self.v2q, self.v2u, self.q2v, self.u2v)):
             plt.show(block=False)
