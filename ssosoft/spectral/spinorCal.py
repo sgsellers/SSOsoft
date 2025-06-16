@@ -1898,7 +1898,7 @@ class SpinorCal:
                             ))
                         for j in range(len(line_cores)):
                             field_images[j, 0, :, step_index] = combined_beams[0, :, int(round(line_cores[j], 0))]
-                            for k in range(1, 4):
+                            for k in range(1, 3):
                                 field_images[j, k, :, step_index] = scinteg.trapezoid(
                                     np.nan_to_num(
                                         combined_beams[
@@ -1910,6 +1910,15 @@ class SpinorCal:
                                     ),
                                     axis=-1
                                 )
+                            field_images[j, 3, :, step_index] = np.gradient(
+                                combined_beams[
+                                    3, :, int(self.analysis_ranges[j, 0]):int(self.analysis_ranges[j, 1])
+                                ] /
+                                combined_beams[
+                                    0, :, int(self.analysis_ranges[j, 0]):int(self.analysis_ranges[j, 1])
+                                ],
+                                axis=-1
+                            )[:, int(round(line_cores[j], 0))]
                         if step_index == 0:
                             slit_plate_scale = self.telescope_plate_scale * self.dst_collimator / self.slit_camera_lens
                             camera_dy = slit_plate_scale * (self.spectrograph_collimator / self.camera_lens) * (
@@ -2563,7 +2572,7 @@ class SpinorCal:
 
             field_v_ax[j].set_yticklabels([])
             field_v_ax[j].set_xlabel("Extent [arcsec]")
-            field_v_ax[j].set_title("Integrated Stokes-V")
+            field_v_ax[j].set_title("Stokes-V Derivative at Line Core")
 
         if not any((self.v2q, self.v2u, self.u2v)):
 
