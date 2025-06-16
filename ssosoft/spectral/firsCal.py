@@ -1270,7 +1270,7 @@ class FirsCal:
                                 ] = reduced_data[0, slit, :, step_ctr, int(line_core_arr[slit, line])]
                                 for k in range(1, 3):
                                     field_images[line, k, :, step_ctr+slit*len(filelist)] = scinteg.trapezoid(
-                                        np.nan_to_num(np.abs(
+                                        np.nan_to_num(
                                             # What a mess.. clean this up!
                                             reduced_data[
                                                 k, slit, :, step_ctr,
@@ -1283,7 +1283,7 @@ class FirsCal:
                                                     self.analysis_indices[0, slit, line]
                                                 ):int(self.analysis_indices[1, slit, line])
                                             ]
-                                        )), axis=-1
+                                        ), axis=-1
                                     )
                                 field_images[line, 3, :, step_ctr+slit*len(filelist)] = np.gradient(
                                     np.nan_to_num(
@@ -2572,29 +2572,29 @@ class FirsCal:
             field_i[j].set_array(field_images[j, 0])
             field_i[j].set_norm(
                 matplotlib.colors.Normalize(
-                    vmin=np.mean(field_images[j, 0, :, :step]) - 3 * np.std(field_images[j, 0, :, :step]),
-                    vmax=np.mean(field_images[j, 0, :, :step]) + 3 * np.std(field_images[j, 0, :, :step])
+                    vmin=np.nanmean(field_images[j, 0, 50:-50, :step]) - 3 * np.nanstd(field_images[j, 0, 50:-50, :step]),
+                    vmax=np.nanmean(field_images[j, 0, 50:-50, :step]) + 3 * np.nanstd(field_images[j, 0, 50:-50, :step])
                 )
             )
             field_q[j].set_array(field_images[j, 1])
             field_q[j].set_norm(
                 matplotlib.colors.Normalize(
-                    vmin=np.mean(field_images[j, 1, :, :step]) - 3 * np.std(field_images[j, 1, :, :step]),
-                    vmax=np.mean(field_images[j, 1, :, :step]) + 3 * np.std(field_images[j, 1, :, :step])
+                    vmin=np.nanmean(field_images[j, 1, 50:-50, :step]) - 3 * np.nanstd(field_images[j, 1, 50:-50, :step]),
+                    vmax=np.nanmean(field_images[j, 1, 50:-50, :step]) + 3 * np.nanstd(field_images[j, 1, 50:-50, :step])
                 )
             )
             field_u[j].set_array(field_images[j, 2])
             field_u[j].set_norm(
                 matplotlib.colors.Normalize(
-                    vmin=np.mean(field_images[j, 2, :, :step]) - 3 * np.std(field_images[j, 2, :, :step]),
-                    vmax=np.mean(field_images[j, 2, :, :step]) + 3 * np.std(field_images[j, 2, :, :step])
+                    vmin=np.nanmean(field_images[j, 2, 50:-50, :step]) - 3 * np.nanstd(field_images[j, 2, 50:-50, :step]),
+                    vmax=np.nanmean(field_images[j, 2, 50:-50, :step]) + 3 * np.nanstd(field_images[j, 2, 50:-50, :step])
                 )
             )
             field_v[j].set_array(field_images[j, 3])
             field_v[j].set_norm(
                 matplotlib.colors.Normalize(
-                    vmin=np.mean(field_images[j, 3, :, :step]) - 3 * np.std(field_images[j, 3, :, :step]),
-                    vmax=np.mean(field_images[j, 3, :, :step]) + 3 * np.std(field_images[j, 3, :, :step])
+                    vmin=np.nanmean(field_images[j, 3, 50:-50, :step]) - 3 * np.nanstd(field_images[j, 3, 50:-50, :step]),
+                    vmax=np.nanmean(field_images[j, 3, 50:-50, :step]) + 3 * np.nanstd(field_images[j, 3, 50:-50, :step])
                 )
             )
             field_fig_list[j].canvas.draw()
