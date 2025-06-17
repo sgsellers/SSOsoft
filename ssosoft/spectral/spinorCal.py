@@ -1918,7 +1918,7 @@ class SpinorCal:
                                     0, :, int(self.analysis_ranges[j, 0]):int(self.analysis_ranges[j, 1])
                                 ],
                                 axis=-1
-                            )[:, int(round(line_cores[j], 0))]
+                            )[:, int(round(line_cores[j], 0) - self.analysis_ranges[j, 0])]
                         if step_index == 0:
                             slit_plate_scale = self.telescope_plate_scale * self.dst_collimator / self.slit_camera_lens
                             camera_dy = slit_plate_scale * (self.spectrograph_collimator / self.camera_lens) * (
