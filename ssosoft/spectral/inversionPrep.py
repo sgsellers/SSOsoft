@@ -58,6 +58,8 @@ class InversionPrep:
         # red wing. We'll start including a telluric atmosphere for it, since during flares,
         # redshifts into that line are not uncommon.
         self.spectral_range_10830 = [10823.25, 10833.0]
+        self.spectral_range_5250_narrow = [5249.75, 5254.0]
+        self.spectral_range_5250_wide = [5246.5, 5254.0]
         # Two ranges, just in case one falls outside the chip
         self.continuum_range_6302 = np.array(
             [[6296.75, 6297.5],
@@ -75,6 +77,17 @@ class InversionPrep:
         # use the DWDM and a multi-slit unit.
         self.continuum_range_10830 = np.array(
             [[10823, 10824.25]]
+        )
+        self.continuum_range_5250 = np.array(
+            [5252.25, 5252.75]
+        )
+        # Need to unweight the spectrum between 5250 lines of interest
+        self.weight_ranges_5250_narrow = np.array(
+            [5250.9, 5252.75]
+        )
+        self.weight_ranges_5250_wide = np.array(
+            [[5250.9, 5252.75],
+             [5247.3, 5249.7]]
         )
 
         # Default telluric line centers for 6302 and 10830.
@@ -290,7 +303,7 @@ class InversionPrep:
             "Telluric Centers": []
         }
         # Try to set default ranges first:
-        if (self.range_method == "default") & any([self.central_wavelength == x for x in ["6302", "8542", "10830"]]):
+        if (self.range_method == "default") & any([self.central_wavelength == x for x in ["6302", "8542", "10830", "5250"]]):
             if self.central_wavelength == "6302":
                 ranges["Spectral Range"] =  self.spectral_range_6302
                 ranges["Continuum Range"] = self.continuum_range_6302
@@ -303,6 +316,14 @@ class InversionPrep:
                 ranges["Spectral Range"] = self.spectral_range_10830
                 ranges["Continuum Range"] = self.continuum_range_10830
                 ranges["Telluric Centers"] = self.telluric_centers_10830
+            elif self.central_wavelength == "5250":
+                reference_profile, wavelength_grid = self.get_reference_profile(map_file)
+                if wavelength_grid[0] <= self.spectral_range_5250_wide[0]:
+                    ranges['Spectral Range'] = self.spectral_range_5250_wide
+                else:
+                    ranges['Spectral Range'] = self.spectral_range_5250_narrow
+                ranges['Continuum Range'] = self.continuum_range_5250
+                ranges["Telluric Centers"] = []
 
         else:
             reference_profile, wavelength_grid = self.get_reference_profile(map_file)
@@ -543,9 +564,29 @@ class InversionPrep:
         np.savetxt(os.path.join(outdir, "hazel_preinversion.wavelength"), wave_grid, header='lambda')
         # Weight file as plaintext
         with open(os.path.join(outdir, "hazel_preinversion.weights"), "w") as weights:
-            weights.write('# WeightI WeightQ WeightU WeightV\n')
+            weights.write("# WeightI WeightQ WeightU WeightV\n")
             for i in range(stokes_norm.shape[1]):
-                weights.write('1.0    1.0    1.0    1.0\n')
+                # If we're using 5250 default range, we need to unweight certain sections of the spectrum
+                if self.central_wavelength == "5250" and self.range_method == "default":
+                    # Pad a bit just in case
+                    if wave_grid[0] <= self.spectral_range_5250_wide[0] + 0.25:
+                        case1 = self.weight_ranges_5250_wide[0, 0] <= wave_grid[i] <= \
+                                self.weight_ranges_5250_wide[0, 1]
+                        case2 = self.weight_ranges_5250_wide[1, 0] <= wave_grid[i] <= \
+                                self.weight_ranges_5250_wide[1, 1]
+                        if case1 or case2:
+                            weights.write('0.0    0.0    0.0    0.0\n')
+                        else:
+                            weights.write('1.0    1.0    1.0    1.0\n')
+                    else:
+                        case1 = self.weight_ranges_5250_wide[0, 0] <= wave_grid[i] <= \
+                                self.weight_ranges_5250_wide[0, 1]
+                        if case1:
+                            weights.write('0.0    0.0    0.0    0.0\n')
+                        else:
+                            weights.write('1.0    1.0    1.0    1.0\n')
+                else:
+                    weights.write('1.0    1.0    1.0    1.0\n')
         # Reference atmospheres
         if self.write_atmos & ("hazel" in sys.modules):
             photosphere = hazel.tools.File_photosphere(mode="multi")
@@ -577,19 +618,29 @@ class InversionPrep:
                 ))
         # Default config file, inversion file
         if self.write_config:
-            if (self.central_wavelength == "6302") & (self.inversion_code == "hazel"):
+            if (self.central_wavelength == "6302") and (self.inversion_code == "hazel"):
                 with resources.path('ssosoft.spectral.inversions', 'config6302Default.ini') as rpath:
                     cfile = shutil.copy(rpath, os.path.join(outdir, "config6302.ini"))
                 if self.verbose:
                     print("Default configuration file written to:\n{0}".format(cfile))
-            elif (self.central_wavelength == "8542") & (self.inversion_code == "hazel"):
+            elif (self.central_wavelength == "8542") and (self.inversion_code == "hazel"):
                 with resources.path("ssosoft.spectral.inversions", "config8542Default.ini") as rpath:
                     cfile = shutil.copy(rpath, os.path.join(outdir, "config8542.ini"))
                 if self.verbose:
                     print("Default configuration file written to:\n{0}".format(cfile))
-            elif (self.central_wavelength == "10830") & (self.inversion_code == "hazel"):
+            elif (self.central_wavelength == "10830") and (self.inversion_code == "hazel"):
                 with resources.path("ssosoft.spectral.inversions", "config10830Default.ini") as rpath:
                     cfile = shutil.copy(rpath, os.path.join(outdir, "config10830.ini"))
+                if self.verbose:
+                    print("Default configuration file written to:\n{0}".format(cfile))
+            elif (self.central_wavelength == "5250") and (self.inversion_code == "hazel"):
+                if wave_grid[0] <= self.spectral_range_5250_wide[0] + 0.25:
+                    # Wide range, slightly different config file
+                    with resources.path("ssosoft.spectral.inversions", "config5250DefaultWide.ini") as rpath:
+                        cfile = shutil.copy(rpath, os.path.join(outdir, "config5250.ini"))
+                else:
+                    with resources.path("ssosoft.spectral.inversions", "config5250DefaultNarrow.ini") as rpath:
+                        cfile = shutil.copy(rpath, os.path.join(outdir, "config5250.ini"))
                 if self.verbose:
                     print("Default configuration file written to:\n{0}".format(cfile))
             elif self.inversion_code == "hazel":
@@ -693,6 +744,8 @@ class InversionPrep:
             spectrum_key = "spec8542"
         elif spectrum_key is None and self.central_wavelength == "10830":
             spectrum_key = "spec10830"
+        elif spectrum_key is None and self.central_wavelength == "5250":
+            spectrum_key = "spec5250"
         with h5py.File(inverted_file, "r") as invert:
             if spectrum_key is None:
                 # Make an intelligent guess.
