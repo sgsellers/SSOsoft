@@ -79,11 +79,11 @@ class InversionPrep:
             [[10823, 10824.25]]
         )
         self.continuum_range_5250 = np.array(
-            [5252.25, 5252.75]
+            [[5252.25, 5252.75]]
         )
         # Need to unweight the spectrum between 5250 lines of interest
         self.weight_ranges_5250_narrow = np.array(
-            [5250.9, 5252.75]
+            [[5250.9, 5252.75]]
         )
         self.weight_ranges_5250_wide = np.array(
             [[5250.9, 5252.75],
