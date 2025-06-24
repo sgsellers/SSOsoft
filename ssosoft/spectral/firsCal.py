@@ -953,7 +953,7 @@ class FirsCal:
     def reduce_firs_maps(
             self,
             index: int, overview: bool=False, write: bool=True,
-            fringe_template: None or np.ndarray=None, fringe_alignmet: None or float=None,
+            fringe_template: None or np.ndarray=None, fringe_alignment: None or float=None,
             v2q: bool or str=False, v2u: bool or str=False, q2v: bool or str=False, u2v: bool or str=False
     ) -> np.ndarray:
         """
