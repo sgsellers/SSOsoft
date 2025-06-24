@@ -1446,7 +1446,7 @@ class FirsCal:
             for slit in range(self.nslits):
                 # Baseline bulk crosstalk first
                 bulk_v2q_crosstalk = pol.internal_crosstalk_2d(
-                    quv_data[0, slit, :, :], quv_data[2, slit, :, :], bounds=[-0.2, 0.2]
+                    quv_data[0, slit, :, :], quv_data[2, slit, :, :], bounds=[-0.5, 0.5]
                 )
                 quv_data[0, slit, :, :] = quv_data[0, slit, :, :] - bulk_v2q_crosstalk * quv_data[2, slit, :, :]
                 if self.v2q == "full":
@@ -1468,7 +1468,7 @@ class FirsCal:
             for slit in range(self.nslits):
                 # Baseline bulk crosstalk first
                 bulk_v2u_crosstalk = pol.internal_crosstalk_2d(
-                    quv_data[1, slit, :, :], quv_data[2, slit, :, :], bounds=[-0.2, 0.2]
+                    quv_data[1, slit, :, :], quv_data[2, slit, :, :], bounds=[-0.5, 0.5]
                 )
                 quv_data[1, slit, :, :] = quv_data[1, slit, :, :] - bulk_v2u_crosstalk * quv_data[2, slit, :, :]
                 if self.v2u == "full":
