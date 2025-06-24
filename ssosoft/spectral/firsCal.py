@@ -1195,7 +1195,7 @@ class FirsCal:
                         if fringe_alignment is not None:
                             fringe_template = scind.shift(
                                 fringe_template,
-                                (0, 0, -(fringe_alignment - master_spectral_center))
+                                (0, 0, 0, -(fringe_alignment - master_spectral_center))
                             )
                         # Subtract fringes
                         reduced_data[1:, :, :, step_ctr, :] = self.defringe_from_template(
