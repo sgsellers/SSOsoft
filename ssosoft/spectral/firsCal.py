@@ -1595,8 +1595,8 @@ class FirsCal:
                     idx_lo = 0
                     idx_hi = 50
                 else:
-                    idx_lo = lambda_offset + 1
-                    idx_hi = lambda_offset + 51
+                    idx_lo = int(lambda_offset + 1)
+                    idx_hi = int(lambda_offset + 51)
                 for y in range(data_slice.shape[2]):
                     fringe_med = np.nanmedian(aligned_fringes[y, idx_lo:idx_hi])
                     map_med = np.nanmedian(data_slice[stoke, slit, y, idx_lo:idx_hi])
