@@ -1192,11 +1192,6 @@ class FirsCal:
                     )
                     # Next up; sub off fringe template, perform crosstalk correction, set up overviews.
                     if fringe_template is not None:
-                        if fringe_alignment is not None:
-                            fringe_template = scind.shift(
-                                fringe_template,
-                                (0, 0, 0, -(fringe_alignment - master_spectral_center))
-                            )
                         # Subtract fringes
                         reduced_data[1:, :, :, step_ctr, :] = self.defringe_from_template(
                             reduced_data[1:, :, :, step_ctr, :], fringe_template
@@ -1591,11 +1586,22 @@ class FirsCal:
         defringed_data_slice = np.zeros(data_slice.shape)
         for stoke in range(data_slice.shape[0]):
             for slit in range(data_slice.shape[1]):
+                aligned_fringes, fringe_shifts = spex.image_align(
+                    template[stoke, slit, :, :],
+                    data_slice[stoke, slit, :, :]
+                )
+                lambda_offset = fringe_shifts[1]
+                if lambda_offset < 0:
+                    idx_lo = 0
+                    idx_hi = 50
+                else:
+                    idx_lo = lambda_offset + 1
+                    idx_hi = lambda_offset + 51
                 for y in range(data_slice.shape[2]):
-                    fringe_med = np.nanmedian(template[stoke, slit, y, :50])
-                    map_med = np.nanmedian(data_slice[stoke, slit, y, :50])
+                    fringe_med = np.nanmedian(aligned_fringes[y, idx_lo:idx_hi])
+                    map_med = np.nanmedian(data_slice[stoke, slit, y, idx_lo:idx_hi])
                     corr_factor = fringe_med - map_med
-                    fringe_corr = template[stoke, slit, y, :] - corr_factor
+                    fringe_corr = aligned_fringes[y, :] - corr_factor
                     defringed_data_slice[stoke, slit, y, :] = data_slice[stoke, slit, y, :] - fringe_corr
         return defringed_data_slice
 

@@ -1408,6 +1408,89 @@ def image_align(image, reference):
     return aligned_image, shifts
 
 
+def image_align_apod(
+        image: np.ndarray, reference: np.ndarray,
+        subtile: list or None=None
+) -> tuple[np.ndarray, list]:
+    """
+    Align image to reference using a subtile for alignment.
+    By default chooses central 256 pixels.
+
+    Parameters
+    ----------
+    image : numpy.ndarray
+    reference : numpy.ndarray
+    subtile : list
+
+    Returns
+    -------
+    aligned : numpy.ndarray
+    shifts : list
+
+    """
+    def window_apod(tile_size: int, fraction: float) -> np.ndarray:
+        """
+        Creates an apodization window for normalizing prior to cross-correlation
+
+        Parameters
+        ----------
+        tile_size : int
+            Size of the subfield tile
+        fraction : float
+            Fraction of tile the function should be wide
+
+        Returns
+        -------
+        window : numpy.ndarray
+            2D window function
+        """
+        apodization_size = int(tile_size * fraction + 0.5)
+        x = np.arange(apodization_size) / apodization_size * np.pi / 2.
+        y = np.sin(x) ** 2
+        z = np.ones(tile_size)
+        z[:apodization_size] = y
+        z[-apodization_size:] = np.flip(y)
+
+        window = np.outer(z, z)
+        return window
+
+    if subtile is None:
+        subtile = [image.shape[0]//2 - 128, image.shape[1]//2-128, 256]
+    window = window_apod(subtile[2], 0.4375)
+    window /= np.mean(window)
+
+    # Clip to subtile:
+    ref = reference[subtile[0]:subtile[0] + subtile[2], subtile[1]:subtile[1] + subtile[2]]
+    img = image[subtile[0]:subtile[0] + subtile[2], subtile[1]:subtile[1] + subtile[2]]
+    # Normalization
+    mean_ref = np.mean(ref)
+    std_ref = np.std(ref)
+    mean_img = np.mean(img)
+    std_img = np.std(img)
+
+    # Correlation
+    ref_ft = np.fft.rfft2((ref - mean_ref)/std_ref * window)
+    img_ft = np.fft.rfft2((img - mean_img)/std_img * window)
+    # Shift zero-frequencies to center of spectrum
+    xcorr = np.fft.fftshift(
+        np.fft.irfft2(
+            np.conj(img_ft) * ref_ft
+        )
+    ) / (ref.shape[0] * ref.shape[1])
+    # Integer shift
+    max_idx = np.argmax(xcorr)
+    yshift = max_idx // xcorr.shape[0] - xcorr.shape[0] // 2
+    xshift = max_idx % xcorr.shape[0] - xcorr.shape[1] // 2
+    tolerance = subtile[2]/2
+    if np.abs(yshift) > tolerance:
+        yshift = 0
+    if np.abs(xshift) > tolerance:
+        xshift = 0
+    aligned = np.roll(image, (yshift, xshift))
+    shifts = [yshift, xshift]
+    return aligned, shifts
+
+
 def grating_calculations(
         gpmm, blaze, alpha, pix_size, wavelength, order,
         collimator=3040, camera=1700, slit_width=40, slit_scale=3.76*1559/780,
