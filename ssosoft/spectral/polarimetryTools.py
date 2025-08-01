@@ -813,7 +813,7 @@ def v2qu_retardance_corr_2d(stokes_vector: np.ndarray) -> tuple[np.ndarray, np.n
         error_function,
         x0=[0, 0],
         args=[stokes_vector[:, :, 20:-20]],
-        bounds=[[-np.pi, -np.pi], [np.pi, np.pi]]
+        bounds=[[-0.25, -0.25], [0.25, 0.25]]
     )
     retarder = fit_result.x
     corr_stokes = model_function(retarder, stokes_vector)
