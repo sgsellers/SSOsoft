@@ -1,3 +1,4 @@
+import importlib
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -6,7 +7,23 @@ import scipy.interpolate as scinterp
 import scipy.io as scio
 import scipy.ndimage as scind
 import scipy.optimize as scopt
+import sys
 from matplotlib.widgets import Slider
+
+from numba import jit
+
+if importlib.util.find_spec("dask") is not None:
+    import dask
+    def _dask_least_squares(error_func: callable, vector: np.ndarray, index: int) -> tuple[np.ndarray, int]:
+        """Helper function for parallel retardance correction"""
+        fit_result = scopt.least_squares(
+            error_func,
+            x0=[0, 0],
+            args=[vector],
+            bounds=[[-np.pi, -np.pi], [np.pi, np.pi]]
+        )
+        return fit_result.x, index
+
 
 """
 This file contains generalized helper functions for Polarimeter reductions.
@@ -41,12 +58,44 @@ def linear_retarder(axis_angle: float, retardance: float) -> np.ndarray:
     c2 = np.cos(2*axis_angle)
     s2 = np.sin(2*axis_angle)
 
-    ret_mueller = np.array(
+    ret_mueller = np.asarray(
         [
             [1, 0, 0, 0],
             [0, c2**2 + s2**2 * np.cos(retardance), c2 * s2 * (1 - np.cos(retardance)), -s2 * np.sin(retardance)],
             [0, c2 * s2 * (1 - np.cos(retardance)), s2**2 + c2**2 * np.cos(retardance), c2 * np.sin(retardance)],
             [0, s2 * np.sin(retardance), -c2 * np.sin(retardance), np.cos(retardance)]
+        ]
+    )
+
+    return ret_mueller
+
+@jit(nopython=True)
+def jit_linear_retarder(axis_angle: float, retardance: float) -> np.ndarray:
+    """Returns Mueller matrix for a linear retarder using jit wrapper for compilation.
+    At some point, I'll come back to this and add in kwargs for dichroism
+
+    Parameters
+    ----------
+    axis_angle : float
+        Angle of fast axis in radians
+    retardance : float
+        Degree of retardance in radians
+
+    Returns
+    -------
+    ret_mueller : numpy.ndarray
+        Mueller matrix of retarder
+    """
+
+    c2 = np.cos(2*axis_angle)
+    s2 = np.sin(2*axis_angle)
+
+    ret_mueller = np.asarray(
+        [
+            [1., 0., 0., 0.],
+            [0., c2**2 + s2**2 * np.cos(retardance), c2 * s2 * (1 - np.cos(retardance)), -s2 * np.sin(retardance)],
+            [0., c2 * s2 * (1 - np.cos(retardance)), s2**2 + c2**2 * np.cos(retardance), c2 * np.sin(retardance)],
+            [0., s2 * np.sin(retardance), -c2 * np.sin(retardance), np.cos(retardance)]
         ]
     )
 
@@ -456,11 +505,11 @@ def internal_crosstalk_2d(
     crosstalk_value : float
         Value that, when baseImage - crosstalk_value*contaminationImage is considered, minimizes correlation
     """
-
+    
     def model_function(param, contam, img):
         """Fit model"""
         return img - param * contam
-
+    
     def error_function(param, contam, img):
         """Error function
         We'll use cosine similarity for this, as a cosine similarity of 0
@@ -485,6 +534,7 @@ def internal_crosstalk_2d(
 
     return crosstalk_value
 
+
 def internal_crosstalk_2d_ordered(
         base_image: np.ndarray, contamination_image: np.ndarray,
         order: int=1
@@ -508,6 +558,7 @@ def internal_crosstalk_2d_ordered(
         Array of length order+1 containing the coefficients of the polynomial fit
 
     """
+    
     def model_function(coeffs, contam, img):
         """Fit model"""
         yrange = np.arange(contam.shape[0])
@@ -516,7 +567,7 @@ def internal_crosstalk_2d_ordered(
             yprofile += coeffs[i] * yrange ** i
         yprofile = np.repeat(yprofile[:, np.newaxis], contam.shape[1], axis=1)
         return img - yprofile * contam
-
+    
     def error_function(param, contam, img):
         """Error function
         """
@@ -553,6 +604,7 @@ def internal_crosstalk_2d_ordered(
         raise ValueError("Supported orders are 0, 1, 2")
     return crosstalk_coeffs
 
+
 def i2quv_crosstalk(stokes_i: np.ndarray, stokes_quv: np.ndarray) -> np.ndarray:
     """
     Corrects for Stokes-I => QUV crosstalk. In older DST pipelines, this was done by
@@ -580,13 +632,13 @@ def i2quv_crosstalk(stokes_i: np.ndarray, stokes_quv: np.ndarray) -> np.ndarray:
         1D array containing the Stokes-I crosstalk-corrected Q, U or V profile.
 
     """
-
+    
     def model_function(list_of_params, i, quv):
         """Fit model"""
         xrange = np.arange(len(i))
         ilinear = list_of_params[0] * xrange + list_of_params[1]
         return quv - ilinear * i
-
+    
     def error_function(list_of_params, i, quv):
         """Error function"""
         quv_corr = model_function(list_of_params, i, quv)
@@ -626,11 +678,11 @@ def v2qu_crosstalk(stokes_v: np.ndarray, stokes_qu: np.ndarray) -> np.ndarray:
     corrected_qu : numpy.ndarray
         Crosstalk-corrected Q or U profile
     """
-
+    
     def model_function(param, v, qu):
         """Fit model"""
         return qu - param * v
-
+    
     def error_function(param, v, qu):
         """Error function
         We'll use cosine similarity for this, as a cosine similarity of 0
@@ -671,12 +723,14 @@ def v2qu_retardance_corr(stokes_vector: np.ndarray) -> tuple[np.ndarray, np.ndar
     retarder : np.ndarray
         Array of retarder params of shape (2, ny)
     """
-    def model_function(ret_params, stokes):
+    @jit(nopython=True)
+    def model_function(ret_params: list, stokes: np.ndarray):
         """Fit model"""
-        lin_ret = np.linalg.inv(linear_retarder(ret_params[0], ret_params[1]))
+        lin_ret = np.linalg.inv(jit_linear_retarder(ret_params[0], ret_params[1]))
         return lin_ret @ stokes
     
-    def error_function(ret_params, stokes):
+    @jit(nopython=True)
+    def error_function(ret_params: list, stokes: np.ndarray):
         """Error function"""
         stokes_out = model_function(ret_params, stokes)
         v2q_cossim = np.dot(
@@ -686,21 +740,31 @@ def v2qu_retardance_corr(stokes_vector: np.ndarray) -> tuple[np.ndarray, np.ndar
             stokes[3, :], stokes_out[2, :]
         ) / (np.linalg.norm(stokes[3, :]) * np.linalg.norm(stokes_out[2, :]))
         return np.sqrt(v2q_cossim**2+v2u_cossim**2)
-    
-    corr_stokes = np.zeros(stokes_vector.shape)
     retarder = np.zeros((2, stokes_vector.shape[1]))
+    if "dask" not in sys.modules:
+        for i in range(stokes_vector.shape[1]):
+            fit_result = scopt.least_squares(
+                error_function,
+                x0=[0, 0],
+                args=[stokes_vector[:, i, 20:-20]],
+                bounds=[[-np.pi, -np.pi], [np.pi, np.pi]]
+            )
+            retarder[:, i] = fit_result.x
+    else:
+        # Parallel implementation. hope it's faster.
+        results = []
+        for i in range(stokes_vector.shape[1]):
+            results.append(_dask_least_squares(error_function, stokes_vector[:, i, 20:-20], i))
+        final_results = dask.compute(*results)
+        for res in final_results:
+            retarder[:, res[1]] = res[0]
+
+    corr_stokes = np.zeros(stokes_vector.shape)
     for i in range(stokes_vector.shape[1]):
-        fit_result = scopt.least_squares(
-            error_function,
-            x0=[0, 0],
-            args=[stokes_vector[:, i, 20:-20]],
-            bounds=[[-np.pi, -np.pi], [np.pi, np.pi]]
-        )
-        retarder[:, i] = fit_result.x
-        corr_matrix = np.linalg.inv(linear_retarder(*fit_result.x))
-        corr_stokes[:, i, :] = corr_matrix @ stokes_vector[:, i, :]
+        corr_stokes[:, i, :] = model_function(retarder[:, i], stokes_vector[:, i, :])
     return corr_stokes, retarder
 
+@jit(nopython=True)
 def v2qu_retardance_corr_2d(stokes_vector: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """2D version of retardance correction (V->QU crosstalk). 
     Rather than looping over each profile in y, assumes a single retardance 
@@ -718,14 +782,15 @@ def v2qu_retardance_corr_2d(stokes_vector: np.ndarray) -> tuple[np.ndarray, np.n
     retarder : np.ndarray
         Array of retarder params of shape (2)
     """
+    @jit(nopython=True)
     def model_function(ret_params, stokes):
         """Fit model"""
-        lin_ret = np.linalg.inv(linear_retarder(ret_params[0], ret_params[1]))
+        lin_ret = np.linalg.inv(jit_linear_retarder(ret_params[0], ret_params[1]))
         stokes_out = np.zeros(stokes.shape)
         for i in range(stokes.shape[1]):
             stokes_out[:, i, :] = lin_ret @ stokes[:, i, :]
         return stokes_out
-    
+    @jit(nopython=True)
     def error_function(ret_params, stokes):
         """
         Error function: Compare corrected Q/U to ORIGINAL V, not corrected V
@@ -751,10 +816,9 @@ def v2qu_retardance_corr_2d(stokes_vector: np.ndarray) -> tuple[np.ndarray, np.n
         bounds=[[-np.pi, -np.pi], [np.pi, np.pi]]
     )
     retarder = fit_result.x
-    corr_matrix = np.linalg.inv(linear_retarder(*retarder))
-    for i in range(stokes_vector.shape[1]):           
-        corr_stokes[:, i, :] = corr_matrix @ stokes_vector[:, i, :]
+    corr_stokes = model_function(retarder, stokes_vector)
     return corr_stokes, retarder
+
 
 def fourier_fringe_correction(
         fringe_cube: np.ndarray, freqency_cutoff: float,

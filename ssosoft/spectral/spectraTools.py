@@ -1428,6 +1428,7 @@ def image_align_apod(
     shifts : list
 
     """
+    
     def window_apod(tile_size: int, fraction: float) -> np.ndarray:
         """
         Creates an apodization window for normalizing prior to cross-correlation
