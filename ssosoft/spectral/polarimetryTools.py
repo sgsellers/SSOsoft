@@ -764,7 +764,6 @@ def v2qu_retardance_corr(stokes_vector: np.ndarray) -> tuple[np.ndarray, np.ndar
         corr_stokes[:, i, :] = model_function(retarder[:, i], stokes_vector[:, i, :])
     return corr_stokes, retarder
 
-@jit(nopython=True)
 def v2qu_retardance_corr_2d(stokes_vector: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """2D version of retardance correction (V->QU crosstalk). 
     Rather than looping over each profile in y, assumes a single retardance 
@@ -790,6 +789,7 @@ def v2qu_retardance_corr_2d(stokes_vector: np.ndarray) -> tuple[np.ndarray, np.n
         for i in range(stokes.shape[1]):
             stokes_out[:, i, :] = lin_ret @ stokes[:, i, :]
         return stokes_out
+    
     @jit(nopython=True)
     def error_function(ret_params, stokes):
         """
