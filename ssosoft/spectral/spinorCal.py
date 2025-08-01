@@ -18,7 +18,7 @@ from astropy.coordinates import SkyCoord
 from sunpy.coordinates import frames
 
 from . import spectraTools as spex
-from .polarimetryTools import v2qu_crosstalk
+from .polarimetryTools import v2qu_crosstalk, v2qu_retardance_corr, v2qu_retardance_corr_2d
 
 
 class SpinorCal:
@@ -181,10 +181,11 @@ class SpinorCal:
         self.blaze_angle = 52
         self.n_subslits = 10
         self.verbose = False
-        self.v2q = True
-        self.v2u = True
-        self.u2v = True
+        self.v2q = False
+        self.v2u = False
+        self.u2v = False
         self.i2quv_residual = False
+        self.internal_crosstalk = True
         self.despike = False
         self.despike_footprint = (1, 5, 1)
         self.plot = False
@@ -375,7 +376,7 @@ class SpinorCal:
             self.verbose = True
         else:
             self.verbose = False
-        self.v2q = config[self.camera]["v2q"] if "v2q" in config[self.camera].keys() else "True"
+        self.v2q = config[self.camera]["v2q"] if "v2q" in config[self.camera].keys() else "False"
         if self.v2q.lower() == "true":
             self.v2q = True
         elif self.v2q.lower() == "full":
@@ -383,27 +384,45 @@ class SpinorCal:
         else:
             self.v2q = False
 
-        self.v2u = config[self.camera]["v2u"] if "v2u" in config[self.camera].keys() else "True"
+        self.v2u = config[self.camera]["v2u"] if "v2u" in config[self.camera].keys() else "False"
         if self.v2u.lower() == "true":
             self.v2u = True
         elif self.v2u.lower() == "full":
             self.v2u = "full"
         else:
             self.v2u = False
-        self.u2v = config[self.camera]["u2v"] if "u2v" in config[self.camera].keys() else "True"
+        self.u2v = config[self.camera]["u2v"] if "u2v" in config[self.camera].keys() else "False"
         if self.u2v.lower() == "true":
             self.u2v = True
         elif self.u2v.lower() == "full":
             self.u2v = "full"
         else:
             self.u2v = False
-        self.i2quv_residual = config[
-            self.camera
-        ]['residualCrosstalk'] if "residualcrosstalk" in config[self.camera].keys() else "False"
+        self.i2quv_residual = config[self.camera]['residualCrosstalk'] \
+            if "residualcrosstalk" in config[self.camera].keys() else "False"
         if self.i2quv_residual.lower() == "true":
             self.i2quv_residual = True
         else:
             self.i2quv_residual = False
+        
+        # Newest version of crosstalk modelled on an ideal linear retarder:
+        self.internal_crosstalk = config[self.camera]["internalCrosstalk"] \
+            if "internalCrosstalk" in config[self.camera].keys() else "False"
+        if self.internal_crosstalk.lower() == "true":
+            # Single retardance version of correction
+            self.internal_crosstalk = True
+            self.v2q = False
+            self.v2u = False
+            self.u2v = False
+        elif self.internal_crosstalk.lower() == "full":
+            # Resolved retardance version of correction
+            self.internal_crosstalk = "full"
+            self.v2q = False
+            self.v2u = False
+            self.u2v = False
+        else:
+            self.internal_crosstalk = False
+            
         self.plot = config[self.camera]["plot"] if "plot" in config[self.camera].keys() else "False"
         if "t" in self.plot.lower():
             self.plot = True
@@ -1943,6 +1962,8 @@ class SpinorCal:
 
         mean_profile = np.nanmean(reduced_data[:, 0, :, :], axis=(0, 1))
         approx_wavelength_array = self.tweak_wavelength_calibration(mean_profile)
+        # Reverse y-axis to undo flip from polarizing beamsplitter
+        reduced_data = reduced_data[:, :, ::-1, :]
         # Swap axes to make X/Y contigent with data X/Y
         reduced_data = np.swapaxes(reduced_data, 0, 2)
 
@@ -2278,7 +2299,9 @@ class SpinorCal:
             iquvCube[1:] += (np.repeat(crosstalk_i2_quv[:, 0, :, np.newaxis], iquvCube.shape[2], axis=-1) *
                     np.arange(iquvCube.shape[2] +
                     np.repeat(crosstalk_i2_quv[:, 1, :, np.newaxis], iquvCube.shape[2], axis=-1)) *
-                np.repeat(iquvCube[0][np.newaxis, :, :], 3, axis=0)
+                np.repeat(iquvCube[0][np.newaxis, :, :], 3, axis=0)'
+        Unless the newer, retardance-based crosstalk solver is used, in which case, you'll have to construct
+        the Muller matrix of the retarder, and multiply your stokes vectors by it.
 
         Parameters
         ----------
@@ -2364,6 +2387,15 @@ class SpinorCal:
                         iquv_cube[3, j, :]
                     )
             internal_crosstalk[2] += bulk_u2_v_crosstalk
+        
+        # New retardance-based version. For this to work accurately, v2q, v2u, and u2v should be false
+        # See definition in config file parser for where these values are reset
+        if self.internal_crosstalk == "full":
+            iquv_cube, internal_crosstalk[:2, :] = v2qu_retardance_corr(iquv_cube)
+        elif self.internal_crosstalk:
+            iquv_cube, retarder = v2qu_retardance_corr_2d(iquv_cube)
+            internal_crosstalk[0] += retarder[0]
+            internal_crosstalk[1] += retarder[1]
 
         return iquv_cube, crosstalk_i2_quv, internal_crosstalk
 
@@ -2395,32 +2427,46 @@ class SpinorCal:
             ext0.header['I2QUV'] = ("CONST", "0-D I2QUV Crosstalk")
         else:
             ext0.header['I2QUV'] = ("1DFIT", "1-D I2QUV Crosstalk")
-        ext0.header['V2Q'] = (self.v2q, "True=by slit, Full=by slit and row")
-        ext0.header['V2U'] = (self.v2u, "True=by slit, Full=by slit and row")
-        ext0.header['U2V'] = (self.u2v, "True=by slit, Full=by slit and row")
-        ext0.header['COMMENT'] = "Crosstalks applied in order:"
-        ext0.header['COMMENT'] = "I->QUV"
-        ext0.header['COMMENT'] = "V->Q"
-        ext0.header['COMMENT'] = "V->U"
-        ext0.header['COMMENT'] = "U->V"
+        if not self.internal_crosstalk:
+            ext0.header['V2Q'] = (self.v2q, "True=by slit, Full=by slit and row")
+            ext0.header['V2U'] = (self.v2u, "True=by slit, Full=by slit and row")
+            ext0.header['U2V'] = (self.u2v, "True=by slit, Full=by slit and row")
+            ext0.header['COMMENT'] = "Crosstalks applied in order:"
+            ext0.header['COMMENT'] = "I->QUV"
+            ext0.header['COMMENT'] = "V->Q"
+            ext0.header['COMMENT'] = "V->U"
+            ext0.header['COMMENT'] = "U->V"
+        else:
+            ext0.header['INTERNAL'] = (self.internal_crosstalk, "True=by slit, Full=by slit and row")
+            ext0.header['COMMENT'] = "Internal crosstalks corrected by fitting linear retardance"
+            ext0.header['COMMENT'] = "Saved values indicate the corrected retardance and angle"
+            ext0.header['COMMENT'] = "Note that negative values are possible via fitting, but"
+            ext0.header['COMMENT'] = "should properly be considered on [0, 2pi] interval."
 
         i2quv_ext = fits.ImageHDU(i2quv_crosstalks)
         i2quv_ext.header['EXTNAME'] = "I2QUV"
         i2quv_ext.header[""] = "<QUV> = <QUV> - (coef[0]*[0, 1, ... nlambda] + coef[1]) * I"
 
-        v2q_ext = fits.ImageHDU(internal_crosstalks[:, 0, :])
-        v2q_ext.header['EXTNAME'] = "V2Q"
-        v2q_ext.header[""] = "Q = Q - coef*V"
+        if not self.internal_crosstalk:
+            v2q_ext = fits.ImageHDU(internal_crosstalks[:, 0, :])
+            v2q_ext.header['EXTNAME'] = "V2Q"
+            v2q_ext.header[""] = "Q = Q - coef*V"
 
-        v2u_ext = fits.ImageHDU(internal_crosstalks[:, 1, :])
-        v2u_ext.header['EXTNAME'] = "V2U"
-        v2u_ext.header[""] = "U = U - coef*V"
+            v2u_ext = fits.ImageHDU(internal_crosstalks[:, 1, :])
+            v2u_ext.header['EXTNAME'] = "V2U"
+            v2u_ext.header[""] = "U = U - coef*V"
 
-        u2v_ext = fits.ImageHDU(internal_crosstalks[:, 2, :])
-        u2v_ext.header['EXTNAME'] = "U2V"
-        u2v_ext.header[""] = "V = V - coef*U"
+            u2v_ext = fits.ImageHDU(internal_crosstalks[:, 2, :])
+            u2v_ext.header['EXTNAME'] = "U2V"
+            u2v_ext.header[""] = "V = V - coef*U"
 
-        hdul = fits.HDUList([ext0, i2quv_ext, v2q_ext, v2u_ext, u2v_ext])
+            hdul = fits.HDUList([ext0, i2quv_ext, v2q_ext, v2u_ext, u2v_ext])
+        else:
+            ret_ext = fits.ImageHDU(internal_crosstalks[:, :2, :])
+            ret_ext.header['EXTNAME'] = "RETARDANCE"
+            ret_ext.header[""] = "IQUV(orig) = LINRET(delta, theta) # IQUV(corr)"
+            hdul = fits.HDUList([ext0, i2quv_ext, ret_ext])
+        
         filename = "{0}_MAP_{1}_CROSSTALKS.fits".format(self.camera, index)
         crosstalk_file = os.path.join(self.final_dir, filename)
         hdul.writeto(crosstalk_file, overwrite=True)
@@ -2574,7 +2620,7 @@ class SpinorCal:
             field_v_ax[j].set_xlabel("Extent [arcsec]")
             field_v_ax[j].set_title("Stokes-V Derivative at Line Core")
 
-        if not any((self.v2q, self.v2u, self.u2v)):
+        if not any((self.v2q, self.v2u, self.u2v, self.internal_crosstalk)):
 
             plt.show(block=False)
             plt.pause(0.05)
@@ -2590,20 +2636,29 @@ class SpinorCal:
                 internal_crosstalks[0, :], np.arange(internal_crosstalks.shape[1]),
                 color='C1'
             )
-            v2q_ax.set_xlim(-1.05, 1.05)
+            if not self.internal_crosstalk:
+                v2q_ax.set_xlim(-1.05, 1.05)
+                v2q_ax.set_title("V->Q Crosstalk")
+            else:
+                v2q_ax.set_xlim(-np.pi, np.pi)
+                v2q_ax.set_title("Add. Retardance")
             v2q_ax.set_ylim(0, internal_crosstalks.shape[1])
-            v2q_ax.set_title("V->Q Crosstalk")
             v2q_ax.set_ylabel("Position Along Slit")
 
             v2u = v2u_ax.plot(
                 internal_crosstalks[1, :], np.arange(internal_crosstalks.shape[1]),
                 color='C1'
             )
-            v2u_ax.set_xlim(-1.05, 1.05)
+            if not self.internal_crosstalk:
+                v2u_ax.set_xlim(-1.05, 1.05)
+                v2u_ax.set_title("V->U Crosstalk")
+                v2u_ax.set_xlabel("Crosstalk Value")
+            else:
+                v2u_ax.set_xlim(-np.pi, np.pi)
+                v2u_ax.set_title("Orientation")
+                v2u_ax.set_xlabel("Additional Retardance Values")
             v2u_ax.set_ylim(0, internal_crosstalks.shape[1])
-            v2u_ax.set_title("V->U Crosstalk")
-            v2u_ax.set_xlabel("Crosstalk Value")
-
+            
             u2v = u2v_ax.plot(
                 internal_crosstalks[2, :], np.arange(internal_crosstalks.shape[1]),
                 color="C1"
@@ -2791,6 +2846,13 @@ class SpinorCal:
             )
             prstep_comments.append(
                 'spinorCal/SSOSoft'
+            )
+        if self.internal_crosstalk:
+            prsteps.append(
+                "RET-CORR"
+            )
+            prstep_comments.append(
+                "Additional Retardance Corr. spinorCal/SSOSoft"
             )
 
         slit_plate_scale = self.telescope_plate_scale * self.dst_collimator / self.slit_camera_lens

@@ -653,10 +653,112 @@ def v2qu_crosstalk(stokes_v: np.ndarray, stokes_qu: np.ndarray) -> np.ndarray:
 
     return corrected_qu, v2qu_crosstalk_value
 
+def v2qu_retardance_corr(stokes_vector: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Determines the uncorrected retardance (i.e., crosstalk) affecting primarily Q/U.
+    Unlike other implementations, this one uses the model of a linear retarder, and
+    attempts to solve for the linear retarder that maximizes the difference between Q/U and V.
+    Should do this for a single correction along slit, and for by-profile-correction
+
+    Parameters
+    ----------
+    stokes_vector : np.ndarray
+        The input stokes vector of shape (4, ny, nlambda)
+
+    Returns
+    -------
+    corr_stokes : np.ndarray
+        Corrected Stokes vector of shape (4, ny, nlambda)
+    retarder : np.ndarray
+        Array of retarder params of shape (2, ny)
+    """
+    def model_function(ret_params, stokes):
+        """Fit model"""
+        lin_ret = np.linalg.inv(linear_retarder(ret_params[0], ret_params[1]))
+        return lin_ret @ stokes
+    
+    def error_function(ret_params, stokes):
+        """Error function"""
+        stokes_out = model_function(ret_params, stokes)
+        v2q_cossim = np.dot(
+            stokes[3, :], stokes_out[1, :]
+        ) / (np.linalg.norm(stokes[3, :]) * np.linalg.norm(stokes_out[1, :]))
+        v2u_cossim = np.dot(
+            stokes[3, :], stokes_out[2, :]
+        ) / (np.linalg.norm(stokes[3, :]) * np.linalg.norm(stokes_out[2, :]))
+        return np.sqrt(v2q_cossim**2+v2u_cossim**2)
+    
+    corr_stokes = np.zeros(stokes_vector.shape)
+    retarder = np.zeros((2, stokes_vector.shape[1]))
+    for i in range(stokes_vector.shape[1]):
+        fit_result = scopt.least_squares(
+            error_function,
+            x0=[0, 0],
+            args=[stokes_vector[:, i, 20:-20]],
+            bounds=[[-np.pi, -np.pi], [np.pi, np.pi]]
+        )
+        retarder[:, i] = fit_result.x
+        corr_matrix = np.linalg.inv(linear_retarder(*fit_result.x))
+        corr_stokes[:, i, :] = corr_matrix @ stokes_vector[:, i, :]
+    return corr_stokes, retarder
+
+def v2qu_retardance_corr_2d(stokes_vector: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """2D version of retardance correction (V->QU crosstalk). 
+    Rather than looping over each profile in y, assumes a single retardance 
+    across the slit, and corrects the entire slit image for that retardance.
+
+    Parameters
+    ----------
+    stokes_vector : np.ndarray
+        The input stokes vector of shape (4, ny, nlambda)
+
+    Returns
+    -------
+    corr_stokes : np.ndarray
+        Corrected Stokes vector of shape (4, ny, nlambda)
+    retarder : np.ndarray
+        Array of retarder params of shape (2)
+    """
+    def model_function(ret_params, stokes):
+        """Fit model"""
+        lin_ret = np.linalg.inv(linear_retarder(ret_params[0], ret_params[1]))
+        stokes_out = np.zeros(stokes.shape)
+        for i in range(stokes.shape[1]):
+            stokes_out[:, i, :] = lin_ret @ stokes[:, i, :]
+        return stokes_out
+    
+    def error_function(ret_params, stokes):
+        """
+        Error function: Compare corrected Q/U to ORIGINAL V, not corrected V
+        Otherwise, you get spurious results where V is further shuffled to Q/U
+        """
+        stokes_out = model_function(ret_params, stokes)
+
+        v2q_lincorr = np.nansum(
+            stokes_out[1] * stokes[3]
+        ) / np.sqrt(np.nansum(stokes_out[1] ** 2) * np.nansum(stokes[3] ** 2))
+
+        v2u_lincorr = np.nansum(
+            stokes_out[2] * stokes[3]
+        ) / np.sqrt(np.nansum(stokes_out[2] ** 2) * np.nansum(stokes[3] ** 2))
+
+        return np.sqrt(v2q_lincorr ** 2 + v2u_lincorr ** 2)
+    
+    corr_stokes = np.zeros(stokes_vector.shape)
+    fit_result = scopt.least_squares(
+        error_function,
+        x0=[0, 0],
+        args=[stokes_vector[:, :, 20:-20]],
+        bounds=[[-np.pi, -np.pi], [np.pi, np.pi]]
+    )
+    retarder = fit_result.x
+    corr_matrix = np.linalg.inv(linear_retarder(*retarder))
+    for i in range(stokes_vector.shape[1]):           
+        corr_stokes[:, i, :] = corr_matrix @ stokes_vector[:, i, :]
+    return corr_stokes, retarder
 
 def fourier_fringe_correction(
         fringe_cube: np.ndarray, freqency_cutoff: float,
-        smoothing: int or tuple[int, int], dlambda: float
+        smoothing: int | tuple[int, int], dlambda: float
 ) -> np.ndarray:
     """
     Performs simple masking in Fourier space for fringe correction.
