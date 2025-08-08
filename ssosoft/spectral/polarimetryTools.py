@@ -798,15 +798,22 @@ def v2qu_retardance_corr_2d(stokes_vector: np.ndarray) -> tuple[np.ndarray, np.n
         """
         stokes_out = model_function(ret_params, stokes)
 
-        v2q_lincorr = np.nansum(
-            stokes_out[1] * stokes[3]
-        ) / np.sqrt(np.nansum(stokes_out[1] ** 2) * np.nansum(stokes[3] ** 2))
+        # v2q_lincorr = np.nansum(
+        #     stokes_out[1] * stokes[3]
+        # ) / np.sqrt(np.nansum(stokes_out[1] ** 2) * np.nansum(stokes[3] ** 2))
 
-        v2u_lincorr = np.nansum(
-            stokes_out[2] * stokes[3]
-        ) / np.sqrt(np.nansum(stokes_out[2] ** 2) * np.nansum(stokes[3] ** 2))
+        # v2u_lincorr = np.nansum(
+        #     stokes_out[2] * stokes[3]
+        # ) / np.sqrt(np.nansum(stokes_out[2] ** 2) * np.nansum(stokes[3] ** 2))
 
-        return np.sqrt(v2q_lincorr ** 2 + v2u_lincorr ** 2)
+        v2q_cossim = np.dot(
+            stokes[3].flatten(), stokes_out[1].flatten()
+        ) / (np.linalg.norm(stokes[3].flatten()) * np.linalg.norm(stokes_out[1].flatten()))
+        v2u_cossim = np.dot(
+            stokes[3].flatten(), stokes_out[2].flatten()
+        ) / (np.linalg.norm(stokes[3].flatten()) * np.linalg.norm(stokes_out[2].flatten()))
+
+        return np.sqrt(v2q_cossim ** 2 + v2u_cossim ** 2)
     
     corr_stokes = np.zeros(stokes_vector.shape)
     fit_result = scopt.least_squares(
