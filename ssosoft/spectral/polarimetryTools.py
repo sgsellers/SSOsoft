@@ -768,7 +768,7 @@ def v2qu_retardance_corr(stokes_vector: np.ndarray, xrange: None | tuple[int, in
                 results.append(_dask_least_squares(error_function, stokes_vector[:, i, 20:-20], i))
             else:
                 results.append(
-                    _dask_least_squares(error_function, stokes_vector[:, i, xrange[0]:xrange[1]])
+                    _dask_least_squares(error_function, stokes_vector[:, i, xrange[0]:xrange[1]], i)
                 )
         final_results = dask.compute(*results)
         for res in final_results:
