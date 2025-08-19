@@ -1528,10 +1528,21 @@ class FirsCal:
                 internal_crosstalk[3, slit] += bulk_u2v_crosstalk
         if self.internal_crosstalk:
             for slit in range(self.nslits):
+                # Determine crosstalks from range around self.internal_crosstalk_line
+                min_idx = int(spex.find_nearest(
+                    wavelength_grid[slit], self.internal_crosstalk_line - self.crosstalk_range
+                ))
+                max_idx = int(spex.find_nearest(
+                    wavelength_grid[slit], self.internal_crosstalk_line + self.crosstalk_range
+                ))
                 if self.internal_crosstalk == "full":
-                    quv_data[:, slit, :, :], internal_crosstalk[:2, slit, :] = pol.v2qu_retardance_corr(quv_data[:, slit, :, :])
+                    quv_data[:, slit, :, :], internal_crosstalk[:2, slit, :] = pol.v2qu_retardance_corr(
+                        quv_data[:, slit, :, :], xrange=(min_idx, max_idx)
+                    )
                 else:
-                    quv_data[:, slit, :, :], ret_vals = pol.v2qu_retardance_corr_2d(quv_data[:, slit, :, :])
+                    quv_data[:, slit, :, :], ret_vals = pol.v2qu_retardance_corr_2d(
+                        quv_data[:, slit, :, :], xrange=(min_idx, max_idx)
+                    )
                     internal_crosstalk[0, slit, :] += ret_vals[0]
                     internal_crosstalk[1, slit, :] += ret_vals[1]
 

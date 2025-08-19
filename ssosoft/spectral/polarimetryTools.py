@@ -705,7 +705,7 @@ def v2qu_crosstalk(stokes_v: np.ndarray, stokes_qu: np.ndarray) -> np.ndarray:
 
     return corrected_qu, v2qu_crosstalk_value
 
-def v2qu_retardance_corr(stokes_vector: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def v2qu_retardance_corr(stokes_vector: np.ndarray, xrange: None | tuple[int, int]=None) -> tuple[np.ndarray, np.ndarray]:
     """Determines the uncorrected retardance (i.e., crosstalk) affecting primarily Q/U.
     Unlike other implementations, this one uses the model of a linear retarder, and
     attempts to solve for the linear retarder that maximizes the difference between Q/U and V.
@@ -715,6 +715,8 @@ def v2qu_retardance_corr(stokes_vector: np.ndarray) -> tuple[np.ndarray, np.ndar
     ----------
     stokes_vector : np.ndarray
         The input stokes vector of shape (4, ny, nlambda)
+    xrange : None or tuple, optional
+        If provided, clips the solve range to the values passed in xrange
 
     Returns
     -------
@@ -743,18 +745,31 @@ def v2qu_retardance_corr(stokes_vector: np.ndarray) -> tuple[np.ndarray, np.ndar
     retarder = np.zeros((2, stokes_vector.shape[1]))
     if "dask" not in sys.modules:
         for i in range(stokes_vector.shape[1]):
-            fit_result = scopt.least_squares(
-                error_function,
-                x0=[0, 0],
-                args=[stokes_vector[:, i, 20:-20]],
-                bounds=[[-np.pi, -np.pi], [np.pi, np.pi]]
-            )
+            if xrange is None:
+                fit_result = scopt.least_squares(
+                    error_function,
+                    x0=[0, 0],
+                    args=[stokes_vector[:, i, 20:-20]],
+                    bounds=[[-np.pi, -np.pi], [np.pi, np.pi]]
+                )
+            else:
+                fit_result = scopt.least_squares(
+                    error_function,
+                    x0=[0,0],
+                    args=[stokes_vector[:, i, xrange[0]:xrange[1]]],
+                    bounds=[[-np.pi, -np.pi], [np.pi, np.pi]]
+                )
             retarder[:, i] = fit_result.x
     else:
         # Parallel implementation. hope it's faster.
         results = []
         for i in range(stokes_vector.shape[1]):
-            results.append(_dask_least_squares(error_function, stokes_vector[:, i, 20:-20], i))
+            if xrange is None:
+                results.append(_dask_least_squares(error_function, stokes_vector[:, i, 20:-20], i))
+            else:
+                results.append(
+                    _dask_least_squares(error_function, stokes_vector[:, i, xrange[0]:xrange[1]])
+                )
         final_results = dask.compute(*results)
         for res in final_results:
             retarder[:, res[1]] = res[0]
@@ -764,7 +779,7 @@ def v2qu_retardance_corr(stokes_vector: np.ndarray) -> tuple[np.ndarray, np.ndar
         corr_stokes[:, i, :] = model_function(retarder[:, i], stokes_vector[:, i, :])
     return corr_stokes, retarder
 
-def v2qu_retardance_corr_2d(stokes_vector: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def v2qu_retardance_corr_2d(stokes_vector: np.ndarray, xrange: None | tuple[int, int]=None) -> tuple[np.ndarray, np.ndarray]:
     """2D version of retardance correction (V->QU crosstalk). 
     Rather than looping over each profile in y, assumes a single retardance 
     across the slit, and corrects the entire slit image for that retardance.
@@ -773,6 +788,8 @@ def v2qu_retardance_corr_2d(stokes_vector: np.ndarray) -> tuple[np.ndarray, np.n
     ----------
     stokes_vector : np.ndarray
         The input stokes vector of shape (4, ny, nlambda)
+    xrange : None or tuple of int
+        If given, clips the xrange of the stokes vector to specified indices
 
     Returns
     -------
@@ -816,12 +833,20 @@ def v2qu_retardance_corr_2d(stokes_vector: np.ndarray) -> tuple[np.ndarray, np.n
         return np.sqrt(v2q_cossim ** 2 + v2u_cossim ** 2)
     
     corr_stokes = np.zeros(stokes_vector.shape)
-    fit_result = scopt.least_squares(
-        error_function,
-        x0=[0, 0],
-        args=[stokes_vector[:, :, 20:-20]],
-        bounds=[[-0.25, -0.25], [0.25, 0.25]]
-    )
+    if xrange is None:
+        fit_result = scopt.least_squares(
+            error_function,
+            x0=[0, 0],
+            args=[stokes_vector[:, :, 20:-20]],
+            bounds=[[-0.25, -0.25], [0.25, 0.25]]
+        )
+    else:
+        fit_result = scopt.least_squares(
+            error_function,
+            x0=[0, 0],
+            args=[stokes_vector[:, :, xrange[0]:xrange[1]]],
+            bounds=[[-np.pi, -np.pi], [np.pi, np.pi]]
+        )
     retarder = fit_result.x
     corr_stokes = model_function(retarder, stokes_vector)
     return corr_stokes, retarder
