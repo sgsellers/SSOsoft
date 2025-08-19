@@ -2491,7 +2491,7 @@ class FirsCal:
             v2q_ax.set_ylim(0, internal_crosstalks.shape[2])
             v2q_ax.set_ylabel("Position Along Slit")
 
-            if not self.internal_crosstalk
+            if not self.internal_crosstalk:
                 v2u_ax.set_xlim(-1.05, 1.05)
                 v2u_ax.set_title("V->U")
             else:
