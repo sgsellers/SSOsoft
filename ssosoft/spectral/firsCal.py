@@ -141,10 +141,11 @@ class FirsCal:
         self.fringe_frequency = [-0.4, 0.4] # In angstrom, the assumed threshold for high-frequency noise to filter out
         self.verbose = False
         self.spectral_transmission = False
-        self.v2q = True
-        self.v2u = True
+        self.v2q = False
+        self.v2u = False
         self.q2v = False
         self.u2v = False
+        self.internal_crosstalk = True
         self.despike = False
         self.despike_footprint = (1, 5, 1)
         self.plot = False
@@ -1199,9 +1200,9 @@ class FirsCal:
                     if any((v2q, v2u, q2v, u2v)):
                         # Internal Crosstalk
                         crosstalk_results = self.detrend_internal_crosstalk(
-                            reduced_data[1:, :, :, step_ctr, :], wavegrid
+                            reduced_data[:, :, :, step_ctr, :], wavegrid
                         )
-                        reduced_data[1:, :, :, step_ctr, :] = crosstalk_results[0]
+                        reduced_data[:, :, :, step_ctr, :] = crosstalk_results[0]
                         complete_internal_crosstalks[:, :, :, step_ctr] = crosstalk_results[1]
                     # Grab analysis lines if they're not the default.
                     # Skip if overview set to false, i.e., reducing a flat field
@@ -1426,7 +1427,7 @@ class FirsCal:
         Parameters
         ----------
         quv_data : numpy.ndarray
-            Array of QUV data. Assumed to be roughly defringed and of shape (3, nslits, ny, nlambda)
+            Array of IQUV data. Assumed to be roughly defringed and of shape (4, nslits, ny, nlambda)
         wavelength_grid : numpy.ndarray
             Array of wavelengths corresponding to nlambda axis of quv_data. Shape (nslits, nlambda)
 
@@ -1441,9 +1442,9 @@ class FirsCal:
             for slit in range(self.nslits):
                 # Baseline bulk crosstalk first
                 bulk_v2q_crosstalk = pol.internal_crosstalk_2d(
-                    quv_data[0, slit, :, :], quv_data[2, slit, :, :], bounds=[-0.5, 0.5]
+                    quv_data[1, slit, :, :], quv_data[3, slit, :, :], bounds=[-0.5, 0.5]
                 )
-                quv_data[0, slit, :, :] = quv_data[0, slit, :, :] - bulk_v2q_crosstalk * quv_data[2, slit, :, :]
+                quv_data[1, slit, :, :] = quv_data[1, slit, :, :] - bulk_v2q_crosstalk * quv_data[3, slit, :, :]
                 if self.v2q == "full":
                     # Determine crosstalks from range around self.internal_crosstalk_line
                     min_idx = int(spex.find_nearest(
@@ -1454,18 +1455,18 @@ class FirsCal:
                     ))
                     for y in range(quv_data.shape[2]):
                         _, ct_val = pol.v2qu_crosstalk(
-                            quv_data[2, slit, y, min_idx:max_idx], quv_data[0, slit, y, min_idx:max_idx]
+                            quv_data[3, slit, y, min_idx:max_idx], quv_data[1, slit, y, min_idx:max_idx]
                         )
                         internal_crosstalk[0, slit, y] = ct_val
-                        quv_data[0, slit, y, :] = quv_data[0, slit, y, :] - ct_val * quv_data[2, slit, y, :]
+                        quv_data[1, slit, y, :] = quv_data[1, slit, y, :] - ct_val * quv_data[3, slit, y, :]
                 internal_crosstalk[0, slit] += bulk_v2q_crosstalk
         if self.v2u:
             for slit in range(self.nslits):
                 # Baseline bulk crosstalk first
                 bulk_v2u_crosstalk = pol.internal_crosstalk_2d(
-                    quv_data[1, slit, :, :], quv_data[2, slit, :, :], bounds=[-0.5, 0.5]
+                    quv_data[2, slit, :, :], quv_data[3, slit, :, :], bounds=[-0.5, 0.5]
                 )
-                quv_data[1, slit, :, :] = quv_data[1, slit, :, :] - bulk_v2u_crosstalk * quv_data[2, slit, :, :]
+                quv_data[2, slit, :, :] = quv_data[2, slit, :, :] - bulk_v2u_crosstalk * quv_data[3, slit, :, :]
                 if self.v2u == "full":
                     # Determine crosstalks from range around self.internal_crosstalk_line
                     min_idx = int(spex.find_nearest(
@@ -1476,18 +1477,18 @@ class FirsCal:
                     ))
                     for y in range(quv_data.shape[2]):
                         _, ct_val = pol.v2qu_crosstalk(
-                            quv_data[2, slit, y, min_idx:max_idx], quv_data[1, slit, y, min_idx:max_idx]
+                            quv_data[3, slit, y, min_idx:max_idx], quv_data[2, slit, y, min_idx:max_idx]
                         )
                         internal_crosstalk[1, slit, y] = ct_val
-                        quv_data[1, slit, y, :] = quv_data[1, slit, y, :] - ct_val * quv_data[2, slit, y, :]
+                        quv_data[2, slit, y, :] = quv_data[2, slit, y, :] - ct_val * quv_data[3, slit, y, :]
                 internal_crosstalk[1, slit] += bulk_v2u_crosstalk
         if self.q2v:
             for slit in range(self.nslits):
                 # Baseline bulk crosstalk first
                 bulk_q2v_crosstalk = pol.internal_crosstalk_2d(
-                    quv_data[2, slit, :, :], quv_data[0, slit, :, :], bounds=[-0.2, 0.2]
+                    quv_data[3, slit, :, :], quv_data[1, slit, :, :], bounds=[-0.2, 0.2]
                 )
-                quv_data[2, slit, :, :] = quv_data[2, slit, :, :] - bulk_q2v_crosstalk * quv_data[0, slit, :, :]
+                quv_data[3, slit, :, :] = quv_data[3, slit, :, :] - bulk_q2v_crosstalk * quv_data[1, slit, :, :]
                 if self.q2v == "full":
                     # Determine crosstalks from range around self.internal_crosstalk_line
                     min_idx = int(spex.find_nearest(
@@ -1498,18 +1499,18 @@ class FirsCal:
                     ))
                     for y in range(quv_data.shape[2]):
                         _, ct_val = pol.v2qu_crosstalk(
-                            quv_data[0, slit, y, min_idx:max_idx], quv_data[2, slit, y, min_idx:max_idx]
+                            quv_data[1, slit, y, min_idx:max_idx], quv_data[3, slit, y, min_idx:max_idx]
                         )
                         internal_crosstalk[3, slit, y] = ct_val
-                        quv_data[2, slit, y, :] = quv_data[2, slit, y, :] - ct_val * quv_data[0, slit, y, :]
+                        quv_data[3, slit, y, :] = quv_data[3, slit, y, :] - ct_val * quv_data[1, slit, y, :]
                 internal_crosstalk[2, slit] += bulk_q2v_crosstalk
         if self.u2v:
             for slit in range(self.nslits):
                 # Baseline bulk crosstalk first
                 bulk_u2v_crosstalk = pol.internal_crosstalk_2d(
-                    quv_data[2, slit, :, :], quv_data[1, slit, :, :], bounds=[-0.2, 0.2]
+                    quv_data[3, slit, :, :], quv_data[2, slit, :, :], bounds=[-0.2, 0.2]
                 )
-                quv_data[2, slit, :, :] = quv_data[2, slit, :, :] - bulk_u2v_crosstalk * quv_data[1, slit, :, :]
+                quv_data[3, slit, :, :] = quv_data[3, slit, :, :] - bulk_u2v_crosstalk * quv_data[2, slit, :, :]
                 if self.u2v == "full":
                     # Determine crosstalks from range around self.internal_crosstalk_line
                     min_idx = int(spex.find_nearest(
@@ -1520,11 +1521,20 @@ class FirsCal:
                     ))
                     for y in range(quv_data.shape[2]):
                         _, ct_val = pol.v2qu_crosstalk(
-                            quv_data[1, slit, y, min_idx:max_idx], quv_data[2, slit, y, min_idx:max_idx]
+                            quv_data[2, slit, y, min_idx:max_idx], quv_data[3, slit, y, min_idx:max_idx]
                         )
                         internal_crosstalk[3, slit, y] = ct_val
-                        quv_data[2, slit, y, :] = quv_data[2, slit, y, :] - ct_val * quv_data[1, slit, y, :]
+                        quv_data[3, slit, y, :] = quv_data[3, slit, y, :] - ct_val * quv_data[2, slit, y, :]
                 internal_crosstalk[3, slit] += bulk_u2v_crosstalk
+        if self.internal_crosstalk:
+            for slit in range(self.nslits):
+                if self.internal_crosstalk == "full":
+                    quv_data[:, slit, :, :], internal_crosstalk[:2, slit, :] = pol.v2qu_retardance_corr(quv_data[:, slit, :, :])
+                else:
+                    quv_data[:, slit, :, :], ret_vals = pol.v2qu_retardance_corr_2d(quv_data[:, slit, :, :])
+                    internal_crosstalk[0, slit, :] += ret_vals[0]
+                    internal_crosstalk[1, slit, :] += ret_vals[1]
+
         return quv_data, internal_crosstalk
 
     def construct_fringe_template_from_flat(self, reduced_flat: np.ndarray) -> np.ndarray:
@@ -1966,6 +1976,23 @@ class FirsCal:
         self.u2v = config["FIRS"]["u2v"] if "u2v" in config["FIRS"].keys() \
             else self.u2v
         self.u2v = False if self.u2v.lower() == "false" else self.u2v
+        # New retardance-based internal crosstalk determination.
+        self.internal_crosstalk = config["FIRS"]["internalCrosstalk"] \
+            if "internalcrosstalk" in config['FIRS'].keys() else False
+        if self.internal_crosstalk.lower() == "true":
+            self.internal_crosstalk = True
+            self.v2q = False
+            self.v2u = False
+            self.q2v = False
+            self.u2v = False
+        elif self.internal_crosstalk.lower() == "full":
+            self.internal_crosstalk = "full"
+            self.v2q = False
+            self.v2u = False
+            self.q2v = False
+            self.u2v = False
+        else:
+            self.internal_crosstalk = False
 
         self.despike = config['FIRS']['despike'] if "despike" in config['FIRS'].keys() else self.despike
         if type(self.despike) is str:
@@ -2434,7 +2461,7 @@ class FirsCal:
             field_v_ax[j].set_xlabel("Extent [arcsec]")
             field_v_ax[j].set_title("Stokes-V Derivative at Line Core")
             
-        if not any((self.v2q, self.v2u, self.q2v, self.u2v)):
+        if not any((self.v2q, self.v2u, self.q2v, self.u2v, self.internal_crosstalk)):
             plt.show(block=False)
             plt.pause(0.05)
             return (
@@ -2455,24 +2482,31 @@ class FirsCal:
             v2u = []
             q2v = []
             u2v = []
-
-            v2q_ax.set_xlim(-1.05, 1.05)
+            if not self.internal_crosstalk:
+                v2q_ax.set_xlim(-1.05, 1.05)
+                v2q_ax.set_title("V->Q")
+            else:
+                v2q_ax.set_xlim(-np.pi, np.pi)
+                v2q_ax.set_title("Add. Ret.")
             v2q_ax.set_ylim(0, internal_crosstalks.shape[2])
-            v2q_ax.set_title("V->Q")
             v2q_ax.set_ylabel("Position Along Slit")
 
-            v2u_ax.set_xlim(-1.05, 1.05)
+            if not self.internal_crosstalk
+                v2u_ax.set_xlim(-1.05, 1.05)
+                v2u_ax.set_title("V->U")
+            else:
+                v2u_ax.set_xlim(-np.pi, np.pi)
+                v2u_ax.set_title("Angle")
             v2u_ax.set_ylim(0, internal_crosstalks.shape[2])
-            v2u_ax.set_title("V->U")
             v2u_ax.set_xlabel("Crosstalk Value")
 
             q2v_ax.set_xlim(-1.05, 1.05)
             q2v_ax.set_ylim(0, internal_crosstalks.shape[2])
-            q2v_ax.set_title("Q->V")
+            q2v_ax.set_title("Q->V [resid.]")
 
             u2v_ax.set_xlim(-1.05, 1.05)
             u2v_ax.set_ylim(0, internal_crosstalks.shape[2])
-            u2v_ax.set_title("U->V")
+            u2v_ax.set_title("U->V [resid.]")
 
             for slit in range(self.nslits):
                 v2q.append(v2q_ax.plot(
@@ -3217,38 +3251,51 @@ class FirsCal:
             ext0.header['I2QUV'] = ("CONST", "0-D I2QUV Crosstalk")
         else:
             ext0.header['I2QUV'] = ("1DFIT", "1-D I2QUV Crosstalk")
-        ext0.header['V2Q'] = (self.v2q, "True=by slit, Full=by slit and row")
-        ext0.header['V2U'] = (self.v2u, "True=by slit, Full=by slit and row")
-        ext0.header['Q2V'] = (self.q2v, "True=by slit, Full=by slit and row")
-        ext0.header['U2V'] = (self.u2v, "True=by slit, Full=by slit and row")
-        ext0.header['COMMENT'] = "Crosstalks applied in order:"
-        ext0.header['COMMENT'] = "I->QUV"
-        ext0.header['COMMENT'] = "V->Q"
-        ext0.header['COMMENT'] = "V->U"
-        ext0.header['COMMENT'] = "Q->V"
-        ext0.header['COMMENT'] = "U->V"
+        if not self.internal_crosstalk:
+            ext0.header['V2Q'] = (self.v2q, "True=by slit, Full=by slit and row")
+            ext0.header['V2U'] = (self.v2u, "True=by slit, Full=by slit and row")
+            ext0.header['Q2V'] = (self.q2v, "True=by slit, Full=by slit and row")
+            ext0.header['U2V'] = (self.u2v, "True=by slit, Full=by slit and row")
+            ext0.header['COMMENT'] = "Crosstalks applied in order:"
+            ext0.header['COMMENT'] = "I->QUV"
+            ext0.header['COMMENT'] = "V->Q"
+            ext0.header['COMMENT'] = "V->U"
+            ext0.header['COMMENT'] = "Q->V"
+            ext0.header['COMMENT'] = "U->V"
+        else:
+            ext0.header['INTERNAL'] = (self.internal_crosstalk, "True=by slit, Full=by slit and row")
+            ext0.header['COMMENT'] = "Internal crosstalks corrected by fitting linear retardance"
+            ext0.header['COMMENT'] = "Saved values indicate the corrected retardance and angle"
+            ext0.header['COMMENT'] = "Note that negative values are possible via fitting, but"
+            ext0.header['COMMENT'] = "should properly be considered on [0, 2pi] interval."
 
         i2quv_ext = fits.ImageHDU(i2quv_crosstalks)
         i2quv_ext.header['EXTNAME'] = "I2QUV"
         i2quv_ext.header[""] = "<QUV> = <QUV> - (coef[0]*[0, 1, ... nlambda] + coef[1]) * I"
 
-        v2q_ext = fits.ImageHDU(internal_crosstalks[0])
-        v2q_ext.header['EXTNAME'] = "V2Q"
-        v2q_ext.header[""] = "Q = Q - coef*V"
+        if not self.internal_crosstalk:
+            v2q_ext = fits.ImageHDU(internal_crosstalks[0])
+            v2q_ext.header['EXTNAME'] = "V2Q"
+            v2q_ext.header[""] = "Q = Q - coef*V"
 
-        v2u_ext = fits.ImageHDU(internal_crosstalks[1])
-        v2u_ext.header['EXTNAME'] = "V2U"
-        v2u_ext.header[""] = "U = U - coef*V"
+            v2u_ext = fits.ImageHDU(internal_crosstalks[1])
+            v2u_ext.header['EXTNAME'] = "V2U"
+            v2u_ext.header[""] = "U = U - coef*V"
 
-        q2v_ext = fits.ImageHDU(internal_crosstalks[2])
-        q2v_ext.header['EXTNAME'] = "Q2V"
-        q2v_ext.header[""] = "V = V - coef*Q"
+            q2v_ext = fits.ImageHDU(internal_crosstalks[2])
+            q2v_ext.header['EXTNAME'] = "Q2V"
+            q2v_ext.header[""] = "V = V - coef*Q"
 
-        u2v_ext = fits.ImageHDU(internal_crosstalks[3])
-        u2v_ext.header['EXTNAME'] = "U2V"
-        u2v_ext.header[""] = "V = V - coef*U"
+            u2v_ext = fits.ImageHDU(internal_crosstalks[3])
+            u2v_ext.header['EXTNAME'] = "U2V"
+            u2v_ext.header[""] = "V = V - coef*U"
 
-        hdul = fits.HDUList([ext0, i2quv_ext, v2q_ext, v2u_ext, q2v_ext, u2v_ext])
+            hdul = fits.HDUList([ext0, i2quv_ext, v2q_ext, v2u_ext, q2v_ext, u2v_ext])
+        else:
+            ret_ext = fits.ImageHDU(internal_crosstalks[:2])
+            ret_ext.header['EXTNAME'] = "RETARDANCE"
+            ret_ext.header[''] = "IQUV(orig) = LINRET(delta, theta) # IQUV(corr)"
+            hdul = fits.HDUList([ext0, i2quv_ext, ret_ext])
         filename = "FIRS_MAP_{0}_REPEAT_{1}_CROSSTALKS.fits".format(index, repeat)
         crosstalk_file = os.path.join(self.final_dir, filename)
         hdul.writeto(crosstalk_file, overwrite=True)
