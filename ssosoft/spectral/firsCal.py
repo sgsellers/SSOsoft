@@ -1197,7 +1197,7 @@ class FirsCal:
                         reduced_data[1:, :, :, step_ctr, :] = self.defringe_from_template(
                             reduced_data[1:, :, :, step_ctr, :], fringe_template
                         )
-                    if any((v2q, v2u, q2v, u2v)):
+                    if any((v2q, v2u, q2v, u2v, self.internal_crosstalk)):
                         # Internal Crosstalk
                         crosstalk_results = self.detrend_internal_crosstalk(
                             reduced_data[:, :, :, step_ctr, :], wavegrid
