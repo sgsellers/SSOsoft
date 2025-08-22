@@ -263,6 +263,11 @@ class RosaZylaDestretch:
             self.verify_alignment = config["SHARED"]["verfiypointingupdate"] if "verifypointingupdate" \
                 in config["SHARED"].keys() else False
             self.verify_alignment = True if str(self.verify_alignment) == "true" else False
+            self.create_context_movies = config["SHARED"]["contextMovies"] if "contextmovies" \
+                in config["SHARED"].keys() else False
+            self.create_context_movies = True if str(self.create_context_movies).lower() == "true" else False
+            self.context_movie_directory = config["SHARED"]["contextMovieDirectory"] if \
+                "contextmoviedirectory" in config["SHARED"].keys() else ""
 
         # Progress bars
         self.progress = config[self.channel]["progress"] if "progress" in config[self.channel].keys() \
