@@ -1,20 +1,31 @@
 import configparser
+import glob
+import os
+import warnings
+
+import astropy.io.fits as fits
+import cv2
+import numpy as np
+import scipy.ndimage as scindi
+from tqdm import tqdm
 
 from .pyDestretch import *
-import numpy as np
-import cv2
-import glob
-import astropy.io.fits as fits
-from tqdm import tqdm
-import scipy.ndimage as scindi
-import os
+
+"""This is included as a failsafe.
+It was verified working with legacy data in SSODA, as well as modern datasets.
+Due to large changes in the configuration of destretch.py to allow more functionality,
+I cannot verify its compatibility with older datasets without resorting to more exhaustive
+testing that I currently have the time for.
+
+So I'm leaving this here, just in case anyone needs it in the future.
+"""
 
 def _medfilt_wrapper(array, window):
-    return scindi.median_filter(array, size=(1, 1, 1, window), mode='nearest')
+    return scindi.median_filter(array, size=(1, 1, 1, window), mode="nearest")
 
 
 def _unifilt_wrapper(array, window):
-    return scindi.uniform_filter1d(array, window, mode='nearest', axis=-1)
+    return scindi.uniform_filter1d(array, window, mode="nearest", axis=-1)
 
 
 class rosaZylaDestretch:
@@ -22,6 +33,9 @@ class rosaZylaDestretch:
 
     """
     def __init__(self, instruments, configFile, experimental="N"):
+        warnings.warn(
+            "THIS MODULE IS DEPRECATED. Please use ssosoft.imagers.destretch.RosaZylaDestretch if possible."
+        )
         """Unified SSOC Destretch module. Pass a configuration file (modified version of SSOSoft config file) and an
         instrument name, or list of instrument names. If it's a single instrument, it'll perform the iterative destretch
         defined by the config file. If it's a list of instruments, it'll perform the destretch specified in the config
@@ -36,11 +50,11 @@ class rosaZylaDestretch:
         if type(instruments) == str:
             try:
                 assert (instruments.upper() in [
-                    'ZYLA', 'ROSA_3500', 'ROSA_4170', 'ROSA_CAK', 'ROSA_GBAND', 'ROSA_RED', "ROSA_6561", "ROSA_NAD"
+                    "ZYLA", "ROSA_3500", "ROSA_4170", "ROSA_CAK", "ROSA_GBAND", "ROSA_RED", "ROSA_6561", "ROSA_NAD"
                 ]
-                        ), ('Allowed values for <instrument>: '
-                            'ZYLA, ROSA_3500, ROSA_4170, '
-                            'ROSA_CAK', 'ROSA_GBAND', 'ROSA_RED', "ROSA_6561", "ROSA_NAD"
+                        ), ("Allowed values for <instrument>: "
+                            "ZYLA, ROSA_3500, ROSA_4170, "
+                            "ROSA_CAK", "ROSA_GBAND", "ROSA_RED", "ROSA_6561", "ROSA_NAD"
                             )
             except Exception as err:
                 print("Exception {0}".format(err))
@@ -49,16 +63,16 @@ class rosaZylaDestretch:
             for instrument in instruments:
                 try:
                     assert (instrument.upper() in [
-                        'ZYLA', 'ROSA_3500', 'ROSA_4170', 'ROSA_CAK', 'ROSA_GBAND', 'ROSA_RED', "ROSA_6561", "ROSA_NAD"
-                    ]), ('Allowed values for <instrument>: '
-                                'ZYLA, ROSA_3500, ROSA_4170, '
-                                'ROSA_CAK', 'ROSA_GBAND', 'ROSA_RED', "ROSA_6561", "ROSA_NAD"
+                        "ZYLA", "ROSA_3500", "ROSA_4170", "ROSA_CAK", "ROSA_GBAND", "ROSA_RED", "ROSA_6561", "ROSA_NAD"
+                    ]), ("Allowed values for <instrument>: "
+                                "ZYLA, ROSA_3500, ROSA_4170, "
+                                "ROSA_CAK", "ROSA_GBAND", "ROSA_RED", "ROSA_6561", "ROSA_NAD"
                          )
                 except Exception as err:
                     print("Exception {0}".format(err))
                     raise
         try:
-            f = open(configFile, mode='r')
+            f = open(configFile, mode="r")
             f.close()
         except Exception as err:
             print("Exception: {0}".format(err))
@@ -97,7 +111,7 @@ class rosaZylaDestretch:
         self.experimental = experimental
         self.repair_tolerance = 0.5
         self.wave = ""
-        self.exptime = ''
+        self.exptime = ""
         # New as of 2024-01-05, list of translations required to get images pointed north.
         self.master_translation = []
         # For compatibility with older datasets that weren't destretched.
@@ -166,12 +180,12 @@ class rosaZylaDestretch:
         config = configparser.ConfigParser()
         config.read(self.configFile)
         self.dstrVectorList = []
-        self.workBase = config[self.channel]['workBase']
-        self.dstrFrom = config[self.channel]['dstrFrom']
-        self.hdrBase = os.path.join(self.workBase, 'hdrs')
+        self.workBase = config[self.channel]["workBase"]
+        self.dstrFrom = config[self.channel]["dstrFrom"]
+        self.hdrBase = os.path.join(self.workBase, "hdrs")
         self.hdrList = sorted(glob.glob(self.hdrBase + "/*.txt"))
-        self.speckleBase = os.path.join(self.workBase, 'speckle')
-        self.speckleFileForm = config[self.channel]['speckledFileForm']
+        self.speckleBase = os.path.join(self.workBase, "speckle")
+        self.speckleFileForm = config[self.channel]["speckledFileForm"]
         self.postSpeckleBase = os.path.join(self.workBase, "postSpeckle")
         self.postDestretchBase = os.path.join(self.workBase, "splineDestretch")
         c_dirs = [self.postSpeckleBase, self.postDestretchBase]
@@ -183,9 +197,9 @@ class rosaZylaDestretch:
                 except Exception as err:
                     print("An exception was raised: {0}".format(err))
                     raise
-        self.kernels = [int(i) for i in config[self.channel]['dstrKernel'].split(',')]
-        self.referenceChannel = config[self.channel]['dstrChannel']
-        self.flowWindow = config[self.channel]['flowWindow']
+        self.kernels = [int(i) for i in config[self.channel]["dstrKernel"].split(",")]
+        self.referenceChannel = config[self.channel]["dstrChannel"]
+        self.flowWindow = config[self.channel]["flowWindow"]
         if self.flowWindow.upper() != "NONE":
             self.flowWindow = int(self.flowWindow)
         else:
@@ -198,20 +212,20 @@ class rosaZylaDestretch:
             except Exception as err:
                 print("An exception was raised: {0}".format(err))
                 raise
-        self.date = config[self.channel]['obsDate']
-        self.time = config[self.channel]['obsTime']
-        self.wave = config[self.channel]['wavelengthnm']
-        self.exptime = config[self.channel]['expTimems']
-        self.dstrFilePattern = config[self.channel]['destretchedFileForm']
-        self.burstNum = config[self.channel]['burstNumber']
+        self.date = config[self.channel]["obsDate"]
+        self.time = config[self.channel]["obsTime"]
+        self.wave = config[self.channel]["wavelengthnm"]
+        self.exptime = config[self.channel]["expTimems"]
+        self.dstrFilePattern = config[self.channel]["destretchedFileForm"]
+        self.burstNum = config[self.channel]["burstNumber"]
         # Keyword bulk translation can be a number, but may be a string.
         # Rather than write a function that attempts to identify the nature of the string,
         # We'll just use a fallback. Try to convert to float. If it fails, leave it as a string.
         # Also, you should be able to bulk translate the channel if it's the reference channel, so jot that down
-        if config[self.channel]['bulkTranslation'].replace(".", "").replace("-", "").isnumeric():
-            self.bulkTranslation = float(config[self.channel]['bulkTranslation'])
+        if config[self.channel]["bulkTranslation"].replace(".", "").replace("-", "").isnumeric():
+            self.bulkTranslation = float(config[self.channel]["bulkTranslation"])
         else:
-            self.bulkTranslation = config[self.channel]['bulkTranslation']
+            self.bulkTranslation = config[self.channel]["bulkTranslation"]
         if self.referenceChannel == self.channel:
             self.dstrBase = os.path.join(self.workBase, "destretch_vectors")
             c_dirs = [self.dstrBase]
@@ -220,8 +234,8 @@ class rosaZylaDestretch:
                 c_dirs.append(self.dstrFlows)
             else:
                 self.dstrFlows = None
-            self.dstrMethod = config[self.channel]['dstrMethod']
-            self.dstrWindow = int(config[self.channel]['dstrWindow'])
+            self.dstrMethod = config[self.channel]["dstrMethod"]
+            self.dstrWindow = int(config[self.channel]["dstrWindow"])
             for i in c_dirs:
                 if not os.path.isdir(i):
                     print("{0}: os.mkdir: attempting to create directory:""{1}".format(__name__, i))
@@ -231,9 +245,9 @@ class rosaZylaDestretch:
                         print("An exception was raised: {0}".format(err))
                         raise
         else:
-            self.dstrBase = os.path.join(config[self.referenceChannel]['workBase'], "destretch_vectors")
+            self.dstrBase = os.path.join(config[self.referenceChannel]["workBase"], "destretch_vectors")
             if self.flowWindow:
-                self.dstrFlows = os.path.join(config[self.referenceChannel]['workBase'], "destretch_vectors_noflow")
+                self.dstrFlows = os.path.join(config[self.referenceChannel]["workBase"], "destretch_vectors_noflow")
             if not os.path.isdir(self.dstrBase):
                 print(
                     "Destretch: {0}, No destretch vectors found for reference channel: {1}".format(
@@ -244,18 +258,18 @@ class rosaZylaDestretch:
                 raise
         if "SHARED" in list(config.keys()):
             if "ROSA" in self.channel:
-                if 'rosaTranslation'.lower() in list(config['SHARED'].keys()):
-                    self.master_translation = config['SHARED']['rosaTranslation'].split(',')
+                if "rosaTranslation".lower() in list(config["SHARED"].keys()):
+                    self.master_translation = config["SHARED"]["rosaTranslation"].split(",")
             if "ZYLA" in self.channel:
-                if 'zylaTranslation'.lower() in list(config['SHARED'].keys()):
-                    self.master_translation = config['SHARED']['zylaTranslation'].split(',')
+                if "zylaTranslation".lower() in list(config["SHARED"].keys()):
+                    self.master_translation = config["SHARED"]["zylaTranslation"].split(",")
 
         # Lets the user define a more lenient tolerance for control point repair in destretch
         # Fully optional keyword, defaults to 0.3
         # If you're seeing a lot of flows "snapping" in your final product, maybe increase this value
-        if 'repairTolerance' in [configPair[0] for configPair in config.items(self.channel)]:
-            if config[self.channel]['repairTolerance'] != '':
-                self.repair_tolerance = float(config[self.channel]['repairTolerance'])
+        if "repairTolerance" in [configPair[0] for configPair in config.items(self.channel)]:
+            if config[self.channel]["repairTolerance"] != "":
+                self.repair_tolerance = float(config[self.channel]["repairTolerance"])
         return
 
     def speckleToFits(self):
@@ -264,7 +278,7 @@ class rosaZylaDestretch:
             glob.glob(
                 os.path.join(
                     self.speckleBase,
-                    '*.final'
+                    "*.final"
                 )
             )
         )
@@ -278,7 +292,7 @@ class rosaZylaDestretch:
             glob.glob(
                 os.path.join(
                     self.speckleBase,
-                    '*.subalpha'
+                    "*.subalpha"
                 )
             )
         )
@@ -297,7 +311,7 @@ class rosaZylaDestretch:
             alpha = np.fromfile(alphaFlist[i], dtype=np.float32)[0]
             fname = os.path.join(
                 self.postSpeckleBase,
-                os.path.split(spklFlist[i])[-1] + '.fits'
+                os.path.split(spklFlist[i])[-1] + ".fits"
             )
             self.write_fits(fname, spklImage, hdrFile, alpha=alpha, prstep=3)
         self.master_translation_done = True
@@ -308,11 +322,11 @@ class rosaZylaDestretch:
         if self.bulkTranslation == 0:
             # Base case, return image unaltered
             return image
-        elif self.bulkTranslation == 'flipud':
+        elif self.bulkTranslation == "flipud":
             return np.flipud(image)
-        elif self.bulkTranslation == 'fliplr':
+        elif self.bulkTranslation == "fliplr":
             return np.fliplr(image)
-        elif self.bulkTranslation == 'flip':
+        elif self.bulkTranslation == "flip":
             return np.flip(image)
         elif ((type(self.bulkTranslation) == float) or
               (type(self.bulkTranslation) == int)) and (self.bulkTranslation != 0):
@@ -355,8 +369,8 @@ class rosaZylaDestretch:
         config.read(self.configFile)
         reference_channel_reflist = sorted(glob.glob(
             os.path.join(
-                config[self.referenceChannel]['refBase'],
-                config[self.referenceChannel]['refFilePattern']
+                config[self.referenceChannel]["refBase"],
+                config[self.referenceChannel]["refFilePattern"]
             )
         ))
         try:
@@ -367,8 +381,8 @@ class rosaZylaDestretch:
 
         channel_reflist = sorted(glob.glob(
             os.path.join(
-                config[self.channel]['refBase'],
-                config[self.channel]['refFilePattern']
+                config[self.channel]["refBase"],
+                config[self.channel]["refFilePattern"]
             )
         ))
         try:
@@ -406,7 +420,7 @@ class rosaZylaDestretch:
             glob.glob(
                 os.path.join(
                     self.postSpeckleBase,
-                    '*.fits'
+                    "*.fits"
                 )
             )
         )
@@ -431,14 +445,14 @@ class rosaZylaDestretch:
             if not self.master_translation_done:
                 img = self.perform_bulk_translation(img)
                 img = self.perform_master_translation(img)
-            if (self.dstrMethod == 'running') & (i == 0):
+            if (self.dstrMethod == "running") & (i == 0):
                 reference_cube[0, :, :] = img
                 reference = reference_cube[0, :, :]
-            elif (self.dstrMethod == 'running') & (i == 1):
+            elif (self.dstrMethod == "running") & (i == 1):
                 reference = reference_cube[0, :, :]
-            elif (self.dstrMethod == 'running') & (i < self.dstrWindow):
+            elif (self.dstrMethod == "running") & (i < self.dstrWindow):
                 reference = np.nanmean(reference_cube[:i, :, :], axis=0)
-            elif (self.dstrMethod == 'running') & (i > self.dstrWindow):
+            elif (self.dstrMethod == "running") & (i > self.dstrWindow):
                 reference = np.nanmean(reference_cube, axis=0)
 
             d_obj = Destretch(
@@ -452,7 +466,7 @@ class rosaZylaDestretch:
             if type(dstr_vecs) != list:
                 dstr_vecs = [dstr_vecs]
 
-            if self.dstrMethod == 'running':
+            if self.dstrMethod == "running":
                 reference_cube[int(i % self.dstrWindow), :, :] = dstr_im
 
             # Write FITS and vectors
@@ -477,7 +491,7 @@ class rosaZylaDestretch:
             glob.glob(
                 os.path.join(
                     self.postSpeckleBase,
-                    '*.fits'
+                    "*.fits"
                 )
             )
         )
@@ -491,7 +505,7 @@ class rosaZylaDestretch:
             glob.glob(
                 os.path.join(
                     self.dstrFlows,
-                    '*.npz'
+                    "*.npz"
                 )
             )
         )
@@ -534,7 +548,7 @@ class rosaZylaDestretch:
             glob.glob(
                 os.path.join(
                     self.postSpeckleBase,
-                    '*.fits'
+                    "*.fits"
                 )
             )
         )
@@ -548,7 +562,7 @@ class rosaZylaDestretch:
             glob.glob(
                 os.path.join(
                     self.dstrBase,
-                    '*.npz'
+                    "*.npz"
                 )
             )
         )
@@ -563,7 +577,7 @@ class rosaZylaDestretch:
                 glob.glob(
                     os.path.join(
                         self.dstrFlows,
-                        '*.npz'
+                        "*.npz"
                     )
                 )
             )
@@ -632,49 +646,49 @@ class rosaZylaDestretch:
     def write_fits(self, fname, data, hdr, alpha=None, prstep=4):
         """Write destretched FITS files."""
         allowed_keywords = [
-            'DATE', 'STARTOBS', 'ENDOBS',
-            'EXPOSURE', 'HIERARCH',
-            'CRVAL1', 'CRVAL2',
-            'CTYPE1', 'CTYPE2',
-            'CUNIT1', 'CUNIT2',
-            'CDELT1', 'CDELT2',
-            'CRPIX1', 'CRPIX2',
-            'CROTA2',
-            'SCINT', 'LLVL',
-            'RSUN_REF'
+            "DATE", "STARTOBS", "ENDOBS",
+            "EXPOSURE", "HIERARCH",
+            "CRVAL1", "CRVAL2",
+            "CTYPE1", "CTYPE2",
+            "CUNIT1", "CUNIT2",
+            "CDELT1", "CDELT2",
+            "CRPIX1", "CRPIX2",
+            "CROTA2",
+            "SCINT", "LLVL",
+            "RSUN_REF"
         ]
         float_keywords = [
-            'CRVAL1', 'CRVAL2',
-            'CROTA2',
-            'SCINT', 'LLVL',
+            "CRVAL1", "CRVAL2",
+            "CROTA2",
+            "SCINT", "LLVL",
         ]
         asec_comment_keywords = [
-        'CDELT1', 'CDELT2',
-        'CRPIX1', 'CRPIX2',
-        'RSUN_REF'
+        "CDELT1", "CDELT2",
+        "CRPIX1", "CRPIX2",
+        "RSUN_REF"
         ]
         if type(hdr) is fits.header.Header:
             hdul = fits.HDUList(fits.PrimaryHDU(data, header=hdr))
         else:
             hdul = fits.HDUList(fits.PrimaryHDU(data))
-        prstep_flags = ['PRSTEP1', 'PRSTEP2', 'PRSTEP3', 'PRSTEP4', 'PRSTEP5']
+        prstep_flags = ["PRSTEP1", "PRSTEP2", "PRSTEP3", "PRSTEP4", "PRSTEP5"]
         prstep_values = [
-            'DARK-SUBTRACTION,FLATFIELDING',
-            'SPECKLE-DECONVOLUTION',
-            'ALIGN TO SOLAR NORTH',
-            'DESTRETCHING',
-            'FLOW-PRESERVING-DESTRETCHING'
+            "DARK-SUBTRACTION,FLATFIELDING",
+            "SPECKLE-DECONVOLUTION",
+            "ALIGN TO SOLAR NORTH",
+            "DESTRETCHING",
+            "FLOW-PRESERVING-DESTRETCHING"
         ]
         prstep_comments = [
-            'SSOsoft',
-            'KISIP v0.6',
-            'SSOsoft',
-            'pyDestretch',
-            'pyDestretch with flow preservation'
+            "SSOsoft",
+            "KISIP v0.6",
+            "SSOsoft",
+            "pyDestretch",
+            "pyDestretch with flow preservation"
         ]
 
         if type(hdr) is str:
-            header = open(hdr, 'r').readlines()
+            header = open(hdr, "r").readlines()
             for i in range(len(header)):
                 slug = header[i].split("=")[0].strip()
                 field = header[i].split("=")[-1].split("/")[0]
@@ -683,37 +697,37 @@ class rosaZylaDestretch:
                     field = float(field)
                 if any(substring in slug for substring in allowed_keywords):
                     if "STARTOBS" in slug:
-                        hdul[0].header['STARTOBS'] = (field, "Date of start of observation")
-                        hdul[0].header['DATE_OBS'] = (field, "Date of start of observation")
-                        hdul[0].header['DATE-BEG'] = (field, "Date of start of observation")
-                        hdul[0].header['DATE'] = (np.datetime64('now').astype(str), "Date of file creation")
+                        hdul[0].header["STARTOBS"] = (field, "Date of start of observation")
+                        hdul[0].header["DATE_OBS"] = (field, "Date of start of observation")
+                        hdul[0].header["DATE-BEG"] = (field, "Date of start of observation")
+                        hdul[0].header["DATE"] = (np.datetime64("now").astype(str), "Date of file creation")
                     if "ENDOBS" in slug:
-                        hdul[0].header['ENDOBS'] = (field, "Date of end of observation")
-                        hdul[0].header['DATE-END'] = (field, "Date of end of observation")
+                        hdul[0].header["ENDOBS"] = (field, "Date of end of observation")
+                        hdul[0].header["DATE-END"] = (field, "Date of end of observation")
                     elif "RSUN" in slug:
-                        hdul[0].header['RSUN_ARC'] = (round(float(field)/2, 3), "Radius of Sun in arcsec")
+                        hdul[0].header["RSUN_ARC"] = (round(float(field)/2, 3), "Radius of Sun in arcsec")
                     elif any(substring in slug for substring in float_keywords):
                         hdul[0].header[slug] = round(float(field), 3)
                     else:
                         if any(substring in slug for substring in asec_comment_keywords):
-                            hdul[0].header[slug] = (round(float(field), 3), 'arcsec')
+                            hdul[0].header[slug] = (round(float(field), 3), "arcsec")
                         else:
                             hdul[0].header[slug] = field
-        hdul[0].header['BUNIT'] = 'DN'
-        hdul[0].header['NSUMEXP'] = (self.burstNum, "Frames used in speckle reconstruction")
-        hdul[0].header['TEXPOSUR'] = (self.exptime, "ms, Single-frame exposure time")
-        hdul[0].header['AUTHOR'] = 'sellers'
-        hdul[0].header['TELESCOP'] = "DST"
-        hdul[0].header['ORIGIN'] = 'SSOC'
+        hdul[0].header["BUNIT"] = "DN"
+        hdul[0].header["NSUMEXP"] = (self.burstNum, "Frames used in speckle reconstruction")
+        hdul[0].header["TEXPOSUR"] = (self.exptime, "ms, Single-frame exposure time")
+        hdul[0].header["AUTHOR"] = "sellers"
+        hdul[0].header["TELESCOP"] = "DST"
+        hdul[0].header["ORIGIN"] = "SSOC"
         if "ROSA" in self.channel.upper():
-            hdul[0].header['INSTRUME'] = "ROSA"
+            hdul[0].header["INSTRUME"] = "ROSA"
         if "ZYLA" in self.channel.upper():
-            hdul[0].header['INSTRUME'] = "HARDCAM"
-        hdul[0].header['WAVE'] = self.wave
-        hdul[0].header['WAVEUNIT'] = "nm"
+            hdul[0].header["INSTRUME"] = "HARDCAM"
+        hdul[0].header["WAVE"] = self.wave
+        hdul[0].header["WAVEUNIT"] = "nm"
 
         if alpha:
-            hdul[0].header['SPKLALPH'] = alpha
+            hdul[0].header["SPKLALPH"] = alpha
         for i in range(prstep):
             hdul[0].header[prstep_flags[i]] = (prstep_values[i], prstep_comments[i])
         hdul.writeto(fname, overwrite=True)
@@ -772,12 +786,12 @@ class rosaZylaDestretch:
         median_filtered = scindi.median_filter(
             shifts_corr_sum,
             size=(smooth_number, 1, 1, 1),
-            mode='nearest'
+            mode="nearest"
         )
         flows = scindi.uniform_filter(
             median_filtered,
             size=(smooth_number, 1, 1, 1),
-            mode='nearest'
+            mode="nearest"
         )
         flow_detr_shifts = shifts_corr_sum - flows
 
@@ -791,7 +805,7 @@ class rosaZylaDestretch:
             original_arrays = original_arrays[:-1]
             original_arrays.append(flow_detr_shifts[i] + rcpl)
             writeFile = os.path.join(self.dstrFlows, str(i).zfill(5))
-            np.savez(writeFile + '.npz', *original_arrays)
+            np.savez(writeFile + ".npz", *original_arrays)
 
         return
 
@@ -821,8 +835,8 @@ class rosaZylaDestretch:
             shifts (tuple): The relative shift between images (dx, dy)
         """
         # OpenCV requires 8-bit images for some reason.
-        reference_8bit = cv2.normalize(reference, None, 0, 255, cv2.NORM_MINMAX).astype('uint8')
-        image_8bit = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX).astype('uint8')
+        reference_8bit = cv2.normalize(reference, None, 0, 255, cv2.NORM_MINMAX).astype("uint8")
+        image_8bit = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX).astype("uint8")
 
         # SIFT for keypoints/descriptions
         sift = cv2.SIFT_create()

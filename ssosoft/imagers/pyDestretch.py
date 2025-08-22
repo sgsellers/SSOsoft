@@ -1,7 +1,8 @@
 import numpy as np
 from scipy import ndimage
 
-class ToleranceException(Exception):
+
+class ToleranceExceptionError(Exception):
     """Exception raised for solutions outside the allowed tolerances.
 
     Attributes:
@@ -43,7 +44,7 @@ def _window_apod(tile_size: int, fraction: float) -> np.ndarray:
 
 def _image_align(
         image: np.ndarray, reference: np.ndarray,
-        tolerance: float or None=None, subtile: list or None=None
+        tolerance: float | None=None, subtile: list | None=None
 ) -> tuple[np.ndarray, list]:
     """
     Align image to reference using a subtile for alignment.
@@ -107,7 +108,7 @@ def _image_align(
     xshift = max_idx % xcorr.shape[0] - xcorr.shape[1]//2
 
     if (np.abs(yshift) > tolerance) or (np.abs(xshift) > tolerance):
-        raise ToleranceException(tolerance)
+        raise ToleranceExceptionError(tolerance)
     aligned = np.roll(image, (yshift, xshift))
     shifts = [yshift, xshift]
     return aligned, shifts
@@ -415,8 +416,8 @@ class Destretch:
         # Mgrid returns more values than the original grid, but less than the
         # full image shape (because we had to crop for even kernels).
         meshgrid = np.mgrid[0:ntiles[0]:dy, 0:ntiles[1]:dx]
-        ygrid = ndimage.map_coordinates(registration_grid[0], meshgrid, order=2, mode='nearest')
-        xgrid = ndimage.map_coordinates(registration_grid[1], meshgrid, order=2, mode='nearest')
+        ygrid = ndimage.map_coordinates(registration_grid[0], meshgrid, order=2, mode="nearest")
+        xgrid = ndimage.map_coordinates(registration_grid[1], meshgrid, order=2, mode="nearest")
         # Center X/Y grids in arrays of the shape of the original image
         step = self.kernel // 2 if self.overlap else self.kernel
         warp_grid = np.zeros((2, *self.destretch_target.shape))
@@ -446,6 +447,6 @@ class Destretch:
         distortion_grid = image_grid - warp_grid
         self.destretch_target = ndimage.map_coordinates(
             self.destretch_target, distortion_grid,
-            order=3, mode='nearest'
+            order=3, mode="nearest"
         )
         return
