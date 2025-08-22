@@ -527,6 +527,8 @@ def update_imager_pointing_values(
             hdul[0].header["CRVAL2"] = round(rotated_point.Ty.value, 3)
             hdul[0].header["CROTA2"] = round(pointing_info["CROTA2"], 3)
             hdul[0].header["CROTA2"] += additional_rotation
+            prsteps = len([i for i in hdul[0].header.keys() if "PRSTEP" in i])
+            hdul[0].header[f"PRSTEP{prsteps+1}"] = ("SOLAR-ALIGN", "Correct solar coords.")
             hdul[0].header["COMMENT"] = "POINTING UPDATED ON {0}".format(
                 np.datetime64("now")
             )

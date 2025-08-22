@@ -725,6 +725,9 @@ class RosaZylaDestretch:
                 hdul[0].header["CRPIX1"] += self.offset[1] # image align returns yshift, xshift
                 hdul[0].header["CRPIX2"] += self.offset[0] # FITS headers index xpixel, ypixel
                 hdul[0].header["CROTA2"] += self.theta
+                prsteps = len([i for i in hdul[0].header.keys() if "PRSTEP" in i])
+                hdul[0].header[f"PRSTEP{prsteps+1}"] = (
+                    "CHANNEL-REG", f"Register to {self.reference_channel}")
                 hdul.flush()
         return
 
