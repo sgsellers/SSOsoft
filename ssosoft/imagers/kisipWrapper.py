@@ -5,6 +5,8 @@ import logging.config
 import os
 import subprocess
 
+import tqdm
+
 
 class kisipWrapper:
     """
@@ -95,6 +97,7 @@ class kisipWrapper:
         self.logFile=rosaZylaCal.logFile
         self.logger=rosaZylaCal.logger
         self.plate_scale = rosaZylaCal.plate_scale
+        self.progress = rosaZylaCal.progress
 
     def kisip_configure_run(self):
         """
@@ -280,6 +283,11 @@ class kisipWrapper:
                     self.kisipEnvMpiNproc
                     )
                 )
+        if self.progress:
+            pbar = tqdm.tqdm(
+                total=self.kisipPreSpeckleEndInd - self.kisipPreSpeckleStartInd,
+                desc=f"Running KISIP batch {self.kisipPreSpeckleBatch + 1} of {len(self.batchList)}."
+            )
         try:
             os.chdir(self.workBase)
             process=subprocess.Popen([
@@ -294,6 +302,8 @@ class kisipWrapper:
             with process.stdout as pipe:
                 for line in iter(pipe.readline, b""):
                     self.logger.info((line.strip()).decode("utf-8"))
+                    if "Master done!" in (line.strip()).decode("utf-8") and self.progress:
+                        pbar.update(1)
             return_code=process.wait()
 
         except Exception as err:
