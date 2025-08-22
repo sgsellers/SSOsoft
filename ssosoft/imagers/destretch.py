@@ -250,7 +250,7 @@ class RosaZylaDestretch:
                 DeprecationWarning,
                 stacklevel=2
             )
-        if "SHARED" in config[self.channel].keys():
+        if "SHARED" in config.keys():
             self.reference_channel = config["SHARED"]["referenceChannel"] if "referencechannel" \
                 in config["SHARED"].keys() else None
             if "referencechannel" in config["SHARED"].keys():
