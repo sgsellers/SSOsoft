@@ -418,7 +418,7 @@ class rosaZylaCal:
         self.target_file_pattern = config[self.instrument]["targetFilePattern"] \
             if "targetfilepattern" in config[self.instrument].keys() else self.data_file_pattern
         self.linegrid_file_pattern = config[self.instrument]["linegridFilePattern"] \
-            if "linegridfilepattern" in config[self.instrument].keys() else self.linegrid_file_pattern
+            if "linegridfilepattern" in config[self.instrument].keys() else self.data_file_pattern
 
         self.noise_file = config[self.instrument]["noiseFile"]
 

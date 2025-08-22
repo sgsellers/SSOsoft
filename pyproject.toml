@@ -4,7 +4,7 @@ build-backend = 'setuptools.build_meta'
 
 [project]
 name = "SSOsoft-sellers"
-version = "3.5.250514"
+version = "3.75.250822"
 dependencies = [
     'numpy',
     'astropy',
