@@ -128,7 +128,7 @@ class RosaZylaDestretch:
                 self.datashape = (2048, 2048)
             else:
                 self.datashape = (1002, 1004)
-            if self.dstr_method.lower() == "speckle":
+            if self.dstr_from.lower() == "speckle":
                 self.speckle_to_fits()
             else:
                 self.pspkl_filelist = sorted(glob.glob(
