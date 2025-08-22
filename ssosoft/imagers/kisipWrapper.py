@@ -77,24 +77,24 @@ class kisipWrapper:
         rosaZylaCal : rosaZylaCal class instance
             An instance of the rosaZylaCal class.
         """
-        self.batchList=rosaZylaCal.batchList
-        self.burstFileForm=rosaZylaCal.burstFileForm
-        self.burstNumber=rosaZylaCal.burstNumber
-        self.configFile=rosaZylaCal.configFile
-        self.imageShape=rosaZylaCal.imageShape
+        self.batchList=rosaZylaCal.batch_list
+        self.burstFileForm=rosaZylaCal.burst_file_form
+        self.burstNumber=rosaZylaCal.burst_number
+        self.configFile=rosaZylaCal.config_file
+        self.imageShape=rosaZylaCal.imageshape
         self.instrument=rosaZylaCal.instrument.upper()
         self.kisipPreSpeckleBatch=0
         self.kisipPreSpeckleStartInd=0
         self.kisipPreSpeckleEndInd=0
-        self.noiseFile=rosaZylaCal.noiseFile
-        self.obsDate=rosaZylaCal.obsDate
-        self.obsTime=rosaZylaCal.obsTime
-        self.postSpeckleBase=rosaZylaCal.postSpeckleBase
-        self.preSpeckleBase=rosaZylaCal.preSpeckleBase
-        self.speckleBase=rosaZylaCal.speckleBase
-        self.workBase=rosaZylaCal.workBase
+        self.noiseFile=rosaZylaCal.noise_file
+        self.obsDate=rosaZylaCal.obsdate
+        self.obsTime=rosaZylaCal.obstime
+        self.postSpeckleBase=rosaZylaCal.postspeckle_base
+        self.preSpeckleBase=rosaZylaCal.prespeckle_base
+        self.speckleBase=rosaZylaCal.speckle_base
+        self.workBase=rosaZylaCal.workbase
 
-        self.logFile=rosaZylaCal.logFile
+        self.logFile=rosaZylaCal.logfile
         self.logger=rosaZylaCal.logger
         self.plate_scale = rosaZylaCal.plate_scale
         self.progress = rosaZylaCal.progress
