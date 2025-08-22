@@ -122,12 +122,12 @@ class RosaZylaDestretch:
         """Performs SSOC destretch"""
         for channel in self.instruments:
             self.channel = channel
+            self.configure_destretch()
             # Hardcoded data shape for now...
             if "ZYLA" in channel:
                 self.datashape = (2048, 2048)
             else:
                 self.datashape = (1002, 1004)
-            self.configure_destretch()
             if self.dstr_method.lower() == "speckle":
                 self.speckle_to_fits()
             else:
