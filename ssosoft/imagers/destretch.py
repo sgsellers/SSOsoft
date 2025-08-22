@@ -8,7 +8,8 @@ import numpy as np
 import scipy.ndimage as scind
 import tqdm
 
-from . import alignment_tools as align
+from ..tools import alignment_tools as align
+from ..tools import movie_makers as movie
 from .pyDestretch import Destretch
 
 
@@ -156,6 +157,8 @@ class RosaZylaDestretch:
                 self.channel_apply_offsets()
                 if self.solar_align:
                     self.apply_solar_offsets()
+            if self.create_context_movies:
+                self.generate_context_movie()
         return
 
 
@@ -778,3 +781,33 @@ class RosaZylaDestretch:
             additional_rotation=self.theta, progress=self.progress
         )
         return
+
+    def generate_context_movie(self) -> None:
+        """Creates context movie from final data"""
+        if self.pspkl_filelist == self.dstr_filelist == self.deflow_filelist == []:
+            raise FileNotFoundError("No lists of reduced files in class!")
+        if not os.path.exists(self.context_movie_directory):
+            print(
+                f"{__name__}: os.mkdir: attempting to create directory: {self.context_movie_directory}"
+            )
+            os.mkdir(self.context_movie_directory)
+        if self.pspkl_filelist != []:
+            movie_name = f"{self.channel}_postspeckle_{self.date}_{self.time}.mp4"
+            movie.rosa_hardcam_movie_maker(
+                self.pspkl_filelist, self.context_movie_directory,
+                movie_name, self.channel, progress=self.progress
+            )
+        if self.dstr_filelist != []:
+            movie_name = f"{self.channel}_destretch_{self.date}_{self.time}.mp4"
+            movie.rosa_hardcam_movie_maker(
+                self.dstr_filelist, self.context_movie_directory,
+                movie_name, self.channel, progress=self.progress
+            )
+        if self.deflow_filelist != []:
+            movie_name = f"{self.channel}_flowpreserved_destretch_{self.date}_{self.time}.mp4"
+            movie.rosa_hardcam_movie_maker(
+                self.deflow_filelist, self.context_movie_directory,
+                movie_name, self.channel, progress=self.progress
+            )
+
+        raise
