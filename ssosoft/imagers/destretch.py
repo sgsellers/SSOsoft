@@ -1,797 +1,115 @@
 import configparser
-
-from .pyDestretch import *
-import numpy as np
-import cv2
 import glob
-import astropy.io.fits as fits
-from tqdm import tqdm
-import scipy.ndimage as scindi
 import os
+import warnings
 
-def _medfilt_wrapper(array, window):
-    return scindi.median_filter(array, size=(1, 1, 1, window), mode='nearest')
+import astropy.io.fits as fits
+import numpy as np
+import scipy.ndimage as scind
+import tqdm
+
+from . import alignment_tools as align
+from .pyDestretch import Destretch
 
 
-def _unifilt_wrapper(array, window):
-    return scindi.uniform_filter1d(array, window, mode='nearest', axis=-1)
-
-
-class rosaZylaDestretch:
+class RosaZylaDestretch:
     """
+    Master destretch class for SSOC imagers.
 
+    I've decided to remove the functionality for destretching
+    one imager relative to a difference channel.
+
+    The reasons for this change include:
+        1.) While the destretch is, indeed, slow, it's mostly the Zyla destretch
+            that's slow. ROSA destretch is on the order of a couple hours
+        2.) A major component of the jitter includes shifting in the subfields
+            during the speckling process. This is different between different
+            channels, and can result in some odd jittering during reconstruction.
+
+    Instead, I've implemented a better determination of plate scale during the
+    initial calibration stage, as well as the ability to write AF resolution target
+    images to the reduced directory. From this, we'll use bits of the image alignment
+    routines we have in stock to figure out the relative shift and rotation between
+    channels.
+
+    Rather than interpolating or shifting the images further, we'll apply the shifts
+    to the CRPIX1/2 WCS keywords, and the rotations to the CROTA2 WCS keyword.
+
+    That way, when the reduced files are parsed using Sunpy or another WCS handler,
+    they'll be aligned without the need to alter the image data too much.
+
+    The exception is the bulk translations and 90-degree rotations, which preserve
+    the image integrity.
+
+    Unlike kisipWrapper, we aren't going to take the set up rosaZylaCal class as an
+    input. That would make it much easier, however, the class has to stand alone due
+    to the historical bulk of
     """
-    def __init__(self, instruments, configFile, experimental="N"):
-        """Unified SSOC Destretch module. Pass a configuration file (modified version of SSOSoft config file) and an
-        instrument name, or list of instrument names. If it's a single instrument, it'll perform the iterative destretch
-        defined by the config file. If it's a list of instruments, it'll perform the destretch specified in the config
-        file for all instruments in the list. The reference channel, and other channels to be destretched to it are
-        defined in the config file, as are bulk translations, etc.
+    def __init__(self, instruments: str | list, config_file: list) -> None:
+        """Class init.
 
-        Args:
-            instruments (list of str or str):
-            configFile (str): Configuration file for initialization of SSODestretch
+        Parameters
+        ----------
+        instruments : str | list
+            Instrument or list of instruments to repack and destretch
+        config_file : list
+            Path to config file
         """
 
-        if type(instruments) == str:
-            try:
-                assert (instruments.upper() in [
-                    'ZYLA', 'ROSA_3500', 'ROSA_4170', 'ROSA_CAK', 'ROSA_GBAND', 'ROSA_RED', "ROSA_6561", "ROSA_NAD"
-                ]
-                        ), ('Allowed values for <instrument>: '
-                            'ZYLA, ROSA_3500, ROSA_4170, '
-                            'ROSA_CAK', 'ROSA_GBAND', 'ROSA_RED', "ROSA_6561", "ROSA_NAD"
-                            )
-            except Exception as err:
-                print("Exception {0}".format(err))
-                raise
-        elif type(instruments) == list:
-            for instrument in instruments:
-                try:
-                    assert (instrument.upper() in [
-                        'ZYLA', 'ROSA_3500', 'ROSA_4170', 'ROSA_CAK', 'ROSA_GBAND', 'ROSA_RED', "ROSA_6561", "ROSA_NAD"
-                    ]), ('Allowed values for <instrument>: '
-                                'ZYLA, ROSA_3500, ROSA_4170, '
-                                'ROSA_CAK', 'ROSA_GBAND', 'ROSA_RED', "ROSA_6561", "ROSA_NAD"
-                         )
-                except Exception as err:
-                    print("Exception {0}".format(err))
-                    raise
-        try:
-            f = open(configFile, mode='r')
-            f.close()
-        except Exception as err:
-            print("Exception: {0}".format(err))
-            raise
-
-        self.configFile = configFile
+        self.config_file = config_file
         self.instruments = instruments
-        self.referenceChannel = ""
-        self.workBase = ""
-        self.dstrFrom = ""
-        self.hdrBase = ""
-        self.speckleBase = ""
-        self.speckleFileForm = ""
-        self.postSpeckleBase = ""
-        self.postDeflowBase = ""
-        self.postDestretchBase = ""
-        self.kernels = None
-        self.dstrBase = ""
-        self.dstrFlows = ""
-        self.dstrVectorList = []
-        # Relative to reference channel
-        self.bulkTranslation = 0  # flipud, fliplr, flip, 0, or other angle
+        if type(self.instruments) is str:
+            self.instruments = [self.instruments]
+        self.reference_channel = ""
+        self.work_base = ""
+        self.dstr_from = ""
+        self.hdr_base = ""
+        self.speckle_base = ""
+        self.speckle_file_form = ""
+        self.postspeckle_base = ""
+        self.postdeflow_base = ""
+        self.postdestretch_base = ""
+        self.kernels = [0]
+        self.dstr_base = ""
+        self.dstr_flows = ""
         self.theta = 0
+        self.solar_rotation_error = 0
+        self.wave = 0
         self.offset = (0, 0)
-        self.magnification = 1
-        self.dstrMethod = ""
-        self.dstrWindow = 0
+        self.dstr_method = ""
+        self.dstr_window = 0
         self.channel = ""
-        self.dataShape = (0, 0)
-        self.flowWindow = 0
+        self.datashape = (0, 0)
+        self.flow_window = 0
+        self.dstr_file_pattern = ""
+        self.repair_tolerance = 0.5
+
+        self.reference_channel_working_directory = ""
+
+        self.master_alignment = "HMI"
+        self.verify_alignment = True
+
         self.date = ""
         self.time = ""
-        self.dstrFilePattern = ""
-        self.hdrList = []
-        self.burstNum = ""
-        self.experimental = experimental
-        self.repair_tolerance = 0.5
-        self.wave = ""
-        self.exptime = ''
-        # New as of 2024-01-05, list of translations required to get images pointed north.
-        self.master_translation = []
-        # For compatibility with older datasets that weren't destretched.
-        # Going straight from speckle, we perform the master/bulk/fine translations in the speckle to fits function.
-        # Then it doesn't need to be performed in the destretch function.
-        # BUT older datasets don't HAVE speckle files, and go straight from postspeckle fits to spline destretch.
-        # We still want those translations, so we have to do them in the destretch function where they're read in.
-        # Since it's the same function handling both new and old, we set a flag that we fip to true if the translations
-        # have already been performed, and use it on the second translation opportunity.
-        self.master_translation_done = False
 
-    def perform_destretch(self):
-        """Perform SSOC destretch. You want a different destretch? You want flow-destructive? Code it yourself.
-        pyDestretch has examples on github."""
-        if type(self.instruments) == list:
-            for channel in self.instruments:
-                self.channel = channel
-                if "ZYLA" in channel:
-                    # Hardcoded for now.
-                    self.dataShape = (2048, 2048)
-                    self.destretch_zyla()
-                else:
-                    self.dataShape = (1002, 1004)
-                    self.destretch_rosa()
-        else:
-            if "ZYLA" in self.instruments:
-                self.destretch_zyla()
-            else:
-                self.destretch_rosa()
-        return
+        self.dstr_filelist = []
+        self.pspkl_filelist = []
+        self.deflow_filelist = []
 
-    def destretch_rosa(self):
-        self.configure_destretch()
-        if self.dstrFrom.lower() == "speckle":
-            if self.referenceChannel != self.channel:
-                self.align_derotate_channels()
-            self.speckleToFits()
-        if self.referenceChannel == self.channel:
-            self.destretch_reference()
-            if self.flowWindow:
-                self.remove_flows()
-                self.apply_flow_vectors()
-        if self.referenceChannel != self.channel:
-            self.destretch_to_reference()
-        return
+        # We're no longer treating each ROSA channel as referenced to a single
+        # channel, with ZYLA as a separate. Instead, each camera will have a
+        # channelTranslation attribute to get it separately to the correct
+        # orientation. I expect this to actually be easier.
+        self.channel_translation = []
 
-    def destretch_zyla(self):
-        self.configure_destretch()
-        if self.dstrFrom.lower() == "speckle":
-            self.speckleToFits()
-        self.destretch_reference()
-        if self.flowWindow:
-            self.remove_flows()
-            self.apply_flow_vectors()
-        return
+        self.scale_reverse = 0 # New param. With rotation and flips, the scale will swap. Tracks number of swaps
 
-    def configure_destretch(self):
-        """Set up destretch with relative channels, kernels, alignment params, rotation, etc.
-        In here we need:
-            Reference channel (if any)
-            Header file base
-            Final File Base
-            Kernels
-            If not Zyla, reference images for alignment/derotation
-        """
-        config = configparser.ConfigParser()
-        config.read(self.configFile)
-        self.dstrVectorList = []
-        self.workBase = config[self.channel]['workBase']
-        self.dstrFrom = config[self.channel]['dstrFrom']
-        self.hdrBase = os.path.join(self.workBase, 'hdrs')
-        self.hdrList = sorted(glob.glob(self.hdrBase + "/*.txt"))
-        self.speckleBase = os.path.join(self.workBase, 'speckle')
-        self.speckleFileForm = config[self.channel]['speckledFileForm']
-        self.postSpeckleBase = os.path.join(self.workBase, "postSpeckle")
-        self.postDestretchBase = os.path.join(self.workBase, "splineDestretch")
-        c_dirs = [self.postSpeckleBase, self.postDestretchBase]
-        for i in c_dirs:
-            if not os.path.isdir(i):
-                print("{0}: os.mkdir: attempting to create directory:""{1}".format(__name__, i))
-                try:
-                    os.mkdir(i)
-                except Exception as err:
-                    print("An exception was raised: {0}".format(err))
-                    raise
-        self.kernels = [int(i) for i in config[self.channel]['dstrKernel'].split(',')]
-        self.referenceChannel = config[self.channel]['dstrChannel']
-        self.flowWindow = config[self.channel]['flowWindow']
-        if self.flowWindow.upper() != "NONE":
-            self.flowWindow = int(self.flowWindow)
-        else:
-            self.flowWindow = None
-        self.postDeflowBase = os.path.join(self.workBase, "flowPreservedDestretch")
-        if (not os.path.isdir(self.postDeflowBase)) and (self.flowWindow is not None):
-            print("{0}: os.mkdir: attempting to create directory:""{1}".format(__name__, self.postDeflowBase))
-            try:
-                os.mkdir(self.postDeflowBase)
-            except Exception as err:
-                print("An exception was raised: {0}".format(err))
-                raise
-        self.date = config[self.channel]['obsDate']
-        self.time = config[self.channel]['obsTime']
-        self.wave = config[self.channel]['wavelengthnm']
-        self.exptime = config[self.channel]['expTimems']
-        self.dstrFilePattern = config[self.channel]['destretchedFileForm']
-        self.burstNum = config[self.channel]['burstNumber']
-        # Keyword bulk translation can be a number, but may be a string.
-        # Rather than write a function that attempts to identify the nature of the string,
-        # We'll just use a fallback. Try to convert to float. If it fails, leave it as a string.
-        # Also, you should be able to bulk translate the channel if it's the reference channel, so jot that down
-        if config[self.channel]['bulkTranslation'].replace(".", "").replace("-", "").isnumeric():
-            self.bulkTranslation = float(config[self.channel]['bulkTranslation'])
-        else:
-            self.bulkTranslation = config[self.channel]['bulkTranslation']
-        if self.referenceChannel == self.channel:
-            self.dstrBase = os.path.join(self.workBase, "destretch_vectors")
-            c_dirs = [self.dstrBase]
-            if self.flowWindow:
-                self.dstrFlows = os.path.join(self.workBase, "destretch_vectors_noflow")
-                c_dirs.append(self.dstrFlows)
-            else:
-                self.dstrFlows = None
-            self.dstrMethod = config[self.channel]['dstrMethod']
-            self.dstrWindow = int(config[self.channel]['dstrWindow'])
-            for i in c_dirs:
-                if not os.path.isdir(i):
-                    print("{0}: os.mkdir: attempting to create directory:""{1}".format(__name__, i))
-                    try:
-                        os.mkdir(i)
-                    except Exception as err:
-                        print("An exception was raised: {0}".format(err))
-                        raise
-        else:
-            self.dstrBase = os.path.join(config[self.referenceChannel]['workBase'], "destretch_vectors")
-            if self.flowWindow:
-                self.dstrFlows = os.path.join(config[self.referenceChannel]['workBase'], "destretch_vectors_noflow")
-            if not os.path.isdir(self.dstrBase):
-                print(
-                    "Destretch: {0}, No destretch vectors found for reference channel: {1}".format(
-                        self.channel,
-                        self.referenceChannel
-                    )
-                )
-                raise
-        if "SHARED" in list(config.keys()):
-            if "ROSA" in self.channel:
-                if 'rosaTranslation'.lower() in list(config['SHARED'].keys()):
-                    self.master_translation = config['SHARED']['rosaTranslation'].split(',')
-            if "ZYLA" in self.channel:
-                if 'zylaTranslation'.lower() in list(config['SHARED'].keys()):
-                    self.master_translation = config['SHARED']['zylaTranslation'].split(',')
+        self.progress = False
+        self.solar_align = False
+        self.reference_coordinate = {}
 
-        # Lets the user define a more lenient tolerance for control point repair in destretch
-        # Fully optional keyword, defaults to 0.3
-        # If you're seeing a lot of flows "snapping" in your final product, maybe increase this value
-        if 'repairTolerance' in [configPair[0] for configPair in config.items(self.channel)]:
-            if config[self.channel]['repairTolerance'] != '':
-                self.repair_tolerance = float(config[self.channel]['repairTolerance'])
-        return
-
-    def speckleToFits(self):
-        """Function to dump speckle *.final files to fits format in the postSpeckle directory"""
-        spklFlist = sorted(
-            glob.glob(
-                os.path.join(
-                    self.speckleBase,
-                    '*.final'
-                )
-            )
-        )
-        try:
-            self.assert_flist(spklFlist)
-        except AssertionError as err:
-            print("Error: speckleList: {0}".format(err))
-            raise
-
-        alphaFlist = sorted(
-            glob.glob(
-                os.path.join(
-                    self.speckleBase,
-                    '*.subalpha'
-                )
-            )
-        )
-        try:
-            self.assert_flist(alphaFlist)
-        except AssertionError as err:
-            print("Error: subalphaList: {0}".format(err))
-            raise
-
-        for i in tqdm(range(len(spklFlist)), desc="Converting Speckle to FITS"):
-            spklImage = self.read_speckle(spklFlist[i])
-            spklImage = self.perform_bulk_translation(spklImage)
-            spklImage = self.perform_fine_translation(spklImage)
-            spklImage = self.perform_master_translation(spklImage)
-            hdrFile = self.hdrList[i]
-            alpha = np.fromfile(alphaFlist[i], dtype=np.float32)[0]
-            fname = os.path.join(
-                self.postSpeckleBase,
-                os.path.split(spklFlist[i])[-1] + '.fits'
-            )
-            self.write_fits(fname, spklImage, hdrFile, alpha=alpha, prstep=3)
-        self.master_translation_done = True
-        return
-
-    def perform_bulk_translation(self, image):
-        """Performs the bulk translation specified in config file."""
-        if self.bulkTranslation == 0:
-            # Base case, return image unaltered
-            return image
-        elif self.bulkTranslation == 'flipud':
-            return np.flipud(image)
-        elif self.bulkTranslation == 'fliplr':
-            return np.fliplr(image)
-        elif self.bulkTranslation == 'flip':
-            return np.flip(image)
-        elif ((type(self.bulkTranslation) == float) or
-              (type(self.bulkTranslation) == int)) and (self.bulkTranslation != 0):
-            return scindi.rotate(image, self.bulkTranslation, reshape=False, cval=image[0, 0])
-
-
-    def perform_master_translation(self, image):
-        """
-        Performs the master translations for the instrument specified in the 'SHARED' section of the config file.
-        """
-        for i in self.master_translation:
-            if "rot90" in i.lower():
-                image = np.rot90(image)
-            if "fliplr" in i.lower():
-                image = np.fliplr(image)
-            if "flipud" in i.lower():
-                image = np.flipud(image)
-        return image
-
-
-    def perform_fine_translation(self, image):
-        """Performs fine detrotation and shifts between cameras."""
-        if (self.theta == 0) & (self.offset == (0, 0)):
-            return image
-        elif (self.theta == 0) & (self.offset != (0, 0)):
-            return scindi.shift(image, self.offset, order=1, cval=image[0, 0])
-        elif (self.theta != 0) & (self.offset == (0, 0)):
-            return scindi.rotate(image, self.theta, reshape=False, cval=image[0, 0])
-        else:
-            return scindi.rotate(
-                scindi.shift(
-                    image, self.offset, order=1, cval=image[0, 0]
-                ), self.theta, reshape=False, cval=image[0, 0]
-            )
-
-    def align_derotate_channels(self):
-        """Currently only used in ROSA destretch. Finds bulk translation/rotation between a channel and its reference.
-        """
-        config = configparser.ConfigParser()
-        config.read(self.configFile)
-        reference_channel_reflist = sorted(glob.glob(
-            os.path.join(
-                config[self.referenceChannel]['refBase'],
-                config[self.referenceChannel]['refFilePattern']
-            )
-        ))
-        try:
-            self.assert_flist(reference_channel_reflist)
-        except AssertionError as err:
-            print("Error: Reference Channel Reference list: {0}".format(err))
-            raise
-
-        channel_reflist = sorted(glob.glob(
-            os.path.join(
-                config[self.channel]['refBase'],
-                config[self.channel]['refFilePattern']
-            )
-        ))
-        try:
-            self.assert_flist(reference_channel_reflist)
-        except AssertionError as err:
-            print("Error: Reference Channel Reference list: {0}".format(err))
-            raise
-
-        reffile = fits.open(reference_channel_reflist[0])
-        if len(reffile) == 1:
-            refim = reffile[0].data
-        else:
-            refim = reffile[1].data
-        channelfile = fits.open(channel_reflist[0])
-        if len(channelfile) == 1:
-            chanim = self.perform_bulk_translation(channelfile[0].data)
-        else:
-            chanim = self.perform_bulk_translation(channelfile[1].data)
-
-        self.determine_relative_rotation(chanim, refim)
-        return
-
-    def read_speckle(self, fname):
-        """Read Speckle-o-gram"""
-        return np.fromfile(fname, dtype=np.float32).reshape((self.dataShape[0], self.dataShape[1]))
-
-    def destretch_reference(self):
-        """Used when there is no reference channel, or when destretching the reference channel.
-        Performs initial coarse destretch. Loops over the first 1 or 2 entries in self.kernels.
-        1 entry, if leading kernel != 0 (i.e., no fine align)
-        2 entry, if leading kernel == 0 (i.e., perform fine align)
-        Write files to the self.dstrBase directory, and append filename to self.dstrVectorList.
-        """
-        postSpklFlist = sorted(
-            glob.glob(
-                os.path.join(
-                    self.postSpeckleBase,
-                    '*.fits'
-                )
-            )
-        )
-        try:
-            self.assert_flist(postSpklFlist)
-        except AssertionError as err:
-            print("Error: speckleList: {0}".format(err))
-            raise
-
-        test_image = fits.open(postSpklFlist[0])[-1].data
-        self.dataShape = (test_image.shape[0], test_image.shape[1])
-
-        if self.dstrMethod == "running":
-            reference_cube = np.zeros((self.dstrWindow, self.dataShape[0], self.dataShape[1]))
-        elif self.dstrMethod == "reference":
-            reference = fits.open(postSpklFlist[self.dstrWindow])[-1].data
-
-        for i in tqdm(range(len(postSpklFlist)), desc="Destretching " + self.channel):
-            # if self.dstrMethod == 'running':
-            file = fits.open(postSpklFlist[i])
-            img = file[-1].data
-            if not self.master_translation_done:
-                img = self.perform_bulk_translation(img)
-                img = self.perform_master_translation(img)
-            if (self.dstrMethod == 'running') & (i == 0):
-                reference_cube[0, :, :] = img
-                reference = reference_cube[0, :, :]
-            elif (self.dstrMethod == 'running') & (i == 1):
-                reference = reference_cube[0, :, :]
-            elif (self.dstrMethod == 'running') & (i < self.dstrWindow):
-                reference = np.nanmean(reference_cube[:i, :, :], axis=0)
-            elif (self.dstrMethod == 'running') & (i > self.dstrWindow):
-                reference = np.nanmean(reference_cube, axis=0)
-
-            d_obj = Destretch(
-                img,
-                reference,
-                self.kernels,
-                return_vectors=True,
-                repair_tolerance=self.repair_tolerance
-            )
-            dstr_im, dstr_vecs = d_obj.perform_destretch()
-            if type(dstr_vecs) != list:
-                dstr_vecs = [dstr_vecs]
-
-            if self.dstrMethod == 'running':
-                reference_cube[int(i % self.dstrWindow), :, :] = dstr_im
-
-            # Write FITS and vectors
-            dvec_name = os.path.join(self.dstrBase, str(i).zfill(5)+".npz")
-            self.dstrVectorList.append(dvec_name)
-            np.savez(dvec_name, *dstr_vecs)
-
-            fname = os.path.join(
-                self.postDestretchBase,
-                self.dstrFilePattern.format(
-                    self.date,
-                    self.time,
-                    i
-                )
-            )
-            self.write_fits(fname, dstr_im, file[-1].header, prstep=4)
-        return
-
-    def apply_flow_vectors(self):
-        """Apply flow-removed dstr vectors, write fits files to new directory."""
-        postSpklFlist = sorted(
-            glob.glob(
-                os.path.join(
-                    self.postSpeckleBase,
-                    '*.fits'
-                )
-            )
-        )
-        try:
-            self.assert_flist(postSpklFlist)
-        except AssertionError as err:
-            print("Error: postSpklFlist: {0}".format(err))
-            raise
-
-        deflowFlist = sorted(
-            glob.glob(
-                os.path.join(
-                    self.dstrFlows,
-                    '*.npz'
-                )
-            )
-        )
-        try:
-            self.assert_flist(deflowFlist)
-        except AssertionError as err:
-            print("Error: deflowFlist: {0}".format(err))
-            raise
-
-        for i in tqdm(range(len(postSpklFlist)), desc="Appling de-flowed destretch"):
-            target_file = fits.open(postSpklFlist[i])
-            target_image = target_file[-1].data
-            dstr_vec = np.load(deflowFlist[i])
-            vecs = [dstr_vec[k] for k in dstr_vec.files]
-            d = Destretch(target_image, target_image, self.kernels, warp_vectors=vecs)
-            dstrim = d.perform_destretch()
-            fname = os.path.join(
-                self.postDeflowBase,
-                self.dstrFilePattern.format(
-                    self.date,
-                    self.time,
-                    i
-                )
-            )
-            self.write_fits(fname, dstrim, target_file[-1].header, prstep=5)
-        return
-
-    def destretch_to_reference(self):
-        """Destretch to a reference list of vectors
-        # Step 0: Get list of files from self.dstrBase,
-        #   which should be set up in the config file from self.referenceChannel
-        # Step 1: From the list of destretch targets and the list of vectors, see if there's a dimension mismatch
-        # Step 2: If there is a mismatch, divide the vector list len by the target len.
-        #   Step 2.5: Use this to determine the vector list index by having a second iterable, and passing this iterable
-        #   to round()
-        # Step 3: Apply destretch
-        # Step 4: Write FITS.
-        """
-        postSpklFlist = sorted(
-            glob.glob(
-                os.path.join(
-                    self.postSpeckleBase,
-                    '*.fits'
-                )
-            )
-        )
-        try:
-            self.assert_flist(postSpklFlist)
-        except AssertionError as err:
-            print("Error: speckleList: {0}".format(err))
-            raise
-
-        self.dstrVectorList = sorted(
-            glob.glob(
-                os.path.join(
-                    self.dstrBase,
-                    '*.npz'
-                )
-            )
-        )
-        try:
-            self.assert_flist(self.dstrVectorList)
-        except AssertionError as err:
-            print("Error: Vector List: {0}".format(err))
-            raise
-
-        if self.dstrFlows:
-            deflowFlist = sorted(
-                glob.glob(
-                    os.path.join(
-                        self.dstrFlows,
-                        '*.npz'
-                    )
-                )
-            )
-            try:
-                self.assert_flist(deflowFlist)
-            except AssertionError as err:
-                print("Error: Vector List: {0}".format(err))
-                raise
-
-        if len(postSpklFlist) != len(self.dstrVectorList):
-            dstr_vec_increment = len(postSpklFlist)/len(self.dstrVectorList)
-        else:
-            dstr_vec_increment = 1
-        dstr_ctr = 0
-        for i in tqdm(range(len(postSpklFlist)), desc="Appling Destretch Vectors..."):
-            file = fits.open(postSpklFlist[i])
-            img = file[-1].data
-            if not self.master_translation_done:
-                img = self.perform_bulk_translation(img)
-                img = self.perform_fine_translation(img)
-                img = self.perform_master_translation(img)
-            # Since we're using savez, we need to unpack the arrays into a list for destretch
-            vecs = np.load(self.dstrVectorList[int(round(dstr_ctr))])
-            vecs = [vecs[k] for k in vecs.files]
-            d = Destretch(
-                img,
-                img,
-                self.kernels,
-                warp_vectors=vecs
-            )
-            dstrim = d.perform_destretch()
-            fname = os.path.join(
-                self.postDestretchBase,
-                self.dstrFilePattern.format(
-                    self.date,
-                    self.time,
-                    i
-                )
-            )
-            self.write_fits(fname, dstrim, file[-1].header, prstep=4)
-
-            if self.flowWindow:
-                if len(deflowFlist) > 0:
-                    vecs = np.load(deflowFlist[i])
-                    vecs = [vecs[k] for k in vecs.files]
-                    d = Destretch(
-                        img,
-                        img,
-                        self.kernels,
-                        warp_vectors=vecs
-                    )
-                    dstrim = d.perform_destretch()
-                    fname = os.path.join(
-                        self.postDeflowBase,
-                        self.dstrFilePattern.format(
-                            self.date,
-                            self.time,
-                            i
-                        )
-                    )
-                    self.write_fits(fname, dstrim, file[-1].header, prstep=5)
-
-            dstr_ctr += dstr_vec_increment
-        return
-
-    def write_fits(self, fname, data, hdr, alpha=None, prstep=4):
-        """Write destretched FITS files."""
-        allowed_keywords = [
-            'DATE', 'STARTOBS', 'ENDOBS',
-            'EXPOSURE', 'HIERARCH',
-            'CRVAL1', 'CRVAL2',
-            'CTYPE1', 'CTYPE2',
-            'CUNIT1', 'CUNIT2',
-            'CDELT1', 'CDELT2',
-            'CRPIX1', 'CRPIX2',
-            'CROTA2',
-            'SCINT', 'LLVL',
-            'RSUN_REF'
-        ]
-        float_keywords = [
-            'CRVAL1', 'CRVAL2',
-            'CROTA2',
-            'SCINT', 'LLVL',
-        ]
-        asec_comment_keywords = [
-        'CDELT1', 'CDELT2',
-        'CRPIX1', 'CRPIX2',
-        'RSUN_REF'
-        ]
-        if type(hdr) is fits.header.Header:
-            hdul = fits.HDUList(fits.PrimaryHDU(data, header=hdr))
-        else:
-            hdul = fits.HDUList(fits.PrimaryHDU(data))
-        prstep_flags = ['PRSTEP1', 'PRSTEP2', 'PRSTEP3', 'PRSTEP4', 'PRSTEP5']
-        prstep_values = [
-            'DARK-SUBTRACTION,FLATFIELDING',
-            'SPECKLE-DECONVOLUTION',
-            'ALIGN TO SOLAR NORTH',
-            'DESTRETCHING',
-            'FLOW-PRESERVING-DESTRETCHING'
-        ]
-        prstep_comments = [
-            'SSOsoft',
-            'KISIP v0.6',
-            'SSOsoft',
-            'pyDestretch',
-            'pyDestretch with flow preservation'
-        ]
-
-        if type(hdr) is str:
-            header = open(hdr, 'r').readlines()
-            for i in range(len(header)):
-                slug = header[i].split("=")[0].strip()
-                field = header[i].split("=")[-1].split("/")[0]
-                field = field.replace("\n","").replace("\'","").strip()
-                if field.isnumeric():
-                    field = float(field)
-                if any(substring in slug for substring in allowed_keywords):
-                    if "STARTOBS" in slug:
-                        hdul[0].header['STARTOBS'] = (field, "Date of start of observation")
-                        hdul[0].header['DATE_OBS'] = (field, "Date of start of observation")
-                        hdul[0].header['DATE-BEG'] = (field, "Date of start of observation")
-                        hdul[0].header['DATE'] = (np.datetime64('now').astype(str), "Date of file creation")
-                    if "ENDOBS" in slug:
-                        hdul[0].header['ENDOBS'] = (field, "Date of end of observation")
-                        hdul[0].header['DATE-END'] = (field, "Date of end of observation")
-                    elif "RSUN" in slug:
-                        hdul[0].header['RSUN_ARC'] = (round(float(field)/2, 3), "Radius of Sun in arcsec")
-                    elif any(substring in slug for substring in float_keywords):
-                        hdul[0].header[slug] = round(float(field), 3)
-                    else:
-                        if any(substring in slug for substring in asec_comment_keywords):
-                            hdul[0].header[slug] = (round(float(field), 3), 'arcsec')
-                        else:
-                            hdul[0].header[slug] = field
-        hdul[0].header['BUNIT'] = 'DN'
-        hdul[0].header['NSUMEXP'] = (self.burstNum, "Frames used in speckle reconstruction")
-        hdul[0].header['TEXPOSUR'] = (self.exptime, "ms, Single-frame exposure time")
-        hdul[0].header['AUTHOR'] = 'sellers'
-        hdul[0].header['TELESCOP'] = "DST"
-        hdul[0].header['ORIGIN'] = 'SSOC'
-        if "ROSA" in self.channel.upper():
-            hdul[0].header['INSTRUME'] = "ROSA"
-        if "ZYLA" in self.channel.upper():
-            hdul[0].header['INSTRUME'] = "HARDCAM"
-        hdul[0].header['WAVE'] = self.wave
-        hdul[0].header['WAVEUNIT'] = "nm"
-
-        if alpha:
-            hdul[0].header['SPKLALPH'] = alpha
-        for i in range(prstep):
-            hdul[0].header[prstep_flags[i]] = (prstep_values[i], prstep_comments[i])
-        hdul.writeto(fname, overwrite=True)
-        return
-
-    def remove_flows(self):
-        """Function to remove lateral solar flows from destretch vector.
-        It does this by loading the target control points from the saved destretch parameters,
-        then doing a median filter in the time-direction,
-        subtracting this median off of the target control points.
-        This runs over the last kernel."""
-        destretch_coord_list = self.dstrVectorList
-        smooth_number = self.flowWindow
-
-        index_in_file = -1
-
-        template_coords = np.load(destretch_coord_list[0])
-        tpl_coord_shape = template_coords[template_coords.files[index_in_file]].shape
-        shifts_all = np.zeros(
-            (
-                len(destretch_coord_list),
-                *tpl_coord_shape
-            )
-        )
-        shifts_corr_sum = np.zeros(
-            (
-                len(destretch_coord_list),
-                *tpl_coord_shape
-            )
-        )
-        translations = np.zeros((len(destretch_coord_list), 2))
-        for i in tqdm(range(len(destretch_coord_list)), desc="Loading Destretch Vectors"):
-            dstr = np.load(destretch_coord_list[i])
-            tcpl = dstr[dstr.files[index_in_file]]
-            # Ref. Control Point index depends on whether there are bulk shifts.
-            # If there are an odd number of arrays in the file, there are bulk shifts
-            if len(dstr) % 2 == 0:
-                rcpl = dstr[dstr.files[int(len(dstr)/2) - 1]]
-            else:
-                rcpl = dstr[dstr.files[int((len(dstr)/2))]]
-                translations[i] = dstr[dstr.files[0]]
-            shifts_all[i] = tcpl - rcpl
-            if i == 0:
-                shifts_corr_sum[i] = shifts_all[i]
-            else:
-                shifts_corr_sum[i] = shifts_corr_sum[i - 1] + shifts_all[i]
-
-        # Algorithm is:
-        #   1.) Get cumulative sum of all shifts in x/y
-        #   2.) Take median filter of cumulative sum
-        #   3.) Take uniform filter of median-filtered cumulative sum
-        #   4.) Subtract this uniform filter off the cumulative sum
-        #   5.) Add the reference control points back on to cumulative sum
-        #   6.) Save as target control points.
-
-        median_filtered = scindi.median_filter(
-            shifts_corr_sum,
-            size=(smooth_number, 1, 1, 1),
-            mode='nearest'
-        )
-        flows = scindi.uniform_filter(
-            median_filtered,
-            size=(smooth_number, 1, 1, 1),
-            mode='nearest'
-        )
-        flow_detr_shifts = shifts_corr_sum - flows
-
-        for i in tqdm(range(len(destretch_coord_list)), desc="Saving Flow-Detrended Vectors"):
-            original_file = np.load(destretch_coord_list[i])
-            original_arrays = [original_file[k] for k in original_file.files]
-            if len(original_arrays) % 2 == 0:
-                rcpl = dstr[dstr.files[int(len(dstr)/2) - 1]]
-            else:
-                rcpl = dstr[dstr.files[int((len(dstr)/2))]]
-            original_arrays = original_arrays[:-1]
-            original_arrays.append(flow_detr_shifts[i] + rcpl)
-            writeFile = os.path.join(self.dstrFlows, str(i).zfill(5))
-            np.savez(writeFile + '.npz', *original_arrays)
+        self.create_context_movies = False
+        self.context_movie_directory = ""
 
         return
 
@@ -799,60 +117,664 @@ class rosaZylaDestretch:
         assert (len(flist) != 0), "List contains no matches"
         return
 
-    def determine_relative_rotation(self, image, reference):
-        """Determines the relative rotation between two images, using feature matching from opencv.
-        Ideally, this should be done using the target image, as it provides structure that is non-symmetric.
-        This is not the case for the pinhole or line grid images, and use of the targets should improve the accuracy of
-        the feature matching. We use OpenCV's implementation of FLANN to detect features
-        Matching is done via a simple ratio test per Lowe (2004).
-        The 2D transformation matrix is constructed from estimating Affines.
-        This provides scaling, rotation, and translation, but it is unclear whether the image convolution approach
-        is more accurate for translation.
+    def perform_destretch(self) -> None:
+        """Performs SSOC destretch"""
+        for channel in self.instruments:
+            self.channel = channel
+            # Hardcoded data shape for now...
+            if "ZYLA" in channel:
+                self.datashape = (2048, 2048)
+            else:
+                self.datashape = (1002, 1004)
+            self.configure_destretch()
+            if self.dstr_method.lower() == "speckle":
+                self.speckle_to_fits()
+            else:
+                self.pspkl_filelist = sorted(glob.glob(
+                    os.path.join(self.postspeckle_base, "*.fits")
+                ))
+            self.destretch_observation()
+            if self.flow_window > 0:
+                self.remove_flows()
+                self.apply_flow_vectors()
+        return
 
-        Args:
-            image (array-like): The rotated image
-            reference (array-like): The reference image
-                NOTE: The 4170 camera seems to be more rotated than gband for the DST. While 4170 may seem a
-                better choice of reference, I would recommend the g-band be used instead.
-
-        Returns:
-            theta (float): The rotation angle (in degrees)
-            scale (tuple): The relative scaling as (sx, sy)
-            shifts (tuple): The relative shift between images (dx, dy)
+    def register_rosa_zyla_observations(self):
         """
-        # OpenCV requires 8-bit images for some reason.
-        reference_8bit = cv2.normalize(reference, None, 0, 255, cv2.NORM_MINMAX).astype('uint8')
-        image_8bit = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX).astype('uint8')
+        Run after perform_destretch to coalign and derotate all channels
+        Performs optional solar alignment as well
+        """
+        for channel in self.instruments:
+            self.channel = channel
+            self.configure_destretch()
+            self.apply_bulk_translations()
+            if self.reference_channel != "" and self.channel == self.reference_channel and self.solar_align:
+                self.update_reference_frame()
+                self.apply_solar_offsets()
+            if self.reference_channel != "" and self.channel != self.reference_channel:
+                self.channel_offset_rotation()
+                self.channel_apply_offsets()
+                if self.solar_align:
+                    self.apply_solar_offsets()
+        return
 
-        # SIFT for keypoints/descriptions
-        sift = cv2.SIFT_create()
-        keypoints_img, description_img = sift.detectAndCompute(image_8bit, None)
-        keypoints_ref, description_ref = sift.detectAndCompute(reference_8bit, None)
 
-        # Setting up FLANN
-        FLANN_INDEX_KDTREE = 1
-        index_params = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
-        search_params = dict(checks=50)
-        flann = cv2.FlannBasedMatcher(index_params, search_params)
-        matches = flann.knnMatch(description_ref, description_img, k=2)
+    def configure_destretch(self) -> None:
+        """
+        Parses config file and sets up class instance with required variables
+        """
+        # Step 1: Save the channel within this function, and re-initialize class
+        # Since the perform_destretch() function runs a loop with multiple calls
+        # to this function, it's best to clear out all class variables with by
+        # calling __init__ again to avoid any lingering mis-set values.
+        # We do want to keep some values, however, such as the working channel,
+        # and the updated solar reference pointing, if we've got it.
+        channel = self.channel
+        ref_coord = self.reference_coordinate = {}
+        self.__init__(self.instruments, self.config_file)
+        self.reference_coordinate = ref_coord
+        self.channel = channel
 
-        pts1 = []
-        pts2 = []
+        config = configparser.ConfigParser()
+        config.read(self.config_file)
 
-        for i, (m, n) in enumerate(matches):
-            if m.distance < 0.8*n.distance:
-                pts2.append(keypoints_img[m.trainIdx].pt)
-                pts1.append(keypoints_ref[m.queryIdx].pt)
-        pts1 = np.int32(pts1)
-        pts2 = np.int32(pts2)
+        # Directories
+        self.work_base = config[self.channel]["workBase"]
+        if not os.path.exists(self.work_base):
+            raise FileNotFoundError(
+                f"workBase: {self.work_base}, directory not found!"
+                "Please run rosaZylaCal and kisipWrapper before destretch!"
+            )
+        self.hdr_base = os.path.join(self.work_base, "hdrs")
+        self.speckle_base = os.path.join(self.work_base, "speckle")
+        if not os.path.exists(self.speckle_base):
+            raise FileNotFoundError(
+                f"No directory containin speckle bursts found at: {self.speckle_base}"
+            )
+        self.speckle_file_form = config[self.channel]["speckledFileForm"]
+        self.postspeckle_base = os.path.join(self.work_base, "postSpeckle")
+        if not os.path.exists(self.postspeckle_base):
+            os.mkdir(self.postspeckle_base)
+        self.postdestretch_base = os.path.join(self.work_base, "splineDestretch")
+        if not os.path.exists(self.postdestretch_base):
+            print(
+                f"{__name__}: os.mkdir: attempting to create directory: {self.postdestretch_base}"
+            )
+            os.mkdir(self.postdestretch_base)
+        self.dstr_base = os.path.join(self.work_base, "destretch_vectors")
+        if not os.path.exists(self.dstr_base):
+            print(
+                f"{__name__}: os.mkdir: attempting to create directory: {self.dstr_base}"
+            )
+            os.mkdir(self.dstr_base)
 
-        transform, mask = cv2.estimateAffine2D(pts1, pts2)
-        shifts = (transform[0, 2], transform[1, 2])
-        scale = (np.sign(transform[0, 0]) * np.sqrt(transform[0, 0]**2 + transform[0, 1]**2),
-                 np.sign(transform[1, 1]) * np.sqrt(transform[1, 0]**2 + transform[1, 1]**2))
-        theta = np.arctan2(-transform[0, 1], transform[0, 0]) * 180/np.pi
-        self.theta = theta
-        self.offset = shifts
-        self.magnification = scale
+        # Destretch params
+        self.dstr_from = config[self.channel]["dstrFrom"]
+        self.dstr_method = config[self.channel]["dstrMethod"]
+        self.dstr_window = int(config[self.channel]["dstrWindow"])
+        self.kernels = [int(i) for i in config[self.channel]["dstrKernel"].split(",")]
+        self.repair_tolerance = float(config[self.channel]["repairTolerance"]) if "repairtolerance" \
+            in config[self.channel].keys() else self.repair_tolerance
+        self.flow_window = int(config[self.channel]["flowWindow"])
 
+        self.wave = float(config[self.channel]["wavelengthnm"])
+        self.date = config[self.channel]["obsDate"]
+        self.time = config[self.channel]["obsTime"]
+
+        if self.flow_window > 0:
+            self.postdeflow_base = os.path.join(self.work_base, "flowPreservedDestretch")
+            if not os.path.exists(self.postdeflow_base):
+                print(
+                    f"{__name__}: os.mkdir: attempting to create directory: {self.postdeflow_base}"
+                )
+                os.mkdir(self.postdeflow_base)
+            self.dstr_flows = os.path.join(self.work_base, "destretch_vectors_noflow")
+            if not os.path.exists(self.dstr_flows):
+                print(
+                    f"{__name__}: os.mkdir: attempting to create directory: {self.dstr_flows}"
+                )
+        self.dstr_file_pattern = config[self.channel]["destretchedFileForm"]
+
+        # Translation and alignment
+        if "chaneltranslation" in config[self.channel].keys():
+            trans_string = config[self.channel]["channelTranslation"]
+            if trans_string != "" and trans_string.lower() != "none":
+                self.channel_translation = trans_string.split(",")
+        elif "bulktranslation" in config[self.channel].keys():
+            warnings.warn(
+                "Keyword \"bulkTranslation\" has been replaced by \"channelTranslation\"."
+                "Please update your configuration file.",
+                DeprecationWarning,
+                stacklevel=2
+            )
+        if "SHARED" in config[self.channel].keys():
+            self.reference_channel = config["SHARED"]["referenceChannel"] if "referencechannel" \
+                in config["SHARED"].keys() else None
+            if "referencechannel" in config["SHARED"].keys():
+                self.reference_channel_working_directory = config[
+                    config["SHARED"]["referenceChannel"]
+                ]["workBase"]
+            self.solar_align = config["SHARED"]["solarAlign"] if "solaralign" \
+                in config["SHARED"].keys() else False
+            self.solar_align = True if str(self.solar_align).lower() == "true" else False
+            self.verify_alignment = config["SHARED"]["verfiypointingupdate"] if "verifypointingupdate" \
+                in config["SHARED"].keys() else False
+            self.verify_alignment = True if str(self.verify_alignment) == "true" else False
+
+        # Progress bars
+        self.progress = config[self.channel]["progress"] if "progress" in config[self.channel].keys() \
+            else False
+        self.progress = True if str(self.progress).lower() == "true" else False
+
+        return
+
+    def speckle_to_fits(self) -> None:
+        """Function to speckle/*.final files to FITS format in the postSpeckle directory"""
+
+        spkl_flist = sorted(glob.glob(os.path.join(self.speckle_base, "*.final")))
+        try:
+            self.assert_flist(spkl_flist)
+        except AssertionError as err:
+            print(f"Error: speckle files: {err}")
+            raise
+
+        alpha_flist = sorted(glob.glob(os.path.join(self.speckle_base, "*.subalpha")))
+        try:
+            self.assert_flist(alpha_flist)
+        except AssertionError as err:
+            print(f"Error: subalpha files: {err}")
+            raise
+
+        hdr_list = sorted(glob.glob(os.path.join(self.hdr_base, "*.txt")))
+        try:
+            self.assert_flist(hdr_list)
+        except AssertionError as err:
+            print(f"Error: header files: {err}")
+            raise
+
+        if not len(spkl_flist) == len(alpha_flist) == len(hdr_list):
+            raise ValueError(
+                f"Unequal numbers of speckle ({len(spkl_flist)}) files, "
+                f"subalpha ({len(alpha_flist)}), "
+                f"and header ({len(hdr_list)}) files. "
+                f"Check configuration of {self.work_base}."
+            )
+
+
+        for i, file in enumerate(
+            tqdm.tqdm(spkl_flist, desc="Converting speckle to FITS", disable=not self.progress)
+        ):
+            speckle_image = np.fromfile(file, dtype=np.float32).reshape(self.datashape)
+            avg_alpha = np.fromfile(alpha_flist[i], dtype=np.float32)[0]
+            fname = os.path.join(
+                self.postspeckle_base,
+                os.path.split(file)[-1] + ".fits"
+            )
+            self.pspkl_filelist.append(self.write_fits(fname, speckle_image, hdr_list[i], alpha=avg_alpha, prstep=3))
+        return
+
+    def destretch_observation(self) -> None:
+        """Performs destretch with user-configured parameters."""
+        try:
+            self.assert_flist(self.pspkl_filelist)
+        except AssertionError as err:
+            print(f"Error: postspeckle list: {err}")
+            raise
+
+        if self.dstr_method.lower() == "reference":
+            with fits.open(self.pspkl_filelist[self.dstr_window]) as hdul:
+                reference = fits.open(hdul[0]).data
+            reference_cube = reference[np.newaxis, :, :]
+        else:
+            reference_cube = np.zeros((self.dstr_window, *self.datashape))
+            reference = np.zeros(self.datashape)
+
+        for i, file in enumerate(
+            tqdm.tqdm(self.pspkl_filelist, desc=f"Destretching {self.channel}", disable=not self.progress)
+        ):
+            with fits.open(file) as hdul:
+                img = hdul[0].data.copy()
+                hdr = hdul[0].header.copy()
+            if self.dstr_method.lower() == "running" and i == 0:
+                reference_cube[0, :, :] = img
+                reference = reference_cube[0]
+            elif self.dstr_method.lower() == "running" and i == 1:
+                reference = reference_cube[0, :, :]
+            elif self.dstr_method.lower() == "running" and i < self.dstr_window:
+                reference = np.nanmean(reference_cube[:i, :, :], axis=0)
+            elif self.dstr_method.lower() == "running" and i > self.dstr_window:
+                reference = np.nanmean(reference_cube, axis=0)
+
+            dstr_object = Destretch(
+                img,
+                reference,
+                self.kernels,
+                return_vectors=True,
+                repair_tolerance=self.repair_tolerance
+            )
+            dstr_im, dstr_vecs = dstr_object.perform_destretch()
+            if type(dstr_vecs) is not list:
+                dstr_vecs = [dstr_vecs]
+
+            if self.dstr_method == "running":
+                reference_cube[int(i % self.dstr_window), :, :] = dstr_im
+
+            # Write FITS files and vectors
+            dvec_name = os.path.join(self.dstr_base, str(i).zfill(5) + ".npz")
+            np.savez(dvec_name, *dstr_vecs)
+
+            fname = os.path.join(
+                self.postdestretch_base,
+                self.dstr_file_pattern.format(
+                    self.date, self.time, i
+                )
+            )
+            self.dstr_filelist.append(self.write_fits(fname, dstr_im, hdr, prstep=4))
+
+        return
+
+    def remove_flows(self) -> None:
+        """Function to remove lateral solar flows from destretch vectors.
+        The basic method is to load the target control points from the
+        saved destretch parameters, then doing a median filter on the cumulative
+        sum of the shifts in the time direction.
+        We then take a mean filter (uniform filter) of the median filter.
+        These are our flows.
+
+        These flows subtracted off the cumulative sum of the shifts.
+        The remainder becomes the final shifts.
+
+        This currently only runs over the last kernel in the sequence.
+
+        At the moment, I am not particularly happy with the results this
+        method produces. If any of my successors have a bright and shining
+        idea on the best method for this, please let me know.
+        """
+        vector_flist = sorted(glob.glob(os.path.join(self.dstr_base, "*.npz")))
+        try:
+            self.assert_flist(vector_flist)
+        except AssertionError as err:
+            print(f"Error: destretch vector files: {err}")
+            raise
+
+        template_file = np.load(vector_flist[0])
+        template_vecs = [template_file[k] for k in template_file] # unpack from npz
+        fine_scale_shape = template_vecs[-1].shape
+        shifts_all = np.zeros((len(vector_flist), *fine_scale_shape))
+        for i, file in enumerate(tqdm.tqdm(vector_flist, desc="Loading destretch vectors", disable=not self.progress)):
+            dstr = np.load(file)
+            vectors = [dstr[k] for k in dstr]
+            shifts_all[i] = vectors[-1]
+        # ...*cumulative* sum
+        shifts_cumsum = np.cumsum(shifts_all, axis=0)
+        median_filtered = scind.median_filter(
+            shifts_cumsum,
+            size=(self.flow_window, 1, 1, 1),
+            mode="nearest"
+        )
+        uniform_filtered = scind.uniform_filter(
+            median_filtered,
+            size=(self.flow_window, 1, 1, 1),
+            mode="nearest"
+        )
+        flow_detr_shifts = shifts_cumsum - uniform_filtered
+
+        for i, file in enumerate(
+            tqdm.tqdm(vector_flist, desc="Saving flow-detrended vectors", disable=not self.progress)
+        ):
+            original_file = np.load(file)
+            original_arrays = [original_file[k] for k in original_file]
+            original_arrays[-1] = flow_detr_shifts[i]
+            write_file = os.path.join(self.dstr_flows, str(i).zfill(5))
+            np.savez(write_file + ".npz", *original_arrays)
+        return
+
+    def apply_flow_vectors(self) -> None:
+        """Apply flow-removed destretch vectors, write the fits files to new directory."""
+        if self.pspkl_filelist == []:
+            self.pspkl_filelist = sorted(glob.glob(os.path.join(self.postspeckle_base, "*.fits")))
+        try:
+            self.assert_flist(self.pspkl_filelist)
+        except AssertionError as err:
+            print(f"Error: postspeckle list: {err}")
+            raise
+
+        deflow_flist = sorted(glob.glob(os.path.join(self.dstr_flows, "*.npz")))
+        try:
+            self.assert_flist(deflow_flist)
+        except AssertionError as err:
+            print(f"Error: deflow vector list: {err}")
+
+        for i, file in enumerate(
+            tqdm.tqdm(self.pspkl_filelist, desc="Applying de-flowed destretch", disable=not self.progress)
+        ):
+            with fits.open(file) as hdul:
+                im = hdul[0].data.copy()
+                hdr = hdul[0].header.copy()
+            dstr_vecs = np.load(deflow_flist[i])
+            vecs = [dstr_vecs[k] for k in dstr_vecs]
+            d = Destretch(im, im, self.kernels, warp_vectors=vecs)
+            dstrim = d.perform_destretch()
+            fname = os.path.join(
+                self.postdeflow_base,
+                self.dstr_file_pattern.format(self.date, self.time, i)
+            )
+            self.deflow_filelist.append(self.write_fits(fname, dstrim, hdr, prstep=5))
+        return
+
+    def write_fits(
+            self,
+            fname: str, data: np.ndarray, hdr: str | fits.header.Header,
+            alpha: float | None=None, prstep:int=4, overwrite:bool=True
+    ) -> str:
+        """Writes FITS file with given data and auxillary header information
+
+        Parameters
+        ----------
+        fname : str
+            Filename to write file to.
+        data : np.ndarray
+            2D numpy array with data to save
+        hdr : str | fits
+            Either a text file containing header information or a formatted fits header
+        alpha : float | None, optional
+            If given, the average alpha for the frame from speckle
+        prstep : int, optional
+            Index of the prstep keyword to use, by default 4
+
+        Returns
+        -------
+        str
+            Filename of saved FITS file
+        """
+
+        allowed_keywords = [
+            "DATE", "STARTOBS", "ENDOBS", "DATE-AVG",
+            "EXPOSURE", "XPOSUR", "TEXPOSUR", "NSUMEXP"
+            "HIERARCH",
+            "CRVAL1", "CRVAL2",
+            "CTYPE1", "CTYPE2",
+            "CUNIT1", "CUNIT2",
+            "CDELT1", "CDELT2",
+            "CRPIX1", "CRPIX2",
+            "CROTA2",
+            "SCINT", "LLVL",
+            "RSUN_REF"
+        ]
+        float_keywords = [
+            "CRVAL1", "CRVAL2",
+            "CROTA2",
+            "SCINT", "LLVL",
+        ]
+        asec_comment_keywords = [
+            "CDELT1", "CDELT2",
+            "CRPIX1", "CRPIX2",
+            "RSUN_REF"
+        ]
+        prstep_flags = ["PRSTEP1", "PRSTEP2", "PRSTEP3", "PRSTEP4", "PRSTEP5"]
+        prstep_values = [
+            "DARK-SUBTRACTION,FLATFIELDING",
+            "SPECKLE-DECONVOLUTION",
+            "ALIGN TO SOLAR NORTH",
+            "DESTRETCHING",
+            "FLOW-PRESERVING-DESTRETCHING"
+        ]
+        prstep_comments = [
+            "SSOsoft",
+            "KISIP v0.6",
+            "SSOsoft",
+            "pyDestretch",
+            "pyDestretch with flow preservation"
+        ]
+        if type(hdr) is fits.header.Header:
+            hdul = fits.HDUList(fits.PrimaryHDU(data, header=hdr))
+        else:
+            hdul = fits.HDUList(fits.PrimaryHDU(data))
+        hdul[0].header["BUNIT"] = "DN"
+        hdul[0].header["AUTHOR"] = "sellers"
+        hdul[0].header["TELESCOP"] = "DST"
+        hdul[0].header["ORIGIN"] = "SSOC"
+        if "ROSA" in self.channel.upper():
+            hdul[0].header["INSTRUME"] = "ROSA"
+        if "ZYLA" in self.channel.upper():
+            hdul[0].header["INSTRUME"] = "HARDCAM"
+        hdul[0].header["WAVE"] = self.wave
+        hdul[0].header["WAVEUNIT"] = "nm"
+        if type(hdr) is str:
+            with open(hdr, "r") as file:
+                lines = file.readlines()
+                for line in lines:
+                    slug = line.split("=")[0].strip()
+                    field = line.split("=")[-1].split("/")[0]
+                    field = field.replace("\n", "").replace("\'", "").strip()
+                    if field.isnumeric():
+                        field = float(field)
+                    if any(substring in slug for substring in allowed_keywords):
+                        if "STARTOBS" in slug:
+                            hdul[0].header["DATE"] = (np.datetime64("now").astype(str), "Date of file creation")
+                            hdul[0].header["STARTOBS"] = (field, "Date of start of observation")
+                            hdul[0].header["DATE-BEG"] = (field, "Date of start of observation")
+                        elif "ENDOBS" in slug:
+                            hdul[0].header["ENDOBS"] = (field, "Date of end of observation")
+                            hdul[0].header["DATE-END"] = (field, "Date of end of observation")
+                        elif "DATE-AVG" in slug:
+                            hdul[0].header["DATE-AVG"] = (field, "Average obstime")
+                        elif "RSUN" in slug:
+                            rsun = float(field)
+                            if rsun > 700:
+                                rsun /= 2
+                            hdul[0].header["RSUN_ARC"] = (round(rsun, 3), "Radius of Sun in arcsec")
+                        elif any(substring in slug for substring in float_keywords):
+                            hdul[0].header[slug] = round(float(field), 3)
+                        elif "EXPTIME" in slug:
+                            hdul[0].header["EXPTIME"] = (round(float(field), 1), "ms, Single-frame exposure time")
+                        elif "NSUMEXP" in slug:
+                            hdul[0].header["NSUMEXP"] = (int(field), "Number of frames used in reconstruction")
+                        elif "TEXPOSUR" in slug:
+                            hdul[0].header["TEXPOSUR"] = (round(float(field), 1), "Total accumulation time")
+                        elif any(substring in slug for substring in asec_comment_keywords):
+                            hdul[0].header[slug] = (round(float(field), 3), "arcsec")
+                        else:
+                            hdul[0].header[slug] = field
+        if alpha:
+            hdul[0].header["SPKLALPH"] = alpha
+        for i in range(prstep):
+            hdul[0].header[prstep_flags[i]] = (prstep_values[i], prstep_comments[i])
+        hdul.writeto(fname, overwrite=overwrite)
+        return fname
+
+    def apply_bulk_translations(self) -> None:
+        """Performs per-camera sequence of translations specified in config file"""
+        # First, search for post-speckle, spline destretched, and flow-preserve destretched files
+        self.pspkl_filelist = sorted(glob.glob(os.path.join(self.postspeckle_base, "*.fits")))
+        self.dstr_filelist = sorted(glob.glob(os.path.join(self.postdestretch_base, "*.fits")))
+        if self.flow_window > 0:
+            self.deflow_filelist = sorted(glob.glob(os.path.join(self.postdeflow_base, "*.fits")))
+
+        if len(self.pspkl_filelist) == len(self.dstr_filelist) == len(self.deflow_filelist) == 0:
+            raise FileNotFoundError("No processed files found!")
+
+        full_filelist = self.pspkl_filelist + self.dstr_filelist + self.deflow_filelist
+        for translation in self.channel_translation:
+            if translation.lower() == "rot90" or translation.lower() == "flip":
+                self.scale_reverse += 1
+        master_header = ""
+        for file in tqdm.tqdm(
+            full_filelist,
+            desc=f"Applying translations to {len(full_filelist)} reduced files",
+            disable=not self.progress
+        ):
+            with fits.open(file, mode="update") as hdul:
+                data = hdul[0].data.copy()
+                xscale = hdul[0].header["CDELT1"]
+                yscale = hdul[0].header["CDELT2"]
+                scales = np.array([xscale, yscale]).copy()
+                for translation in self.channel_translation:
+                    if translation.lower() == "rot90":
+                        data = np.rot90(data)
+                    elif translation.lower() == "flip":
+                        data = np.flip(data)
+                    elif translation.lower() == "fliplr":
+                        data = np.fliplr(data)
+                    elif translation.lower() == "flipud":
+                        data = np.flipud(data)
+                # If the net total translation flipped the X/Y axes, reverse
+                # the scales, so when we re-fill the header, the scales are correct.
+                if self.scale_reverse % 2 == 1:
+                    scales = scales[::-1]
+                hdul[0].data = data
+                hdul[0].header["CDELT1"] = scales[0]
+                hdul[0].header["CDELT2"] = scales[1]
+                if file == full_filelist[0]:
+                    master_header = hdul[0].header.copy()
+                    master_header["CRVAL1"] = 0.0
+                    master_header["CRVAL2"] = 0.0
+                    master_header["CROTA2"] = 0.0
+                hdul.flush()
+        # Translate and save the target image, if it exists with a sunpy-compatible header:
+        target_file = os.path.join(self.work_base, f"{self.channel}_target.fits")
+        if os.path.exists(target_file):
+            with fits.open(target_file) as hdul:
+                targ_im = hdul[0].data.copy()
+            for translation in self.channel_translation:
+                if translation.lower() == "rot90":
+                    targ_im = np.rot90(targ_im)
+                elif translation.lower() == "flip":
+                    targ_im = np.flip(targ_im)
+                elif translation.lower() == "fliplr":
+                    targ_im = np.fliplr(targ_im)
+                elif translation.lower() == "flipud":
+                    targ_im = np.flipud(targ_im)
+            fname = os.path.join(self.work_base, f"{self.channel}_orientation_target.fits")
+            self.write_fits(fname, targ_im, master_header, prstep=0)
+        else:
+            warnings.warn(
+                f"No target image found at {target_file}! Data cannot be registered to a reference channel!"
+            )
+        return
+
+    def channel_offset_rotation(self) -> None:
+        """
+        Determines channel offset and relative rotation to the reference channel.
+        We'll be using sunpy Maps. This allows us to crib its reproject_to function,
+        which operates as shorthand for interpolation and cropping.
+
+        Basically, we get two same-sized images of the same region to perform the alignment.
+
+        This DOES rely on having a correctly-oriented target image in the working directory
+        for each the reference and target channel. We'll throw an error if we don't have that.
+        """
+
+        reference_channel_target_file = os.path.join(
+            self.reference_channel_working_directory,
+            f"{self.reference_channel}_orientation_target.fits"
+        )
+        channel_target_file = os.path.join(
+            self.work_base,
+            f"{self.channel}_orientation_target.fits"
+        )
+        if not os.path.exists(reference_channel_target_file) and os.path.exists(channel_target_file):
+            raise FileNotFoundError(
+                f"No reference channel target file found at {reference_channel_target_file}. "
+                f"However, a target file for the current working channel was found: {channel_target_file}. "
+                "For coalignment through RosaZylaDestretch.register_rosa_zyla_observations, "
+                f"the reference channel, {self.reference_channel} MUST be processed first."
+            )
+        if not os.path.exists(reference_channel_target_file):
+            raise FileNotFoundError(f"File not found: {reference_channel_target_file}")
+        if not os.path.exists(channel_target_file):
+            raise FileNotFoundError(f"File not found: {channel_target_file}")
+
+        offsets, rotation = align.align_derotate_channel_images(
+            channel_target_file,
+            reference_channel_target_file
+        )
+        self.theta += rotation
+        # Since we're adjusting the CRPIX instead of actually applying a shift,
+        # we need to flip the sign of the offsets.
+        # e.g., if we need to move down and to the right, the reference pixel has
+        # move up and to the left.
+        self.offset = -offsets
+        return
+
+    def channel_apply_offsets(self) -> None:
+        """
+        Apply relative offsets and rotation between the
+        working channel and the reference channel.
+        This function is not called on the reference channel.
+        """
+        if self.pspkl_filelist == self.dstr_filelist == self.deflow_filelist == []:
+            raise FileNotFoundError(
+                f"No reduced files found in {self.work_base} for alignment."
+            )
+        full_filelist = self.pspkl_filelist + self.dstr_filelist + self.deflow_filelist
+        for file in tqdm.tqdm(
+            full_filelist,
+            desc=f"Applying channel offsets relative to {self.reference_channel}",
+            diable=not self.progress
+        ):
+            with fits.open(file, mode="update") as hdul:
+                hdul[0].header["CRPIX1"] += self.offset[1] # image align returns yshift, xshift
+                hdul[0].header["CRPIX2"] += self.offset[0] # FITS headers index xpixel, ypixel
+                hdul[0].header["CROTA2"] += self.theta
+                hdul.flush()
+        return
+
+    def update_reference_frame(self) -> None:
+        """Performs simple alignment between the reference
+        channel and the sun. By default, this is done to HMI
+        continuum. If a different channel is required, it must
+        be set manually.
+        """
+        if self.dstr_filelist != []:
+            alignment_filelist = self.dstr_filelist
+        else:
+            alignment_filelist = self.pspkl_filelist
+        try:
+            reference_file = align.find_best_image_speckle_alpha(alignment_filelist)
+        except KeyError:
+            # No alpha value found in files. Use 0th file instead
+            reference_file = alignment_filelist[0]
+        refim, refhdr = align.read_rosa_zyla_image(reference_file)
+        refmap = align.fetch_reference_image(refhdr, savepath=self.work_base, channel=self.master_alignment)
+        updated_center = align.align_rotate_map(
+            refim, refhdr, refmap
+        )
+        if self.verify_alignment:
+            try:
+                align.verify_alignment_accuracy(refim, updated_center, refmap)
+            except align.PointingError:
+                self.reference_coordinate = refhdr
+            else:
+                self.reference_coordinate = updated_center
+        else:
+            self.reference_coordinate = updated_center
+
+        return
+
+    def apply_solar_offsets(self) -> None:
+        """Applies updated pointing information to all reduced filelists.
+        """
+        if self.pspkl_filelist == self.dstr_filelist == self.deflow_filelist == []:
+            raise FileNotFoundError(
+                f"No reduced files found in {self.work_base} for alignment."
+            )
+        full_filelist = self.pspkl_filelist + self.dstr_filelist + self.deflow_filelist
+        if self.reference_coordinate == {}:
+            warnings.warn(
+                "Reference coordinate not given. "
+                f"If the pointing offsets were applied to {self.reference_channel} previously, "
+                "this should be fine. We'll try and pull the coordinate from "
+                f"{self.reference_channel_working_directory}."
+            )
+            search = sorted(glob.glob(
+                os.path.join(self.reference_channel_working_directory, "splineDestretch", "*.fits")
+            ))
+            if len(search) == 0:
+                raise FileNotFoundError("Never mind. I didn't find any files.")
+            _, self.reference_coordinate = align.read_rosa_zyla_image(search[0])
+        align.update_imager_pointing_values(
+            full_filelist, self.reference_coordinate,
+            additional_rotation=self.theta, progress=self.progress
+        )
         return
