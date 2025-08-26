@@ -700,7 +700,7 @@ class rosaZylaCal:
             self.plate_scale_x = xpix_scale
         else:
             self.logger.warning(
-                "Plate scale [x] could not be updated! Original Value: {0:03d}. Estimated Value: {1:03d}".format(
+                "Plate scale [x] could not be updated! Original Value: {0:03f}. Estimated Value: {1:03f}".format(
                     self.plate_scale_x, xpix_scale
                 )
             )
@@ -717,7 +717,7 @@ class rosaZylaCal:
             self.plate_scale_y = ypix_scale
         else:
             self.logger.warning(
-                "Plate scale [y] could not be updated! Original Value: {0:03d}. Estimated Value: {1:03d}".format(
+                "Plate scale [y] could not be updated! Original Value: {0:03f}. Estimated Value: {1:03f}".format(
                     self.plate_scale_y, ypix_scale
                 )
             )
