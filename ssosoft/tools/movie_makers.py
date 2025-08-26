@@ -251,7 +251,10 @@ def rosa_hardcam_movie_maker(
                 timestamps.append(filelist.index(file))
             if dcss_params:
                 llvl.append(hdul[0].header["LLVL"])
-                scin.append(hdul[0].header["SCIN"])
+                if "SCIN" in hdul[0].header.keys():
+                    scin.append(hdul[0].header["SCIN"])
+                elif "SCINT" in hdul[0].header.keys():
+                    scin.append(hdul[0].header["SCINT"])
     with fits.open(filelist[int(len(filelist) / 2)]) as hdul:
         vmin = np.nanmean(hdul[0].data) - vmin * np.nanstd(hdul[0].data)
         vmax = np.nanmean(hdul[0].data) + vmax * np.nanstd(hdul[0].data)

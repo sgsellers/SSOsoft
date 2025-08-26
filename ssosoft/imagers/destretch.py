@@ -506,7 +506,7 @@ class RosaZylaDestretch:
             "CDELT1", "CDELT2",
             "CRPIX1", "CRPIX2",
             "CROTA2",
-            "SCINT", "LLVL",
+            "SCINT", "LLVL", "SCIN",
             "RSUN_REF"
         ]
         float_keywords = [
