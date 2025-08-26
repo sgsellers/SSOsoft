@@ -688,7 +688,7 @@ class rosaZylaCal:
         xmedian_spacing = []
         # Take the middle 300 pixels for grid determination
         for i in range(self.avg_linegrid.shape[0]//2 - 150, self.avg_linegrid.shape[0]//2 + 150):
-            profile = 1/self.avg_linegrid[i, :]
+            profile = 1/self.avg_linegrid[i, self.avg_linegrid.shape[1]//2 - 150:self.avg_linegrid.shape[1]//2 + 150]
             profile /= profile.max()
             approx_pix_scale = self.dst_plate_scale / self.plate_scale_x
             peaks, _ = find_peaks(profile, height=0.75, distance=approx_pix_scale / 2)
@@ -707,7 +707,7 @@ class rosaZylaCal:
 
         ymedian_spacing = []
         for i in range(self.avg_linegrid.shape[1]//2 - 150, self.avg_linegrid.shape[1]//2 + 150):
-            profile = 1/self.avg_linegrid[:, i]
+            profile = 1/self.avg_linegrid[self.avg_linegrid.shape[0]//2 - 150:self.avg_linegrid.shape[0]//2 + 150, i]
             profile /= profile.max()
             approx_pix_scale = self.dst_plate_scale / self.plate_scale_y
             peaks, _ = find_peaks(profile, height=0.75, distance=approx_pix_scale / 2)
