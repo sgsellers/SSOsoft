@@ -173,7 +173,7 @@ class RosaZylaDestretch:
         # We do want to keep some values, however, such as the working channel,
         # and the updated solar reference pointing, if we've got it.
         channel = self.channel
-        ref_coord = self.reference_coordinate = {}
+        ref_coord = self.reference_coordinate
         self.__init__(self.instruments, self.config_file)
         self.reference_coordinate = ref_coord
         self.channel = channel
