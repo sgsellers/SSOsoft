@@ -267,7 +267,7 @@ def rosa_hardcam_movie_maker(
     fig = plt.figure(figsize=(16, 9))
     gs = fig.add_gridspec(nrows=2, ncols=3)
     ax_im = fig.add_subplot(gs[:, :2])
-    ax_lc = fig.add_subplot(gs[1, 2])
+    ax_lc = fig.add_subplot(gs[0, 2])
     if dcss_params:
         ax_see = fig.add_subplot(gs[1, 2])
     else:
