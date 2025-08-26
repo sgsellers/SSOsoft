@@ -562,8 +562,8 @@ def align_derotate_channel_images(channel_target: str, reference_target: str) ->
 
     channel_map_projected = channel_map.reproject_to(reference_map.wcs)
 
-    chan_data = channel_map_projected.data
-    targ_data = reference_map.data
+    chan_data = np.nan_to_num(channel_map_projected.data)
+    targ_data = np.nan_to_num(reference_map.data)
 
     aligned_channel, shifts = _image_align(chan_data, targ_data)
     rotation_angle = determine_relative_rotation(aligned_channel, targ_data)
