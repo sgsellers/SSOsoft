@@ -719,7 +719,7 @@ class RosaZylaDestretch:
         for file in tqdm.tqdm(
             full_filelist,
             desc=f"Applying channel offsets relative to {self.reference_channel}",
-            diable=not self.progress
+            disable=not self.progress
         ):
             with fits.open(file, mode="update") as hdul:
                 hdul[0].header["CRPIX1"] += self.offset[1] # image align returns yshift, xshift
