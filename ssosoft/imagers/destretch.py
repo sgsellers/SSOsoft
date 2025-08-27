@@ -818,4 +818,4 @@ class RosaZylaDestretch:
                 movie_name, self.channel, progress=self.progress
             )
 
-        raise
+        return
