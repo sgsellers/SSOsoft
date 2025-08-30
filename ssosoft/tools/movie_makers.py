@@ -256,7 +256,7 @@ def rosa_hardcam_movie_maker(
                 elif "SCINT" in hdul[0].header.keys():
                     scin.append(hdul[0].header["SCINT"])
     with fits.open(filelist[int(len(filelist) / 2)]) as hdul:
-        vmin = np.nanmean(hdul[0].data) - vmin * np.nanstd(hdul[0].data)
+        vmin = np.nanmean(hdul[0].data) + vmin * np.nanstd(hdul[0].data)
         vmax = np.nanmean(hdul[0].data) + vmax * np.nanstd(hdul[0].data)
     if startobs is not None:
         goes_timestamps, short, long = get_goes_timeseries(startobs, endobs, save_dir)
