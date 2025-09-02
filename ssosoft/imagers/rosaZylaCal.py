@@ -1121,12 +1121,12 @@ class rosaZylaCal:
             last_burst = len(self.data_list) // self.burst_number
             last_file = last_burst * self.burst_number
             i = 0
+            startdate = ""
             for file in tqdm.tqdm(self.data_list[:last_file], desc="Writing burst files", disable=not self.progress):
                 data = self.rosa_zyla_read_binary_image(file)
                 burst_cube[i, :, :] = rosa_zyla_flatfield_correction(data)
                 burst_thousands = burst // 1000
                 burst_hundreds = burst % 1000
-                startdate = ""
                 if i == 0:
                     startdate = self.zyla_time(1000 * burst_thousands + burst_hundreds).fits
                 i += 1
@@ -1237,7 +1237,7 @@ class rosaZylaCal:
         header_file.write("ENDOBS={0}\n".format(enddate))
         header_file.write("EXPTIME={0}\n".format(self.exptime_ms))
         header_file.write("NSUMEXP={0}\n".format(self.burst_number))
-        header_file.write("TEXPOSUR={0}\n".format(self.exptime_ms * self.burst_number))
+        header_file.write("TEXPOSUR={0}\n".format(float(self.exptime_ms) * float(self.burst_number)))
 
         obs_td = (np.datetime64(enddate) - np.datetime64(startdate)) / 2
         avg_date = np.datetime64(startdate) + obs_td
