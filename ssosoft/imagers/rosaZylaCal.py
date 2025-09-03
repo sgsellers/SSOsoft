@@ -1237,7 +1237,7 @@ class rosaZylaCal:
         header_file.write("ENDOBS={0}\n".format(enddate))
         header_file.write("EXPTIME={0}\n".format(self.exptime_ms))
         header_file.write("NSUMEXP={0}\n".format(self.burst_number))
-        header_file.write("TEXPOSUR={0}\n".format(float(self.exptime_ms) * float(self.burst_number)))
+        header_file.write("TEXPOSUR={0}\n".format((float(self.exptime_ms) * float(self.burst_number))/1000))
 
         obs_td = (np.datetime64(enddate) - np.datetime64(startdate)) / 2
         avg_date = np.datetime64(startdate) + obs_td
