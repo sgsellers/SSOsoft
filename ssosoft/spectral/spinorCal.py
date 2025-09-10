@@ -1950,6 +1950,8 @@ class SpinorCal:
                         self.update_live_plot(
                             *plot_params, field_images, combined_beams, internal_crosstalks, step_index
                         )
+                    else:
+                        field_images = None
                     step_index += 1
                     pbar.update(1)
                 science_hdu.close()
@@ -2865,7 +2867,7 @@ class SpinorCal:
             slitwidth = hdul[1].header["HSG_SLW"]
             stepsize = hdul[1].header["HSG_STEP"]
             reqmapsize = hdul[1].header["HSG_MAP"]
-            actmapsize = stepsize * (datacube.shape[0] - 1)
+            actmapsize = stepsize * (datacube.shape[1] - 1)
             gratingangle = hdul[1].header["HSG_GRAT"]
             rsun = hdul[1].header["DST_SDIM"] / 2
             camera_name = hdul[0].header["CAMERA"]
