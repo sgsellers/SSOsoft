@@ -159,7 +159,7 @@ class Destretch:
 
         return
 
-    def perform_destretch(self):
+    def perform_destretch(self) -> np.ndarray | tuple[np.ndarray, list]:
         if self.warp_vectors is None:
             warp_vectors = []
             for kernel in self.kernel_sizes:

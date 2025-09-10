@@ -275,7 +275,9 @@ def rosa_hardcam_movie_maker(
 
     """BLOCK: Image Panel"""
     im = ax_im.imshow(
-        img, interpolation="none", origin="lower", cmap="gray", vmin=vmin, vmax=vmax
+        img, interpolation="none",
+        origin="lower", cmap="gray", vmin=vmin, vmax=vmax,
+        extent=extents
     )
     if extents != [0, 1, 0, 1]:
         ax_im.set_ylabel("Extent [arcsec]")
@@ -305,7 +307,7 @@ def rosa_hardcam_movie_maker(
         ax_lc.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
     else:
         ax_lc.set_xlim(timestamps[0], timestamps[-1])
-    ax_lc.set_ylabel("Zyla LC.", color="C0", weight="bold")
+    ax_lc.set_ylabel(f"{channel} LC.", color="C0", weight="bold")
     ax_lc.tick_params(axis="y", labelcolor="C0")
     ax_lc.set_title("Lightcuve(s)", weight="bold")
 
