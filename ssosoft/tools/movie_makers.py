@@ -537,6 +537,7 @@ def spinor_movie_maker(
 
     title = fig.suptitle(f"SPINOR {central_wavelength}: {str(timestamps[0])}", weight="bold")
     fig.tight_layout()
+    hdul.close()
 
     def animate_spectropolarimeter(i):
         # Update line positions
@@ -547,25 +548,33 @@ def spinor_movie_maker(
         if ax_cont is not None:
             cline.set_xdata([xextent[i], xextent[i]])
         lc_vline.set_xdata([timestamps[i], timestamps[i]])
-        # Update Slit Images
-        islit = hdul["STOKES-I"].data[:, i, :]
-        qslit = hdul["STOKES-Q"].data[:, i, :]
-        uslit = hdul["STOKES-U"].data[:, i, :]
-        vslit = hdul["STOKES-V"].data[:, i, :]
-        i_s.set_array(islit)
-        q_s.set_array(qslit)
-        u_s.set_array(uslit)
-        v_s.set_array(vslit)
-        inorm = Normalize(np.mean(islit) - 3*np.std(islit))
-        i_s.set_norm(inorm)
-        qnorm = Normalize(np.mean(qslit) - 2*np.std(qslit))
-        q_s.set_norm(qnorm)
-        unorm = Normalize(np.mean(uslit) - 2*np.std(uslit))
-        u_s.set_norm(unorm)
-        vnorm = Normalize(np.mean(vslit) - 2*np.std(vslit))
-        v_s.set_norm(vnorm)
         title.set_text(f"SPINOR {central_wavelength}: {str(timestamps[i])}")
-        return
+        try:
+            # Update Slit Images
+            with fits.open(spinor_filename) as hdul:
+                # It would be ideal to not have to keep opening the file
+                # But the interaction of the function causes issues when
+                # the file is eventually closed.
+                islit = hdul["STOKES-I"].data[:, i, :]
+                qslit = hdul["STOKES-Q"].data[:, i, :]
+                uslit = hdul["STOKES-U"].data[:, i, :]
+                vslit = hdul["STOKES-V"].data[:, i, :]
+            i_s.set_array(islit)
+            q_s.set_array(qslit)
+            u_s.set_array(uslit)
+            v_s.set_array(vslit)
+            inorm = Normalize(np.mean(islit) - 3*np.std(islit))
+            i_s.set_norm(inorm)
+            qnorm = Normalize(np.mean(qslit) - 2*np.std(qslit))
+            q_s.set_norm(qnorm)
+            unorm = Normalize(np.mean(uslit) - 2*np.std(uslit))
+            u_s.set_norm(unorm)
+            vnorm = Normalize(np.mean(vslit) - 2*np.std(vslit))
+            v_s.set_norm(vnorm)
+        except ValueError as err:
+            print(f"Movie could not be made: {err}")
+            pass
+
 
     if fps == 0:
         # Best guess: We want to start around 6 fps
@@ -589,7 +598,6 @@ def spinor_movie_maker(
     )
 
     anim.save(os.path.join(savedir, savename), fps=fps)
-    hdul.close()
     return
 
 def get_goes_timeseries(starttime, endtime, outpath):

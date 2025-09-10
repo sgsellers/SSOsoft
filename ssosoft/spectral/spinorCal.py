@@ -17,6 +17,7 @@ import tqdm
 from astropy.coordinates import SkyCoord
 from sunpy.coordinates import frames
 
+from ..tools import movie_makers as movie
 from . import spectraTools as spex
 from .polarimetryTools import v2qu_crosstalk, v2qu_retardance_corr, v2qu_retardance_corr_2d
 
@@ -228,6 +229,10 @@ class SpinorCal:
         self.dst_collimator = 1559  # mm, f.l., of DST Port 4 Collimator mirror
         self.spectrograph_collimator = 3040  # mm, f.l., of the SPINOR/HSG post-slit collimator
         self.camera_lens = 1700  # mm, f.l., of the SPINOR final camera lenses
+
+        # Write context movies per raster
+        self.context_movie = False
+        self.context_movie_directory = ""
 
         return
 
@@ -520,6 +525,14 @@ class SpinorCal:
                 umod,
                 vmod
             ], dtype=int)
+
+        # Context movie creation switch:
+        self.context_movie = config[self.camera]["contextMovie"] if "contextmovie" \
+            in config[self.camera].keys() else False
+        self.context_movie = True if str(self.context_movie).lower() == "true" else False
+        if self.context_movie:
+            self.context_movie_directory = config["SHARED"]["contextMovieDirectory"] if \
+                "contextmoviedirectory" in config["SHARED"].keys() else self.final_dir
 
         return
 
@@ -1993,7 +2006,27 @@ class SpinorCal:
         if self.plot:
             plt.pause(2)
             plt.close("all")
+        if self.context_movie:
+            self.spinor_context_movies(field_images, reduced_filename)
 
+        return
+
+    def spinor_context_movies(self, field_images: np.ndarray | None, level1_file: str) -> None:
+        """Wrapper to generate context movie for observation sequence"""
+        with fits.open(level1_file) as hdul:
+            startobs = hdul[0].header["STARTOBS"]
+            date, time = startobs.split("T")
+            date = date.replace("-", "")
+            time = str(round(float(time.replace(":", "")), 0)).split(".")[0]
+        if not os.path.exists(self.context_movie_directory) and self.context_movie_directory != "":
+            os.mkdir(self.context_movie_directory)
+        if field_images is not None:
+            # Grab only the first selected line
+            field_images = field_images[0]
+        filename = f"{self.camera}_{self.central_wavelength}_{date}_{time}_context_movie.mp4"
+        movie.spinor_movie_maker(level1_file, field_images,
+                                 self.context_movie_directory, filename,
+                                 self.central_wavelength, progress=self.verbose)
         return
 
     def subpixel_hairline_align(self, slit_image: np.ndarray, hair_centers=None) -> tuple[np.ndarray, tuple]:
