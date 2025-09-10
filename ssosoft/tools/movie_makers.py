@@ -507,13 +507,13 @@ def spinor_movie_maker(
                              extent=(0, fovy, wavegrid[0], wavegrid[-1]),
                              aspect="auto")
 
-        axi_slit.set_title("Stokes-I")
+        axi_slit.set_title("Stokes-I", weight="bold")
         axi_slit.set_ylabel("Extent [asec]")
-        axq_slit.set_title("Stokes-Q")
-        axu_slit.set_title("Stokes-U")
+        axq_slit.set_title("Stokes-Q", weight="bold")
+        axu_slit.set_title("Stokes-U", weight="bold")
         axu_slit.set_ylabel("Extent [asec]")
         axu_slit.set_xlabel("Wavelength [$\\AA$]")
-        axv_slit.set_title("Stokes-V")
+        axv_slit.set_title("Stokes-V", weight="bold")
         axv_slit.set_xlabel("Wavelength [$\\AA$]")
 
 
@@ -535,7 +535,7 @@ def spinor_movie_maker(
             ax_goes2.set_ylabel("GOES LC", weight="bold", color="C1")
             ax_goes2.tick_params(axis="y", labelcolor="C1")
 
-        title = fig.suptitle(f"SPINOR {central_wavelength}: {str(timestamps[0])}", y=0.95)
+        title = fig.suptitle(f"SPINOR {central_wavelength}: {str(timestamps[0])}", weight="bold")
         fig.tight_layout()
 
         def animate_spectropolarimeter(i):
