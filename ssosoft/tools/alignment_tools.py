@@ -471,6 +471,15 @@ def fetch_reference_image(metadata: dict, savepath: str=".", channel: str="HMI")
             a.Wavelength(int(channel) * u.Angstrom)
         )
     dl_file = Fido.fetch(fido_search[0, 0], path=savepath)
+    if len(dl_file.errors) > 0:
+        warnings.warn(
+            "Context image retrieval encountered a download error. "
+            "This is known to happen on occasion. "
+            "We will continue attempting to fetch the reference image."
+            "This may take some time, depending on the host server."
+        )
+    while len(dl_file.errors) > 0:
+        dl_file = Fido.fetch(dl_file)
     refmap = smap.Map(dl_file).rotate(order=3)
     return refmap
 
