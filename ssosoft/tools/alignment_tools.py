@@ -250,6 +250,95 @@ def read_rosa_zyla_image(
                 image = np.flipud(image)
     return image, header_dict
 
+def read_spinor_image(
+        filename: str,
+        slat: float=None, slon: float=None, dx: float=None, dy: float=None,
+        rotation: float=None, obstime: str=None,
+        translation: list=[]
+    ) -> tuple[np.ndarray, dict]:
+    """Reads SPINOR image from Level-1 FITS file
+
+    Parameters
+    ----------
+    filename : str
+        Path to file
+    slat : float, optional
+        In not in header, Stonyhurst Lat, by default None
+    slon : float, optional
+        If not in header, Stonyhurst Lon, by default None
+    dx : float, optional
+        If not in header, x-scale in arcsec, by default None
+    dy : float, optional
+        If not in header, y-scale in arcsec, by default None
+    rotation : float, optional
+        If not in header, rotation in degrees, by default None
+    obstime : str, optional
+        If not in header, observation time string, by default None
+    translation : list, optional
+        If using an older product, additional translations required, by default []
+
+    Returns
+    -------
+    tuple[np.ndarray, dict]
+        Image and ponting info dictionary
+    """
+    with fits.open(filename) as f:
+        required_keywords = [
+            "CDELT1", "CDELT2", "CTYPE1", "CTYPE2", "CUNIT1", "CUNIT2", "CRPIX1", "CRPIX2", "CROTA2", "STARTOBS"
+        ]
+        # Check to see if all required keywords are in FITS header. If they aren't all there, check if
+        # kwargs are provided
+        if not all([i in list(f[0].header.keys()) for i in required_keywords]):
+            if not all([slat, slon, dx, dy, rotation]):
+                raise PointingError()
+            # If they are, populate the metadata dictionary from kwargs
+            else:
+                coord = SkyCoord(
+                    slon*u.deg, slat*u.deg,
+                    obstime=obstime, observer="earth",
+                    frame=frames.HeliographicStonyhurst
+                ).transform_to(frames.Helioprojective)
+                header_dict = {
+                    "CDELT1": dx,
+                    "CDELT2": dy,
+                    "CTYPE1": "HPLN-TAN",
+                    "CTYPE2": "HPLT-TAN",
+                    "CUNIT1": "arcsec",
+                    "CUNIT2": "arcsec",
+                    "CRVAL1": coord.Tx.value,
+                    "CRVAL2": coord.Ty.value,
+                    "CRPIX1": f[1].data.shape[1],
+                    "CRPIX2": f[1].data.shape[0],
+                    "CROTA2": rotation,
+                    "DATE-AVG": obstime
+                }
+        else:
+            dt = (np.datetime64(f[0].header["ENDOBS"]) - np.datetime64(f[0].header["STARTOBS"])) / 2
+            header_dict = {
+                "CDELT1": f[1].header["CDELT1"],
+                "CDELT2": f[1].header["CDELT2"],
+                "CTYPE1": f[1].header["CTYPE1"],
+                "CTYPE2": f[1].header["CTYPE2"],
+                "CUNIT1": f[1].header["CUNIT1"],
+                "CUNIT2": f[1].header["CUNIT2"],
+                "CRVAL1": f[1].header["CRVAL1"],
+                "CRVAL2": f[1].header["CRVAL2"],
+                "CRPIX1": f[1].header["CRPIX1"],
+                "CRPIX2": f[1].header["CRPIX2"],
+                "CROTA2": f[1].header["CROTA2"],
+                "DATE-AVG": (np.datetime64(f[0].header["STARTOBS"]) + dt).astype(str)
+            }
+        image = np.mean(f[1].data, axis=-1)
+        for i in translation:
+            if "rot90" in i.lower():
+                image = np.rot90(image)
+            if "fliplr" in i.lower():
+                image = np.fliplr(image)
+            if "flipud" in i.lower():
+                image = np.flipud(image)
+
+    return image, header_dict
+
 def align_images(
     data_image: np.ndarray, data_dict: dict,
     reference_smap: smap.GenericMap,
@@ -602,7 +691,7 @@ def verify_alignment_accuracy(
     reference_submap = reference_smap.reproject_to(data_map.wcs)
     composite_map = smap.Map(data_map, reference_submap, composite=True)
     composite_map.set_levels(1, [25, 50, 75]*u.percent)
-    fig = plt.figure(figsize=(15, 5))
+    fig = plt.figure(num="Pointing alignment check", figsize=(15, 5))
     ax_dat = fig.add_subplot(131, projection=data_map)
     data_map.plot(axes=ax_dat)
     ax_dat.set_xlabel(" ")

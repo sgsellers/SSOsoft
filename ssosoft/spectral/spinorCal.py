@@ -1,6 +1,7 @@
 import configparser
 import glob
 import os
+import re
 import warnings
 
 import astropy.io.fits as fits
@@ -15,8 +16,10 @@ import scipy.ndimage as scind
 import scipy.optimize as scopt
 import tqdm
 from astropy.coordinates import SkyCoord
+from scipy.signal import find_peaks
 from sunpy.coordinates import frames
 
+from ..tools import alignment_tools as align
 from ..tools import movie_makers as movie
 from . import spectraTools as spex
 from .polarimetryTools import v2qu_crosstalk, v2qu_retardance_corr, v2qu_retardance_corr_2d
@@ -234,6 +237,11 @@ class SpinorCal:
         self.context_movie = False
         self.context_movie_directory = ""
 
+        # Register SPINOR observations to solar coordinates
+        self.register_observations = False
+        self.verify_alignment = True
+        self.plate_scale = []
+        self.plate_scale_correction_factors = []
         return
 
     @staticmethod
@@ -300,6 +308,166 @@ class SpinorCal:
                 self.flip_wave = flip_wave
                 self.analysis_ranges = analysis_ranges
             self.reduce_spinor_maps(index)
+        if self.register_observations:
+            self.spinor_grid_spacing()
+            self.spinor_register_to_solar_coordinates()
+        return
+
+    def spinor_grid_spacing(self) -> None:
+        """Constructs line grid file and attempts to fine-tune SPINOR grid spacing"""
+        if self.line_grid_file is not None:
+            try:
+                with fits.open(self.line_grid_file) as hdul:
+                    linegrid_image = np.zeros((hdul[1].data.shape[1], len(hdul) - 1))
+                    for i, hdu in enumerate(hdul[1:]):
+                        linegrid_image[:, i-1] = (
+                            (
+                                hdu.data - self.solar_dark
+                            )/self.lamp_gain/self.combined_gain_table
+                        ).mean(axis=(0, 2))
+                    initial_xspacing = hdul[1].header["HSG_STEP"]
+                    slit_plate_scale = self.telescope_plate_scale * self.dst_collimator / self.slit_camera_lens
+                    initial_yspacing = slit_plate_scale * \
+                        (self.spectrograph_collimator / self.camera_lens) * (self.pixel_size / 1000)
+            except FileNotFoundError as err:
+                print(f"No valid linegrid file, proceeding under the assumption that plate scales are accurate {err}")
+            else:
+                cropped_linegrid = linegrid_image[self.beam_edges[0, 0]:self.beam_edges[0, 1], :][50:-50]
+                xmedian_spacing = []
+                for i in range(cropped_linegrid.shape[0]):
+                    profile = 1/cropped_linegrid[i]
+                    profile /= profile.max()
+                    approx_pix_sep = self.telescope_plate_scale / initial_xspacing
+                    peaks, _ = find_peaks(profile, height=0.75, distance=approx_pix_sep/2)
+                    xmedian_spacing.append(np.nanmedian(peaks[1:] - peaks[:-1]))
+                xpix_scale = self.telescope_plate_scale / np.nanmedian(xmedian_spacing)
+                if np.abs((xpix_scale - initial_xspacing)/initial_xspacing) > 0.1:
+                    # Not within 10% of inital value, don't update pixel scale
+                    warnings.warn(
+                        f"X pixel scale could not be updated! Calculated: {initial_xspacing}, Measured: {xpix_scale}"
+                    )
+                    xpix_scale = initial_xspacing
+                ymedian_spacing = []
+                for i in range(cropped_linegrid.shape[1]):
+                    profile = 1/cropped_linegrid[:, i]
+                    profile /= profile.max()
+                    approx_pix_sep = self.telescope_plate_scale / initial_yspacing
+                    peaks, _ = find_peaks(profile, height=0.75, distance=approx_pix_sep/2)
+                    ymedian_spacing.append(np.nanmedian(peaks[1:] - peaks[:-1]))
+                ypix_scale = self.telescope_plate_scale / np.nanmedian(ymedian_spacing)
+                if np.abs((ypix_scale - initial_yspacing) / initial_yspacing) > 0.1:
+                    warnings.warn(
+                        f"Y pixel scale could not be updated! Calculated: {initial_yspacing}, Measured: {ypix_scale}"
+                    )
+                    ypix_scale = initial_yspacing
+                self.plate_scale = [xpix_scale, ypix_scale]
+                self.plate_scale_correction_factors = [xpix_scale / initial_xspacing, ypix_scale / initial_yspacing]
+
+        return
+
+    def spinor_register_to_solar_coordinates(self) -> None:
+        """Registers Level-1 files to Solar-Coordinates"""
+        # First up, grab the Level-1 files and parameter files:
+        # Use regex to start with file patterns in the class, and sub curly brackets with wildcards
+        pattern = "\\{[^}]*\\}" # Grabs curly brackets and everything in them
+        reduced_regex_pattern = re.sub(pattern, "*", self.reduced_file_pattern)
+        parameter_regex_pattern = re.sub(pattern, "*", self.parameter_map_pattern)
+        reduced_files = sorted(glob.glob(
+            os.path.join(self.final_dir, reduced_regex_pattern)
+        ))
+        parameter_files = sorted(glob.glob(
+            os.path.join(self.final_dir, parameter_regex_pattern)
+        ))
+        # Plate scale correction
+        if self.plate_scale != []:
+            for file in reduced_files:
+                with fits.open(file, mode="update") as hdul:
+                    # Sometimes the observers will take linegrids with a larger step size than
+                    # the daily maps. We need to check the CDELT1 keyword to make sure it's similar
+                    # to our new plate scale. If it's not, we'll use the scale correction factor instead
+                    # of just plugging in the plate scale.
+                    cdelt1 = hdul["STOKES-I"].header["CDELT1"]
+                    if np.abs((self.plate_scale[0] - cdelt1)/cdelt1) > 0.1:
+                        new_cdelt1 = cdelt1 * self.plate_scale_correction_factors[0] * cdelt1
+                    else:
+                        new_cdelt1 = self.plate_scale[0]
+                    fovx = new_cdelt1 * hdul["STOKES-I"].data.shape[1]
+                    fovy = self.plate_scale[1] * hdul["STOKES-I"].data.shape[0]
+                    hdul[0].header["FOVX"] = round(fovx, 3)
+                    hdul[0].header["FOVY"] = round(fovy, 3)
+                    for i in range(1, 5):
+                        hdul[i].header["CDELT1"] = round(new_cdelt1, 4)
+                        hdul[i].header["CDELT2"] = round(self.plate_scale[1], 4)
+                    prstep_num = len([i for i in hdul[0].header.keys() if "PRSTEP" in i]) + 1
+                    hdul[0].header[f"PRSTEP{prstepnum}"] = ("SCALE-CORRECT", "Correct plate scale with linegrid")
+                    hdul.flush()
+            for file in parameter_files:
+                with fits.open(file, mode="update") as hdul:
+                    cdelt1 = hdul["STOKES-I"].header["CDELT1"]
+                    if np.abs((self.plate_scale[0] - cdelt1)/cdelt1) > 0.1:
+                        new_cdelt1 = cdelt1 * self.plate_scale_correction_factors[0] * cdelt1
+                    else:
+                        new_cdelt1 = self.plate_scale[0]
+                    fovx = new_cdelt1 * hdul["STOKES-I"].data.shape[1]
+                    fovy = self.plate_scale[1] * hdul["STOKES-I"].data.shape[0]
+                    hdul[0].header["FOVX"] = round(fovx, 3)
+                    hdul[0].header["FOVY"] = round(fovy, 3)
+                    for hdu in hdul:
+                        if "CDELT1" in hdu.header.keys():
+                            hdu.header["CDELT1"] = round(new_cdelt1, 4)
+                            hdu.header["CDELT2"] = round(self.plate_scale[1], 4)
+                    prstep_num = len([i for i in hdul[0].header.keys() if "PRSTEP" in i]) + 1
+                    hdul[0].header[f"PRSTEP{prstepnum}"] = ("SCALE-CORRECT", "Correct plate scale with linegrid")
+                    hdul.flush()
+        for file in reduced_files:
+            refim, refhdr = align.read_spinor_image(file)
+            with fits.open(file) as hdul:
+                startobs = hdul[0].header["STARTOBS"]
+                date, time = startobs.split("T")
+                date = date.replace("-", "")
+                time = str(round(float(time.replace(":", "")), 0)).split(".")[0]
+            corresponding_param_maps = [i for i in parameter_files if time in i and date in i]
+            refmap = align.fetch_reference_image(refhdr, savepath=self.final_dir)
+            updated_center = align.align_rotate_map(refim, refhdr, refmap)
+            if self.verify_alignment:
+                try:
+                    align.verify_alignment_accuracy(refim, updated_center, refmap)
+                except align.PointingError:
+                    reference_coordinate = refhdr
+                else:
+                    reference_coordinate = updated_center
+            else:
+                reference_coordinate = updated_center
+            self.update_pointing_info(file, corresponding_param_maps, reference_coordinate)
+
+        return
+
+    def update_pointing_info(self, main_file: str, parameter_maps: list, center_coord: dict) -> None:
+        """Applies pointing update"""
+        with fits.open(main_file, mode="update") as hdul:
+            hdul[0].header["XCEN"] = round(center_coord["CRVAL1"], 3)
+            hdul[0].header["YCEN"] = round(center_coord["CRVAL2"], 3)
+            hdul[0].header["ROT"] = round(center_coord["CROTA2"], 3)
+            prstepnum = len([i for i in hdul[0].header.keys() if "PRSTEP" in i]) + 1
+            hdul[0].header[f"PRSTEP{pstepnum}"] = ("SOLAR-ALIGN", "Align coordinates to HMI")
+            for i in range(1, 5):
+                hdul[i].header["CRVAL1"] = round(center_coord["CRVAL1"], 3)
+                hdul[i].header["CRVAL2"] = round(center_coord["CRVAL2"], 3)
+                hdul[i].header["CROTA2"] = round(center_coord["CROTA2"], 3)
+            hdul.flush()
+        for file in parameter_maps:
+            with fits.open(file, mode="update") as hdul:
+                hdul[0].header["XCEN"] = round(center_coord["CRVAL1"], 3)
+                hdul[0].header["YCEN"] = round(center_coord["CRVAL2"], 3)
+                hdul[0].header["ROT"] = round(center_coord["CROTA2"], 3)
+                prstepnum = len([i for i in hdul[0].header.keys() if "PRSTEP" in i]) + 1
+                hdul[0].header[f"PRSTEP{pstepnum}"] = ("SOLAR-ALIGN", "Align coordinates to HMI")
+                for hdu in hdul:
+                    if "CRVAL1" in hdu.header.keys():
+                        hdu.header["CRVAL1"] = round(center_coord["CRVAL1"], 3)
+                        hdu.header["CRVAL2"] = round(center_coord["CRVAL2"], 3)
+                        hdu.header["CROTA2"] = round(center_coord["CROTA2"], 3)
+                hdul.flush()
         return
 
     def spinor_configure_run(self) -> None:
@@ -534,6 +702,19 @@ class SpinorCal:
             self.context_movie_directory = config["SHARED"]["contextMovieDirectory"] if \
                 "contextmoviedirectory" in config["SHARED"].keys() else self.final_dir
 
+        # Alignment switches:
+        self.register_observations = config[self.camera]["solarAlign"] if "solaralign" in \
+            config[self.camera].keys() else False
+        if str(self.register_observations).lower() == "true":
+            self.register_observations = True
+        else:
+            self.register_observations = False
+        self.verify_alignment = config[self.camera]["verifyPointingUpdate"] if \
+            "verifypointingupdate" in config[self.camera].keys() else False
+        if str(self.verify_alignment).lower() == "true":
+            self.verify_alignment = True
+        else:
+            self.verify_alignment = False
         return
 
     def spinor_organize_directory(self) -> None:
