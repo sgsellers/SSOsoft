@@ -449,7 +449,7 @@ class SpinorCal:
             hdul[0].header["YCEN"] = round(center_coord["CRVAL2"], 3)
             hdul[0].header["ROT"] = round(center_coord["CROTA2"], 3)
             prstepnum = len([i for i in hdul[0].header.keys() if "PRSTEP" in i]) + 1
-            hdul[0].header[f"PRSTEP{pstepnum}"] = ("SOLAR-ALIGN", "Align coordinates to HMI")
+            hdul[0].header[f"PRSTEP{prstepnum}"] = ("SOLAR-ALIGN", "Align coordinates to HMI")
             for i in range(1, 5):
                 hdul[i].header["CRVAL1"] = round(center_coord["CRVAL1"], 3)
                 hdul[i].header["CRVAL2"] = round(center_coord["CRVAL2"], 3)
@@ -461,7 +461,7 @@ class SpinorCal:
                 hdul[0].header["YCEN"] = round(center_coord["CRVAL2"], 3)
                 hdul[0].header["ROT"] = round(center_coord["CROTA2"], 3)
                 prstepnum = len([i for i in hdul[0].header.keys() if "PRSTEP" in i]) + 1
-                hdul[0].header[f"PRSTEP{pstepnum}"] = ("SOLAR-ALIGN", "Align coordinates to HMI")
+                hdul[0].header[f"PRSTEP{prstepnum}"] = ("SOLAR-ALIGN", "Align coordinates to HMI")
                 for hdu in hdul:
                     if "CRVAL1" in hdu.header.keys():
                         hdu.header["CRVAL1"] = round(center_coord["CRVAL1"], 3)
@@ -2203,7 +2203,7 @@ class SpinorCal:
             os.mkdir(self.context_movie_directory)
         if field_images is not None:
             # Grab only the first selected line
-            field_images = field_images[0]
+            field_images = field_images[0, :, ::-1, :] # Up/down flip
         filename = f"{self.camera}_{self.central_wavelength}_{date}_{time}_context_movie.mp4"
         movie.spinor_movie_maker(level1_file, field_images,
                                  self.context_movie_directory, filename,
