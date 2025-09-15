@@ -403,7 +403,7 @@ class SpinorCal:
                     hdul.flush()
             for file in parameter_files:
                 with fits.open(file, mode="update") as hdul:
-                    cdelt1 = hdul["STOKES-I"].header["CDELT1"]
+                    cdelt1 = hdul[1].header["CDELT1"]
                     if np.abs((self.plate_scale[0] - cdelt1)/cdelt1) > 0.1:
                         new_cdelt1 = cdelt1 * self.plate_scale_correction_factors[0] * cdelt1
                     else:
