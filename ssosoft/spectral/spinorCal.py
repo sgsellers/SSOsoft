@@ -3245,8 +3245,8 @@ class SpinorCal:
             ext.header["CRVAL1"] = (center_x, "Solar-X, arcsec")
             ext.header["CRVAL2"] = (center_y, "Solar-Y, arcsec")
             ext.header["CRVAL3"] = (wavelength_array[0], "Angstrom")
-            ext.header["CRPIX1"] = np.mean(np.arange(datacube.shape[0])) + 1
-            ext.header["CRPIX2"] = np.mean(np.arange(datacube.shape[2])) + 1
+            ext.header["CRPIX1"] = np.mean(np.arange(datacube.shape[2])) + 1
+            ext.header["CRPIX2"] = np.mean(np.arange(datacube.shape[0])) + 1
             ext.header["CRPIX3"] = 1
             ext.header["CROTA2"] = (rotan, "degrees")
             for h in range(len(hairline_centers)):
