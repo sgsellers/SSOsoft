@@ -408,8 +408,8 @@ class SpinorCal:
                         new_cdelt1 = cdelt1 * self.plate_scale_correction_factors[0] * cdelt1
                     else:
                         new_cdelt1 = self.plate_scale[0]
-                    fovx = new_cdelt1 * hdul["STOKES-I"].data.shape[1]
-                    fovy = self.plate_scale[1] * hdul["STOKES-I"].data.shape[0]
+                    fovx = new_cdelt1 * hdul[1].data.shape[1]
+                    fovy = self.plate_scale[1] * hdul[1].data.shape[0]
                     hdul[0].header["FOVX"] = round(fovx, 3)
                     hdul[0].header["FOVY"] = round(fovy, 3)
                     for hdu in hdul:
