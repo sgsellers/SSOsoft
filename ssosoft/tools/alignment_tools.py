@@ -336,6 +336,8 @@ def read_spinor_image(
                 image = np.fliplr(image)
             if "flipud" in i.lower():
                 image = np.flipud(image)
+        image = image[50:-50]
+        header_dict["CRPIX2"] = image.shape[0] / 2
 
     return image, header_dict
 
