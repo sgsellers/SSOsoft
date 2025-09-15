@@ -288,7 +288,7 @@ def read_spinor_image(
         ]
         # Check to see if all required keywords are in FITS header. If they aren't all there, check if
         # kwargs are provided
-        if not all([i in list(f[0].header.keys()) for i in required_keywords]):
+        if not all([i in list(f[1].header.keys()) for i in required_keywords]):
             if not all([slat, slon, dx, dy, rotation]):
                 raise PointingError()
             # If they are, populate the metadata dictionary from kwargs
