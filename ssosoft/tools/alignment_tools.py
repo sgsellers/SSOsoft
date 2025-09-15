@@ -284,7 +284,7 @@ def read_spinor_image(
     """
     with fits.open(filename) as f:
         required_keywords = [
-            "CDELT1", "CDELT2", "CTYPE1", "CTYPE2", "CUNIT1", "CUNIT2", "CRPIX1", "CRPIX2", "CROTA2", "STARTOBS"
+            "CDELT1", "CDELT2", "CTYPE1", "CTYPE2", "CUNIT1", "CUNIT2", "CRPIX1", "CRPIX2", "CROTA2"
         ]
         # Check to see if all required keywords are in FITS header. If they aren't all there, check if
         # kwargs are provided
