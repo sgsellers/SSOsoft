@@ -399,7 +399,7 @@ class SpinorCal:
                         hdul[i].header["CDELT1"] = round(new_cdelt1, 4)
                         hdul[i].header["CDELT2"] = round(self.plate_scale[1], 4)
                     prstep_num = len([i for i in hdul[0].header.keys() if "PRSTEP" in i]) + 1
-                    hdul[0].header[f"PRSTEP{prstepnum}"] = ("SCALE-CORRECT", "Correct plate scale with linegrid")
+                    hdul[0].header[f"PRSTEP{prstep_num}"] = ("SCALE-CORRECT", "Correct plate scale with linegrid")
                     hdul.flush()
             for file in parameter_files:
                 with fits.open(file, mode="update") as hdul:
@@ -417,7 +417,7 @@ class SpinorCal:
                             hdu.header["CDELT1"] = round(new_cdelt1, 4)
                             hdu.header["CDELT2"] = round(self.plate_scale[1], 4)
                     prstep_num = len([i for i in hdul[0].header.keys() if "PRSTEP" in i]) + 1
-                    hdul[0].header[f"PRSTEP{prstepnum}"] = ("SCALE-CORRECT", "Correct plate scale with linegrid")
+                    hdul[0].header[f"PRSTEP{prstep_num}"] = ("SCALE-CORRECT", "Correct plate scale with linegrid")
                     hdul.flush()
         for file in reduced_files:
             refim, refhdr = align.read_spinor_image(file)
