@@ -1163,9 +1163,9 @@ class SpinorCal:
         # In cases where the lamp gain is particularly poorly-illuminated,
         # the shifts can be spuriously large. Reset to 0 and rely on later
         # calibrations
-        if self.beam1_yshift > 10:
+        if np.abs(self.beam1_yshift) > 10:
             self.beam1_yshift = 0
-        if self.beam1_xshift > 10:
+        if np.abs(self.beam1_xshift) > 10:
             self.beam1_xshift = 0
 
         # Clean the hairlines out of the solar flat:
