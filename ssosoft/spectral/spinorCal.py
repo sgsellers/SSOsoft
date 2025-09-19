@@ -1160,6 +1160,14 @@ class SpinorCal:
             self.beam1_yshift = 0
             self.beam_edges[1] += -yshift
 
+        # In cases where the lamp gain is particularly poorly-illuminated,
+        # the shifts can be spuriously large. Reset to 0 and rely on later
+        # calibrations
+        if self.beam1_yshift > 10:
+            self.beam1_yshift = 0
+        if self.beam1_xshift > 10:
+            self.beam1_xshift = 0
+
         # Clean the hairlines out of the solar flat:
         cleaned_solar_flat = self.clean_lamp_flat(self.solar_flat.copy())  # We'll use this going forward
 
