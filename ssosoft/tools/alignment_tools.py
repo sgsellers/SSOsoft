@@ -713,4 +713,5 @@ def verify_alignment_accuracy(
     answer = input("Are you satisfied with this level of alignment [y/n]? ")
     if "n" in answer.lower():
         raise PointingError
+    plt.close("all")
     return

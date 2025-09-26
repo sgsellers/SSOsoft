@@ -22,7 +22,7 @@ authors = [
 maintainers = [
     {name = 'Sean G. Sellers', email='sellers@nmsu.edu'}
 ]
-description = "Tools for reducing Dunn Solar Telescope data, authored G.A. MacDonald, expanded S.G. Sellers"
+description = "Tools for reducing Dunn Solar Telescope data. Imager speckle pipeline authored G.A. MacDonald, all else by S.G. Sellers"
 readme = {file = "README.md", content-type = "text/markdown"}
 license = {text = "MIT License"}
 
@@ -33,3 +33,4 @@ repository = "https://github.com/sgsellers/SSOsoft"
 [tool.setuptools.package-data]
 "ssosoft.spectral.FTS_atlas" = ["**"]
 "ssosoft.spectral.inversions" = ["**"]
+"ssosoft.ifu.fiber_maps" = ["**"]
