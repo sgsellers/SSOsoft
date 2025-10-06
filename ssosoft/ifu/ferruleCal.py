@@ -384,7 +384,7 @@ class FerruleCal():
             with fits.open(self.ferrule_gain_file) as hdul:
                 self.gain = hdul[0].data
                 self.ferrule_position = [hdul[0].header["FERR-X"], hdul[0].header["FERR-Y"]]
-        elif not all(self.avg_flat == 1):
+        elif not (self.avg_flat == 1).all():
             self.ferrule_create_gain()
         else:
             self.gain = np.ones(self.IMAGESHAPE)
@@ -449,7 +449,7 @@ class FerruleCal():
             self.logger.info(
                 "Skipping target creation. Rigid alignment to reference will not be done."
             )
-        if all(self.gain == 1):
+        if (self.gain == 1).all():
             # No cal images for the day. User-select fiber head position.
             flist = sorted(glob.glob(os.path.join(self.ferrule_data_base, self.ferrule_data_file_pattern)))
             with fits.open(flist[0]) as hdul:
