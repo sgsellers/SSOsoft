@@ -355,7 +355,8 @@ class FerruleCal():
                     "Proceeding with incomplete calibration!"
                 )
                 self.avg_dark = np.zeros(self.IMAGESHAPE)
-            self.avg_dark = self.rosa_average_image_from_list(darklist)
+            else:
+                self.avg_dark = self.rosa_average_image_from_list(darklist)
         if os.path.exists(self.ferrule_flat_file):
             self.logger.info(f"Average flat file found: {self.ferrule_flat_file}")
             self.logger.info("Reading average flat.")
@@ -374,7 +375,8 @@ class FerruleCal():
                     "Ferrule position cannot be accurately determined without flat field"
                 )
                 self.avg_flat = np.ones(self.IMAGESHAPE)
-            self.avg_flat = self.rosa_average_image_from_list(flatlist)
+            else:
+                self.avg_flat = self.rosa_average_image_from_list(flatlist)
 
         if os.path.exists(self.ferrule_gain_file):
             self.logger.info(f"Gain file found: {self.ferrule_gain_file}")
