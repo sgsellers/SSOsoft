@@ -890,7 +890,7 @@ class FrancisCal:
     def write_reduced_spectral_file(
             self,
             datacube: np.ndarray,
-            startobs: np.timedelta64, endobs:np.timedelta64,
+            startobs: np.datetime64, endobs:np.datetime64,
             exptime: int,
             nfile: int
         ) -> None:
@@ -929,10 +929,10 @@ class FrancisCal:
             dcss_endidx =spex.find_nearest(self.dcss_params["TIME"], endobs)
             rotan = self.dcss_params["GDRAN"][dcss_startidx] - 13.3
             srad = self.dcss_params["SDIM"][dcss_startidx] / 2
-            llvl = np.mean(self.dcss_params["LLVL"][dcss_startidx:dcss_endidx])
-            scin = np.mean(self.dcss_params["SCIN"][dcss_startidx:dcss_endidx])
-            slat = np.mean(self.dcss_params["SLAT"][dcss_startidx:dcss_endidx])
-            slng = np.mean(self.dcss_params["SLNG"][dcss_startidx:dcss_endidx])
+            llvl = np.mean(self.dcss_params["LLVL"][dcss_startidx:dcss_endidx + 1])
+            scin = np.mean(self.dcss_params["SCIN"][dcss_startidx:dcss_endidx + 1])
+            slat = np.mean(self.dcss_params["SLAT"][dcss_startidx:dcss_endidx + 1])
+            slng = np.mean(self.dcss_params["SLNG"][dcss_startidx:dcss_endidx + 1])
             center_coord = SkyCoord(
                 slng * u.deg, slat * u.deg,
                 obstime=startobs.astype(str), observer="earth",
