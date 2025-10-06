@@ -1011,6 +1011,8 @@ class FrancisCal:
 
         ext = fits.ImageHDU(datacube)
         ext.header["EXTNAME"] = "FIBERS"
+        ext.header["DATE-OBS"] = startobs.astype(str)
+        ext.header["DATE-END"] = endobs.astype(str)
         if rotan != "N/A":
             ext.header["RSUN_ARC"] = srad
             ext.header["CDELT1"] = (round(self.HSPACING_ASEC, 3), "arcsec")

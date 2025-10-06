@@ -10,6 +10,7 @@ import sunpy.coordinates.frames as frames
 import sunpy.map as smap
 import tqdm
 from astropy.coordinates import SkyCoord
+from matplotlib.widgets import RectangleSelector
 from sunpy.coordinates import RotatedSunFrame
 from sunpy.net import Fido
 from sunpy.net import attrs as a
@@ -715,3 +716,42 @@ def verify_alignment_accuracy(
         raise PointingError
     plt.close("all")
     return
+
+def click_and_drag_select(image: np.ndarray, figtext: str="") -> list:
+    """Display an imshow and wait for user to click and drag to select section
+
+    Parameters
+    ----------
+    image : np.ndarray
+        Image to imshow and select from
+
+    Returns
+    -------
+    list
+        Coordinates of x0, x1, y0, y1
+    """
+    fig = plt.figure("Click and drag to select a rectangle")
+    ax = fig.add_subplot(111)
+    if figtext == "":
+        fig.suptitle("Click and drag to select a rectangle")
+    else:
+        fig.suptitle(figtext)
+
+    xcoords = []
+    ycoords = []
+    def rect_select_callback(eclick, erelease):
+        nonlocal xcoords, ycoords
+        x1, y1 = eclick.xdata, eclick.ydata
+        x2, y2 = erelease.xdata, erelease.ydata
+
+        xcoords += sorted([x1, x2])
+        ycoords += sorted([y1, y2])
+
+        fig.canvas.mpl_disconnect(rect_select)
+        plt.pause(0.5)
+        plt.close(fig)
+
+    ax.imshow(image, origin="lower", cmap="gray")
+    rect_select = RectangleSelector(ax, rect_select_callback, useblit=True, button=[1])
+    plt.show(block=True)
+    return np.array(ycoords + xcoords, dtype=int)

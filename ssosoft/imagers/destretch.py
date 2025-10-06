@@ -604,7 +604,7 @@ class RosaZylaDestretch:
 
         full_filelist = self.pspkl_filelist + self.dstr_filelist + self.deflow_filelist
         for translation in self.channel_translation:
-            if translation.lower() == "rot90" or translation.lower() == "flip":
+            if translation.lower() == "rot90":
                 self.scale_reverse += 1
         master_header = ""
         for file in tqdm.tqdm(
