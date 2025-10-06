@@ -239,7 +239,7 @@ class RosaZylaDestretch:
         self.dstr_file_pattern = config[self.channel]["destretchedFileForm"]
 
         # Translation and alignment
-        if "chaneltranslation" in config[self.channel].keys():
+        if "channeltranslation" in config[self.channel].keys():
             trans_string = config[self.channel]["channelTranslation"]
             if trans_string != "" and trans_string.lower() != "none":
                 self.channel_translation = trans_string.split(",")
