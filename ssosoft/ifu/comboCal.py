@@ -31,6 +31,7 @@ class CombineCalibration:
     Methods of this class will align the ferrule data with ROSA,
     and update the WCS values of the fiber data as well.
     """
+    from ssosoft import ssosoftConfig
 
     def __init__(
         self,
