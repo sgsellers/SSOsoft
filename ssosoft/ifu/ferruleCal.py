@@ -387,7 +387,7 @@ class FerruleCal():
         elif not (self.avg_flat == 1).all():
             self.ferrule_create_gain()
         else:
-            self.gain = np.ones(self.IMAGESHAPE)
+            self.gain = self.translate_image(np.ones(self.IMAGESHAPE))
 
         if os.path.exists(self.ferrule_linegrid_file) and self.create_fiducial_maps:
             self.logger.info(f"Linegrid file found: {self.ferrule_linegrid_file}")
