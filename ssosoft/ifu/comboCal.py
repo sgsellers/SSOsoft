@@ -62,7 +62,7 @@ class CombineCalibration:
         self.francis_spectral_window = franciscal.wavelength
         self.ferrule_calbase = ferrulecal.ferrule_calibrated_base
         self.ferrule_filelist = sorted(glob.glob(
-            os.path.join(self.ferrule_calbase), "*.fits"
+            os.path.join(self.ferrule_calbase, "*.fits")
         ))
         if len(self.ferrule_filelist) == 0:
             raise FileNotFoundError(
