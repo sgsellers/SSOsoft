@@ -57,8 +57,8 @@ class CombineCalibration:
                 f"No reduced FRANCIS data found in {self.francis_calbase}."
             )
         self.francis_workbase = franciscal.work_base
-        self.obsdate = franciscal.obsdate
-        self.obstime = franciscal.obstime
+        self.obsdate = franciscal.date
+        self.obstime = franciscal.time
         self.francis_spectral_window = franciscal.wavelength
         self.ferrule_calbase = ferrulecal.ferrule_calibrated_base
         self.ferrule_filelist = sorted(glob.glob(
