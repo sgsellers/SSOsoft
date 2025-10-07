@@ -297,7 +297,7 @@ class CombineCalibration:
             }
             ferrule_map = smap.Map(hdul[0].data, dummy_hdr)
             fiber_coord = ferrule_map.wcs.pixel_to_world(
-                hdul[0].header["FERR-Y"] * u.pix, hdul[0].header["FERR-Y"] * u.pix
+                hdul[0].header["FERR-X"] * u.pix, hdul[0].header["FERR-Y"] * u.pix
             )
 
         self.logger.info("Beginning channel combine and registration.")
@@ -394,7 +394,7 @@ class CombineCalibration:
 
             ext_ferrule = fits.ImageHDU(ferrule_data)
             for key in ferrule_hdr.keys():
-                ext_ferrule.header[key] = ferrule_hdr[key]
+                ext_ferrule.header[key] = (ferrule_hdr[key], ferrule_hdr.comments[key])
             # ext_ferrule.header = ferrule_hdr
             ext_ferrule.header["EXTNAME"] = "FERRULE"
             ext_ferrule.header["CROTA2"] += self.theta
@@ -416,7 +416,11 @@ class CombineCalibration:
             ext_ctx = fits.ImageHDU(context_data)
             for key in context_hdr.keys():
                 if "COMMENT" not in key:
-                    ext_ctx.header[key] = context_hdr[key]
+                    ext_ctx.header[key] = (context_hdr[key], context_hdr.comments[key])
+                if any(["COMMENT" in key for key in context_hdr]):
+                    comments = str(context_hdr["COMMENT"]).split("\n")
+                    for comment in comments:
+                        ext_ctr.header["COMMENT"] = comment
             # ext_ctx.header = context_hdr
             ext_ctx.header["EXTNAME"] = "REFERENCE"
 
