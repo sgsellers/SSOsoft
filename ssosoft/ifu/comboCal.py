@@ -110,9 +110,9 @@ class CombineCalibration:
         self.register_ferrule_cam()
         self.write_combined_data_product()
         if self.cleanup and self.ferrule_calbase != "":
-            self.logger.log(f"Cleaning up {self.ferrule_calbase}...")
+            self.logger.info(f"Cleaning up {self.ferrule_calbase}...")
             for file in self.ferrule_filelist:
-                os.remove(fil)
+                os.remove(file)
             os.rmdir(self.ferrule_calbase)
 
         return
