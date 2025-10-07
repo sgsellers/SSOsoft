@@ -388,7 +388,9 @@ class CombineCalibration:
             ext_wvl.header = wvl_hdr
 
             ext_ferrule = fits.ImageHDU(ferrule_data)
-            ext_ferrule.header = ferrule_hdr
+            for key in ferrule_hdr.keys():
+                ext_ferrule.header[key] = ferrule_hdr[key]
+            # ext_ferrule.header = ferrule_hdr
             ext_ferrule.header["EXTNAME"] = "FERRULE"
             ext_ferrule.header["CROTA2"] += self.theta
             ext_ferrule.header["CRVAL1"] = round(rotated_refpoint.Tx.value, 3)
@@ -405,14 +407,16 @@ class CombineCalibration:
             ext_ferrule.header[f"PRSTEP{prsteps + 1}"] = ("CHANNEL-REG", f"Register to {self.context_channel_name}")
 
             ext_ctx = fits.ImageHDU(context_data)
-            ext_ctx.header = context_hdr
+            for key in context_hdr.keys():
+                ext_ctr[key] = context_hdr[key]
+            # ext_ctx.header = context_hdr
             ext_ctx.header["EXTNAME"] = "REFERENCE"
 
             fits_hdul = fits.HDUList(
                 [ext0, ext_fibers, ext_wvl, ext_ferrule, ext_ctx]
             )
             outname = self.final_file_pattern.format(
-                self.date, self.time,
+                self.obsdate, self.obstime,
                 self.francis_spectral_window,
                 self.context_channel_name,
                 fnum
