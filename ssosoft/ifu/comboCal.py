@@ -2,7 +2,6 @@ import configparser
 import glob
 import logging
 import os
-import shutil
 
 import astropy.io.fits as fits
 import astropy.units as u
@@ -25,7 +24,7 @@ def _find_nearest(array, value):
 
 class CombineCalibration:
     """
-    Class for combining reduced Fiber data and Ferrule data with a 
+    Class for combining reduced Fiber data and Ferrule data with a
     context ROSA/HARDcam channel to constitute a single data product.
 
     Methods of this class will align the ferrule data with ROSA,
@@ -297,7 +296,9 @@ class CombineCalibration:
                 "DATE-OBS": ref_coord.obstime.value
             }
             ferrule_map = smap.Map(hdul[0].data, dummy_hdr)
-            fiber_coord = ferrule_map.wcs.pixel_to_world(hdul[0].header["FERR-Y"] * u.pix, hdul[0].header["FERR-Y"] * u.pix)
+            fiber_coord = ferrule_map.wcs.pixel_to_world(
+                hdul[0].header["FERR-Y"] * u.pix, hdul[0].header["FERR-Y"] * u.pix
+            )
 
         self.logger.info("Beginning channel combine and registration.")
         def print_progress():
@@ -354,8 +355,12 @@ class CombineCalibration:
                 ), observer="earth", obstime=master_hdr["DATE-OBS"]
             )
             prsteps = len([i for i in master_hdr.keys() if "PRSTEP" in i])
-            master_hdr[f"PRSTEP{prsteps+1}"] = ("IMCOMBINE", f"Register to Ferrule camera and {self.context_channel_name}")
-            master_hdr[f"PRSTEP{prsteps+1}"] = ("SOLAR-ALIGN", f"Align to {self.context_channel_name} via Ferrule camera")
+            master_hdr[f"PRSTEP{prsteps+1}"] = (
+                "IMCOMBINE", f"Register to Ferrule camera and {self.context_channel_name}"
+            )
+            master_hdr[f"PRSTEP{prsteps+1}"] = (
+                "SOLAR-ALIGN", f"Align to {self.context_channel_name} via Ferrule camera"
+            )
             master_hdr["COMMENT"] = f"Pointing updated on {np.datetime64("now")}"
 
             master_hdr["XCEN"] = (round(rotated_fpoint.Tx.value, 3), "Fiber head center")
@@ -397,7 +402,9 @@ class CombineCalibration:
             ext_ferrule.header["CRVAL2"] = round(rotated_refpoint.Ty.value, 3)
             ext_ferrule.header["CRPIX1"] += self.offset[1]
             ext_ferrule.header["CRPIX2"] += self.offset[0]
-            ext_ferrule.header["DATE-ACT"] = (ext_ferrule.header["STARTOBS"], "Actual startobs; DATE-OBS keywords altered for pointing.")
+            ext_ferrule.header["DATE-ACT"] = (
+                ext_ferrule.header["STARTOBS"], "Actual startobs; DATE-OBS keywords altered for pointing."
+            )
             ext_ferrule.header["DATE-OBS"] = rotated_refpoint.obstime.value
             ext_ferrule.header["DATE-END"] = rotated_refpoint.obstime.value
             ext_ferrule.header["STARTOBS"] = rotated_refpoint.obstime.value

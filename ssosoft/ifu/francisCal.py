@@ -793,7 +793,7 @@ class FrancisCal:
         # It does not record the actual per-frame timestamps.
         # Need to reconstruct from DATE-OBS and EXPTIME. Since it's rolling-shutter, no readout time
         with fits.open(self.science_file_list[0]) as hdul:
-            t1 = np.datetime64(hdul[0].header["DATAE-OBS"])
+            t1 = np.datetime64(hdul[0].header["DATE-OBS"])
             dt = np.timedelta64(hdul[0].header["EXPTIME"], "ms")
         t0 = t1 - dt * len(self.science_file_list)
         startobs_array = np.arange(t0, t1, dt)
