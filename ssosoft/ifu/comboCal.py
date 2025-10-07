@@ -266,7 +266,7 @@ class CombineCalibration:
         reference_channel_startobs = []
         for file in self.context_channel_filelist:
             with fits.open(file) as hdul:
-                reference_channel_startobs.append(hdul[0].header["DATE-OBS"])
+                reference_channel_startobs.append(hdul[0].header["DATE-BEG"])
         reference_channel_startobs = np.array(reference_channel_startobs, dtype="datetime64[ms]")
         # Grab the reference coordinate from the 0th reference file
         # We'll use this as the master CRVAL coordinate for the ferrule cam
