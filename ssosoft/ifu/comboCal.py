@@ -81,6 +81,8 @@ class CombineCalibration:
         self.context_channel_filelist = []
         self.context_channel_target = ""
 
+        self.progress = franciscal.progress
+
         self.coalign = True
         self.cleanup = True # Removes ferrule images after combination, as they cease to be relevant
 
@@ -372,9 +374,9 @@ class CombineCalibration:
 
             ext_fibers = fits.ImageHDU(francis_data)
             ext_fibers.header = francis_hdr
-            ext_fibers["CRVAL1"] = (round(rotated_fpoint.Tx.value, 3), "Fiber head center")
-            ext_fibers["CRVAL2"] = (round(rotated_fpoint.Ty.value, 3), "Fiber head center")
-            ext_fibers["CROTA2"] += round(self.theta, 3)
+            ext_fibers.header["CRVAL1"] = (round(rotated_fpoint.Tx.value, 3), "Fiber head center")
+            ext_fibers.header["CRVAL2"] = (round(rotated_fpoint.Ty.value, 3), "Fiber head center")
+            ext_fibers.header["CROTA2"] += round(self.theta, 3)
             if reverse % 2 != 0:
                 dx = ext_fibers["CDELT1"]
                 dy = ext_fibers["CDELT2"]
