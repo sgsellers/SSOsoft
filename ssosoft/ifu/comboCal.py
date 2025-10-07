@@ -408,7 +408,7 @@ class CombineCalibration:
 
             ext_ctx = fits.ImageHDU(context_data)
             for key in context_hdr.keys():
-                ext_ctr[key] = context_hdr[key]
+                ext_ctx[key] = context_hdr[key]
             # ext_ctx.header = context_hdr
             ext_ctx.header["EXTNAME"] = "REFERENCE"
 
