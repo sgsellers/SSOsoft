@@ -789,13 +789,39 @@ class FrancisCal:
             if not nfile % 25:
                 self.logger.info("Main Cal Loop Progress: {:0.1%}".format(nfile/len(self.science_file_list)))
 
+        # FRANCIS' DATE-OBS header keyword is the endobs for the *last* frame.
+        # It does not record the actual per-frame timestamps.
+        # Need to reconstruct from DATE-OBS and EXPTIME. Since it's rolling-shutter, no readout time
+        with fits.open(self.science_file_list[0]) as hdul:
+            t1 = np.datetime64(hdul[0].header["DATAE-OBS"])
+            dt = np.timedelta64(hdul[0].header["EXPTIME"], "ms")
+        t0 = t1 - dt * len(self.science_file_list)
+        startobs_array = np.arange(t0, t1, dt)
+        if len(startobs_array) != len(self.science_file_list):
+            # I haven't seen it happen, but there's an edge case here
+            # Where the rounding of DATE-OBS causes issues.
+            # In this case, we'll throw a warning and use linspace instead of
+            # arange. This will result in slightly incorrect candences, but it shouldn't
+            # matter too terribly much
+            startobs_array = np.linspace(t0, t1, num=len(self.science_file_list))
+            self.logger.warning(
+                "Error in reconstructing timestamps! Cadence adjusted from:"
+            )
+            self.logger.warning(
+                f"    {dt.astype(int)} ms to "
+            )
+            self.logger.warning(
+                f"    {(startobs_array[1] - startobs_array[0]).astype(int)} ms"
+            )
+
+
         for nfile, file in enumerate(tqdm.tqdm(
             self.science_file_list,
             desc="Running FRANCIS Calibration Loop",
             disable=not self.progress
         )):
             with fits.open(file) as hdul:
-                startobs = np.datetime64(hdul[0].header["DATE-OBS"])
+                startobs = startobs_array[nfile]
                 exptime = int(hdul[0].header["EXPTIME"])
                 endobs = startobs + np.timedelta64(exptime, "ms")
                 data = np.mean(hdul[0].data, axis=0) - self.dark
