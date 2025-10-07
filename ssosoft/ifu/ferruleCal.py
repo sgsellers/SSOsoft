@@ -508,7 +508,7 @@ class FerruleCal():
                 )
                 # For channel co-alignment, we need minimal WCS, mostly for the plate scale
                 target_pointing_info = {
-                    "STARTOBS": obsdate + "T" + obstime,
+                    "DATE-OBS": obsdate + "T" + obstime,
                     "CRVAL1": 0.0,
                     "CRVAL2": 0.0,
                     "CTYPE1": "HPLN-TAN",
