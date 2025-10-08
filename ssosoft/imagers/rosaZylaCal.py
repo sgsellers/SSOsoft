@@ -1178,6 +1178,8 @@ class rosaZylaCal:
                             enddate = (
                                 np.datetime64(hdu_ext.header["DATE"]) + np.timedelta64(int(self.exptime_ms), "ms")
                             ).astype(str)
+                            if self.correct_time:
+                                enddate = enddate - np.timedelta64(1, "h")
                             if header_index >= 257:
                                 header_index = header_index - 256
 
