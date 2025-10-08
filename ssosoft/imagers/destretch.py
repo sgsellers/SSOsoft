@@ -262,7 +262,7 @@ class RosaZylaDestretch:
             self.solar_align = True if str(self.solar_align).lower() == "true" else False
             self.verify_alignment = config["SHARED"]["verifypointingupdate"] if "verifypointingupdate" \
                 in config["SHARED"].keys() else False
-            self.verify_alignment = True if str(self.verify_alignment) == "true" else False
+            self.verify_alignment = True if str(self.verify_alignment).lower() == "true" else False
             self.create_context_movies = config["SHARED"]["contextMovies"] if "contextmovies" \
                 in config["SHARED"].keys() else False
             self.create_context_movies = True if str(self.create_context_movies).lower() == "true" else False
