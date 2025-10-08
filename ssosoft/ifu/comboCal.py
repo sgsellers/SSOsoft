@@ -420,7 +420,7 @@ class CombineCalibration:
                 if any(["COMMENT" in key for key in context_hdr]):
                     comments = str(context_hdr["COMMENT"]).split("\n")
                     for comment in comments:
-                        ext_ctr.header["COMMENT"] = comment
+                        ext_ctx.header["COMMENT"] = comment
             # ext_ctx.header = context_hdr
             ext_ctx.header["EXTNAME"] = "REFERENCE"
 
