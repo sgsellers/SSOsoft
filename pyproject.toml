@@ -24,7 +24,7 @@ maintainers = [
 ]
 description = "Tools for reducing Dunn Solar Telescope data. Imager speckle pipeline authored G.A. MacDonald, all else by S.G. Sellers"
 readme = {file = "README.md", content-type = "text/markdown"}
-license = "MIT License"
+license = {text = "MIT License"}
 
 [project.urls]
 homepage = "http://ssoc.nmsu.edu"
