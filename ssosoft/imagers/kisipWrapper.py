@@ -99,6 +99,8 @@ class kisipWrapper:
         self.plate_scale = rosaZylaCal.plate_scale
         self.progress = rosaZylaCal.progress
 
+        self.cwd = os.getcwd()
+
     def kisip_configure_run(self):
         """
         Configures the instance of kisipWrapper using the
@@ -183,6 +185,94 @@ class kisipWrapper:
             self.kisip_set_environment()
             self.kisip_write_init_files()
             self.kisip_spawn_kisip()
+            self.kisip_check_run()
+        # Go back to initial directory
+        os.chdir(self.cwd)
+
+    def kisip_check_run(self):
+        """
+        Checks to make sure that KISIP ran the full batch.
+        Recently (2025), we've run into an issue where, if
+        multiple runs are started simultaneously, OOM
+        errors can cause a batch to terminate early.
+
+        This causes problems, so instead of just exiting,
+        we'll check that there's the same number of input
+        and output files.
+        """
+        self.logger.info(
+            "Seaching for input files: {0}".format(
+                os.path.join(
+                    self.preSpeckleBase,
+                    self.burstFileForm.format(
+                        self.obsDate,
+                        self.obsTime,
+                        self.kisipPreSpeckleBatch,
+                        0
+                    )[:-3] + "*" ## Remove last '000' add '*'
+                )
+            )
+        )
+        self.logger.info(
+            "Seaching for speckled files: {0}".format(
+                os.path.join(
+                    self.speckleBase,
+                    self.speckledFileForm.format(
+                        self.obsDate,
+                        self.obsTime,
+                        self.kisipPreSpeckleBatch,
+                        0
+                    )[:-3] + ".final" ## Remove last '000' add *.final
+                )
+            )
+        )
+        input_flist = sorted(glob.glob(
+            os.path.join(
+                self.preSpeckleBase,
+                self.burstFileForm.format(
+                    self.obsDate,
+                    self.obsTime,
+                    self.kisipPreSpeckleBatch,
+                    0
+                )[:-3] + "*" ## Remove last '000' add '*'
+            )
+        ))
+        output_flist = sorted(glob.glob(
+            os.path.join(
+                self.speckleBase,
+                self.speckledFileForm.format(
+                    self.obsDate,
+                    self.obsTime,
+                    self.kisipPreSpeckleBatch,
+                    0
+                )[:-3] + ".final" ## Remove last '000' add *.final
+            )
+        ))
+
+        if len(input_flist) == len(output_flist):
+            ## Run exited just fine, moving on
+            self.logger.info(f"KISIP batch {self.burstNumber} exited with no errors. Proceeding.")
+            return
+        elif len(output_flist) == 0 and len(input_flist) != 0:
+            ## KISIP didn't run at all.
+            self.logger.critical(f"KISIP does not appear to have run on burst {self.burstNumber}."
+                                 "Check your environment and subfield size")
+            raise FileNotFoundError(f"KISIP did not run burst {self.burstNumber} in {self.speckleBase}!")
+        # Error case: Input and output filelists are different lengths.
+        # Means we need to re-run kisip after setting the bursts
+        nattempts = 0 # Probably good not to let this go forever...
+        while len(input_flist) != len(output_flist) and nattempts < 10:
+            self.kisip_set_batch_start_end_inds(
+                self.kisipPreSpeckleBatch,
+                start_ind=len(output_flist)
+            )
+            self.kisip_write_init_files()
+            self.kisip_spawn_kisip()
+            nattempts += 1
+        if nattempts == 10:
+            self.logger.critical(f"KISIP run cannot complete with {nattempts} attempts! Something is seriously wrong.")
+        return
+
 
     def kisip_set_environment(self):
         """
@@ -198,7 +288,7 @@ class kisipWrapper:
                 self.kisipEnvLib, os.pathsep, os.environ["PATH"]
                 )
 
-    def kisip_set_batch_start_end_inds(self, batch):
+    def kisip_set_batch_start_end_inds(self, batch, start_ind=0):
         """
         Sets the starting and ending file indices in the KISIP
         configuration files. Always assumes the starting index
@@ -209,6 +299,9 @@ class kisipWrapper:
         batch : int
             The KISIP pre-speckled image batch number to be
             processed.
+        start_ind : int
+            Start index for the batch. Defaults to 0, but can
+            set manually if KISIP failed partway through.
         """
         self.logger.info("Setting batch number: {0}".format(batch))
         self.kisipPreSpeckleBatch=batch
@@ -257,11 +350,11 @@ class kisipWrapper:
                 "start index: {1} "
                 "end index: {2}.".format(
                     self.kisipPreSpeckleBatch,
-                    0,
+                    start_ind,
                     nfiles-1
                     )
                 )
-        self.kisipPreSpeckleStartInd=0    ##Assumption.
+        self.kisipPreSpeckleStartInd=start_ind    ##Assumption.
         self.kisipPreSpeckleEndInd=nfiles-1    ## Following assumption.
 
     def kisip_spawn_kisip(self):
