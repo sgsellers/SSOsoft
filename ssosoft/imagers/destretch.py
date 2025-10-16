@@ -334,6 +334,10 @@ class RosaZylaDestretch:
                 reference = fits.open(hdul[0]).data
             reference_cube = reference[np.newaxis, :, :]
         else:
+            # Updating datashape for the case where we're destretching older data where we did
+            # a half-assed alignment between channels.
+            with fits.open(self.pspkl_filelist[0]) as hdul:
+                self.datashape = hdul[0].data.shape
             reference_cube = np.zeros((self.dstr_window, *self.datashape))
             reference = np.zeros(self.datashape)
 
