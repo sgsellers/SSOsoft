@@ -2178,26 +2178,26 @@ class FirsCal:
             self.verbose = True if self.verbose.lower() == "true" else False
         self.v2q = config["FIRS"]["v2q"] if "v2q" in config["FIRS"].keys() \
             else self.v2q
-        self.v2q = False if self.v2q.lower() == "false" else self.v2q
+        self.v2q = False if str(self.v2q).lower() == "false" else self.v2q
         self.v2u = config["FIRS"]["v2u"] if "v2u" in config["FIRS"].keys() \
             else self.v2u
-        self.v2u = False if self.v2u.lower() == "false" else self.v2u
+        self.v2u = False if str(self.v2u).lower() == "false" else self.v2u
         self.q2v = config["FIRS"]["q2v"] if "q2v" in config["FIRS"].keys() \
             else self.q2v
-        self.q2v = False if self.q2v.lower() == "false" else self.q2v
+        self.q2v = False if str(self.q2v).lower() == "false" else self.q2v
         self.u2v = config["FIRS"]["u2v"] if "u2v" in config["FIRS"].keys() \
             else self.u2v
-        self.u2v = False if self.u2v.lower() == "false" else self.u2v
+        self.u2v = False if str(self.u2v).lower() == "false" else self.u2v
         # New retardance-based internal crosstalk determination.
         self.internal_crosstalk = config["FIRS"]["internalCrosstalk"] \
             if "internalcrosstalk" in config["FIRS"].keys() else False
-        if self.internal_crosstalk.lower() == "true":
+        if str(self.internal_crosstalk).lower() == "true":
             self.internal_crosstalk = True
             self.v2q = False
             self.v2u = False
             self.q2v = False
             self.u2v = False
-        elif self.internal_crosstalk.lower() == "full":
+        elif str(self.internal_crosstalk).lower() == "full":
             self.internal_crosstalk = "full"
             self.v2q = False
             self.v2u = False
