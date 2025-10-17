@@ -3,10 +3,12 @@ import os
 import sys
 
 import astropy.io.fits as fits
+import astropy.units as u
 import matplotlib.animation as animation
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np
+import sunpy.map as smap
 import tqdm
 from matplotlib.colors import Normalize
 from sunpy import timeseries as ts
@@ -362,7 +364,8 @@ def rosa_hardcam_movie_maker(
 def spinor_movie_maker(
         spinor_filename: str, field_images: np.ndarray | None,
         savedir: str, savename: str, central_wavelength: float,
-        fps: int=0, progress: bool=True
+        fps: int=0, progress: bool=True,
+        instrument="SPINOR"
 ):
     """Creates movie from SPINOR raster
 
@@ -382,6 +385,8 @@ def spinor_movie_maker(
         FPS of final movie. If 0, use best guess, by default 0
     progress : bool, optional
         If True, spawns a progress bar, by default True
+    instrument : str, optional
+        Name of instrument for titles, by default "SPINOR"
     """
     hdul = fits.open(spinor_filename)
     scintillation = hdul["METADATA"].data["TELESCIN"]
@@ -535,7 +540,7 @@ def spinor_movie_maker(
         ax_goes2.set_ylabel("GOES LC", weight="bold", color="C1")
         ax_goes2.tick_params(axis="y", labelcolor="C1")
 
-    title = fig.suptitle(f"SPINOR {central_wavelength}: {str(timestamps[0])}", weight="bold")
+    title = fig.suptitle(f"{instrument} {central_wavelength}: {str(timestamps[0])}", weight="bold")
     fig.tight_layout()
     hdul.close()
 
@@ -548,7 +553,7 @@ def spinor_movie_maker(
         if ax_cont is not None:
             cline.set_xdata([xextent[i], xextent[i]])
         lc_vline.set_xdata([timestamps[i], timestamps[i]])
-        title.set_text(f"SPINOR {central_wavelength}: {str(timestamps[i])}")
+        title.set_text(f"{instrument} {central_wavelength}: {str(timestamps[i])}")
         try:
             # Update Slit Images
             with fits.open(spinor_filename) as hdul:
@@ -591,7 +596,7 @@ def spinor_movie_maker(
             range(iimg.shape[1]),
             file=sys.stdout,
             disable=not progress,
-            desc="Creating SPINOR movie..."
+            desc=f"Creating {instrument} movie..."
         ),
         interval=1000 / fps,
         init_func=lambda: None
@@ -599,6 +604,70 @@ def spinor_movie_maker(
 
     anim.save(os.path.join(savedir, savename), fps=fps)
     return
+
+# Can't think of a way to make this useful, quick, and pretty.
+# Commenting it out for now. I've got 2 weeks to figure it out...
+# def francis_movie_maker(
+#         francis_filelist: list, savedir: str, savename: str,
+#         fps: int=0, progress: bool=True
+# ) -> None:
+#     """Creates movie from FRANCIS combined data product
+
+#     Parameters
+#     ----------
+#     francis_filelist : list
+#         List of combined FRANCIS files.
+#     savedir : str
+#         Location to save final movie to
+#     savename : str
+#         Name of movie file
+#     fps : int, optional
+#         FPS of final movie. If 0, use best guess, by default 0
+#     progress : bool, optional
+#         If True, spawns a progress bar, by default True
+#     """
+#     with fits.open(francis_filelist[0]) as hdul:
+#         startobs = hdul[0].header["STARTOBS"]
+#         # Get coordinate value of ferrule.
+#         # Sunpy maps are too expensive to animate, but we can pull the coordinate extents from maps
+#         ferrule_map = smap.Map(hdul["FERRULE"].data, hdul["FERRULE"].header)
+#         ferrule_coord_wcs = ferrule_map.wcs.pixel_to_world(
+#             hdul["FERRULE"].header["FERR-X"] * u.pix, hdul["FERRULE"].header["FERR-Y"] * u.pix
+#         )
+#         refmap = smap.Map(hdul["REFERENCE"].data, hdul["REFERENCE"].header)
+#         ferrule_pixel_coord = refmap.wcs.world_to_pixel(
+#             ferrule_coord_wcs.transform_to(refmap.coordinate_frame)
+#         )
+
+#         init_data = hdul["FIBERS"].data
+#         init_refim = hdul["REFERENCE"].data
+
+#     fig = plt.figure(figsize=(16, 9))
+#     gs = fig.add_gridspec(nrows=5, ncols=6)
+#     ax_im = fig.add_subplot(gs[:3, 4:])
+#     imdata = ax_im.imshow(
+#         init_refim, interpolation="none", origin="lower", cmap="grap",
+#         vmin=np.mean(init_refim)-3*np.std(init_refim),
+#         vmax=np.mean(init_refim)+3*np.std(init_refim)
+#     )
+#     imdata.plot(ferrule_pixel_coord[0], ferrule_pixel_coord[1], marker="x", color="C1", markersize=10)
+#     ax_im.set_title("Reference Channel w/ Ferrule Center Marked")
+#     ax_im.set_xticks([])
+#     ax_im.set_yticks([])
+#     ax_fim = fig.add_subplot(gs[4:, 4:])
+#     fimdata = ax_fim.imshow(
+#         np.mean(init_data, axis=-1), interpolation="none",
+#     )
+#     fiber_axes = []
+
+
+#     if fps == 0:
+#         if len(francis_filelist) <= 240:
+#             fps = 6
+#         else:
+#             fps =24
+#     fig = plt.figure(figsize=(16, 9))
+#     gs = fig.add_gridspec
 
 def get_goes_timeseries(starttime, endtime, outpath):
     """

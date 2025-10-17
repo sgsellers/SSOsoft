@@ -1,7 +1,9 @@
 import configparser
 import glob
-import logging, logging.config
+import logging
+import logging.config
 import os
+import re
 import warnings
 
 import astropy.io.fits as fits
@@ -14,10 +16,14 @@ import scipy.interpolate as scinterp
 import scipy.ndimage as scind
 import tqdm
 from astropy.coordinates import SkyCoord
+from scipy.signal import find_peaks
 from sunpy.coordinates import frames
 
-from . import spectraTools as spex
+from ..tools import alignment_tools as align
+from ..tools import movie_makers as movie
 from . import polarimetryTools as pol
+from . import spectraTools as spex
+
 # We can piggyback off the static methods in spinorCal
 from . import spinorCal
 
@@ -82,15 +88,7 @@ class FirsCal:
         self.reduced_file_pattern = None
         self.parameter_map_pattern = None
         self.obssum_info = [] # Will be recarray of obs series information
-        self.polcal_file_list = []
-        self.solar_flat_file_list = []
-        self.lamp_flat_file_list = []
-        self.solar_dark_file_list = []
-        self.lamp_dark_file_list = []
         self.science_series_list = []
-        self.science_file_list = []
-        self.line_grid_file_list = []
-        self.target_file_list = []
 
         # Cal file:
         self.t_matrix_file = None
@@ -194,6 +192,14 @@ class FirsCal:
         # It's about a quarter-wave plate.
         self.cal_retardance = 83
 
+        self.context_movie = False
+        self.context_movie_directory = ""
+
+        self.register_observations = False
+        self.verify_alignment = True
+        self.plate_scale = []
+        self.plate_scale_correction_factors = []
+
         return
 
     def firs_run_calibration(self) -> None:
@@ -203,7 +209,7 @@ class FirsCal:
         # For compatibility with numpy.where, we'll use numpy.char.find, which will return -1 where the
         # substring is not found.
         self.science_series_list = np.where(
-            np.char.find(self.obssum_info['OBSTYPE'], "SCAN") != -1
+            np.char.find(self.obssum_info["OBSTYPE"], "SCAN") != -1
         )[0]
         if self.verbose:
             print(
@@ -214,8 +220,8 @@ class FirsCal:
         for index in range(len(self.science_series_list)):
             self.__init__(self.config_file)
             self.firs_configure_run()
-            self.science_series_list = self.obssum_info['OBSSERIES'][np.where(
-                np.char.find(self.obssum_info['OBSTYPE'], "SCAN") != -1
+            self.science_series_list = self.obssum_info["OBSSERIES"][np.where(
+                np.char.find(self.obssum_info["OBSTYPE"], "SCAN") != -1
             )[0]]
             self.firs_get_cal_images(index)
             if self.plot:
@@ -233,6 +239,173 @@ class FirsCal:
                 fringe_alignment=fringe_alignment,
                 v2q=self.v2q, v2u=self.v2u, q2v=self.q2v, u2v=self.u2v
             )
+        if self.register_observations:
+            self.firs_grid_spacing()
+            self.firs_register_to_solar_coordinates()
+        return
+
+    def firs_grid_spacing(self) -> None:
+        """
+        Constructs line grid file and attempts to fine-tune FIRS grid spacing
+        """
+        firs_plate_scale = self.telescope_plate_scale * self.dst_collimator / self.slit_camera_lens
+        lgrd_indices = np.where(["LGRD" in i for i in self.obssum_info["OBSTYPE"]])[0]
+        if len(lgrd_indices) == 0:
+            return
+        if self.obssum_info["NFILES"][lgrd_indices].max() < 36:
+            return
+        else:
+            idx_comp = lgrd_indices[self.obssum_info["NFILES"][lgrd_indices].argmax()]
+        filelist = sorted(glob.glob(os.path.join(self.indur, self.obssum_info["OBSSERIES"][idx_comp] + "*")))
+        lgrd = np.zeros((
+            self.beam_edges[0, 1] - self.beam_edges[0, 0] - 100,
+            len(filelist)
+        ))
+        for i, file in enumerate(filelist):
+            with fits.open(file) as hdul:
+                beam = np.sum(hdul[0].data, axis=0)
+                beam0 = beam[self.beam_edges[0, 0]: self.beam_edges[0, 1], self.slit_edges[0, 0]:self.slit_edges[0, 1]]
+                lgrd[:, i] = np.mean(beam0, axis=1)[50: -50]
+                initial_xspacing = hdul[0].header["SLITWIDTH"] * firs_plate_scale
+        initial_yspacing = firs_plate_scale * self.pixel_size / 1000
+        xmedian_spacing = []
+        for i in range(lgrd.shape[0]):
+            profile = 1/lgrd[i]
+            profile /= profile.max()
+            approx_pix_sep = self.telescope_plate_scale / initial_xspacing
+            peaks, _ = find_peaks(profile, height=0.75, distance=approx_pix_sep/2)
+            xmedian_spacing.append(np.nanmedian(peaks[1:] - peaks[:-1]))
+        xpix_scale = self.telescope_plate_scale / np.nanmedian(xmedian_spacing)
+        if np.abs((xpix_scale - initial_xspacing)/initial_xspacing) > 0.1:
+            # Not within 10% of inital value, don't update pixel scale
+            warnings.warn(
+                f"X pixel scale could not be updated! Calculated: {initial_xspacing}, Measured: {xpix_scale}"
+            )
+            xpix_scale = initial_xspacing
+        ymedian_spacing = []
+        for i in range(lgrd.shape[1]):
+            profile = 1/lgrd[:, i]
+            profile /= profile.max()
+            approx_pix_sep = self.telescope_plate_scale / initial_yspacing
+            peaks, _ = find_peaks(profile, height=0.75, distance=approx_pix_sep/2)
+            ymedian_spacing.append(np.nanmedian(peaks[1:] - peaks[:-1]))
+        ypix_scale = self.telescope_plate_scale / np.nanmedian(ymedian_spacing)
+        if np.abs((ypix_scale - initial_yspacing) / initial_yspacing) > 0.1:
+            warnings.warn(
+                f"Y pixel scale could not be updated! Calculated: {initial_yspacing}, Measured: {ypix_scale}"
+            )
+            ypix_scale = initial_yspacing
+        self.plate_scale = [xpix_scale, ypix_scale]
+        self.plate_scale_correction_factors = [xpix_scale / initial_xspacing, ypix_scale / initial_yspacing]
+        return
+
+    def firs_register_to_solar_coordinates(self) -> None:
+        """
+        Registers Level-1 files to Solar-Coordinates
+        Near as I can tell, I was smart enough to make the SPINOR/FIRS
+        data products so similar that the SPINOR functions should work
+        with FIRS on a 1-to-1 basis. Yay me.
+        """
+        # First up, grab the Level-1 files and parameter files:
+        # Use regex to start with file patterns in the class, and sub curly brackets with wildcards
+        pattern = "\\{[^}]*\\}" # Grabs curly brackets and everything in them
+        reduced_regex_pattern = re.sub(pattern, "*", self.reduced_file_pattern)
+        parameter_regex_pattern = re.sub(pattern, "*", self.parameter_map_pattern)
+        reduced_files = sorted(glob.glob(
+            os.path.join(self.final_dir, reduced_regex_pattern)
+        ))
+        parameter_files = sorted(glob.glob(
+            os.path.join(self.final_dir, parameter_regex_pattern)
+        ))
+        # Plate scale correction
+        if self.plate_scale != []:
+            for file in reduced_files:
+                with fits.open(file, mode="update") as hdul:
+                    # Sometimes the observers will take linegrids with a larger step size than
+                    # the daily maps. We need to check the CDELT1 keyword to make sure it's similar
+                    # to our new plate scale. If it's not, we'll use the scale correction factor instead
+                    # of just plugging in the plate scale.
+                    cdelt1 = hdul["STOKES-I"].header["CDELT1"]
+                    if np.abs((self.plate_scale[0] - cdelt1)/cdelt1) > 0.1:
+                        new_cdelt1 = cdelt1 * self.plate_scale_correction_factors[0] * cdelt1
+                    else:
+                        new_cdelt1 = self.plate_scale[0]
+                    fovx = new_cdelt1 * hdul["STOKES-I"].data.shape[1]
+                    fovy = self.plate_scale[1] * hdul["STOKES-I"].data.shape[0]
+                    hdul[0].header["FOVX"] = round(fovx, 3)
+                    hdul[0].header["FOVY"] = round(fovy, 3)
+                    for i in range(1, 5):
+                        hdul[i].header["CDELT1"] = round(new_cdelt1, 4)
+                        hdul[i].header["CDELT2"] = round(self.plate_scale[1], 4)
+                    prstep_num = len([i for i in hdul[0].header.keys() if "PRSTEP" in i]) + 1
+                    hdul[0].header[f"PRSTEP{prstep_num}"] = ("SCALE-CORRECT", "Correct plate scale with linegrid")
+                    hdul.flush()
+            for file in parameter_files:
+                with fits.open(file, mode="update") as hdul:
+                    cdelt1 = hdul[1].header["CDELT1"]
+                    if np.abs((self.plate_scale[0] - cdelt1)/cdelt1) > 0.1:
+                        new_cdelt1 = cdelt1 * self.plate_scale_correction_factors[0] * cdelt1
+                    else:
+                        new_cdelt1 = self.plate_scale[0]
+                    fovx = new_cdelt1 * hdul[1].data.shape[1]
+                    fovy = self.plate_scale[1] * hdul[1].data.shape[0]
+                    hdul[0].header["FOVX"] = round(fovx, 3)
+                    hdul[0].header["FOVY"] = round(fovy, 3)
+                    for hdu in hdul:
+                        if "CDELT1" in hdu.header.keys():
+                            hdu.header["CDELT1"] = round(new_cdelt1, 4)
+                            hdu.header["CDELT2"] = round(self.plate_scale[1], 4)
+                    prstep_num = len([i for i in hdul[0].header.keys() if "PRSTEP" in i]) + 1
+                    hdul[0].header[f"PRSTEP{prstep_num}"] = ("SCALE-CORRECT", "Correct plate scale with linegrid")
+                    hdul.flush()
+        for file in reduced_files:
+            refim, refhdr = align.read_spinor_image(file)
+            with fits.open(file) as hdul:
+                startobs = hdul[0].header["STARTOBS"]
+                date, time = startobs.split("T")
+                date = date.replace("-", "")
+                time = str(round(float(time.replace(":", "")), 0)).split(".")[0]
+            corresponding_param_maps = [i for i in parameter_files if time in i and date in i]
+            refmap = align.fetch_reference_image(refhdr, savepath=self.final_dir)
+            updated_center = align.align_rotate_map(refim, refhdr, refmap)
+            if self.verify_alignment:
+                try:
+                    align.verify_alignment_accuracy(refim, updated_center, refmap)
+                except align.PointingError:
+                    reference_coordinate = refhdr
+                else:
+                    reference_coordinate = updated_center
+            else:
+                reference_coordinate = updated_center
+            self.update_pointing_info(file, corresponding_param_maps, reference_coordinate)
+        return
+
+    def update_pointing_info(self, main_file: str, parameter_maps:list, center_coord: dict) -> None:
+        """Applies pointing update"""
+        with fits.open(main_file, mode="update") as hdul:
+            hdul[0].header["XCEN"] = round(center_coord["CRVAL1"], 3)
+            hdul[0].header["YCEN"] = round(center_coord["CRVAL2"], 3)
+            hdul[0].header["ROT"] = round(center_coord["CROTA2"], 3)
+            prstepnum = len([i for i in hdul[0].header.keys() if "PRSTEP" in i]) + 1
+            hdul[0].header[f"PRSTEP{prstepnum}"] = ("SOLAR-ALIGN", "Align coordinates to HMI")
+            for i in range(1, 5):
+                hdul[i].header["CRVAL1"] = round(center_coord["CRVAL1"], 3)
+                hdul[i].header["CRVAL2"] = round(center_coord["CRVAL2"], 3)
+                hdul[i].header["CROTA2"] = round(center_coord["CROTA2"], 3)
+            hdul.flush()
+        for file in parameter_maps:
+            with fits.open(file, mode="update") as hdul:
+                hdul[0].header["XCEN"] = round(center_coord["CRVAL1"], 3)
+                hdul[0].header["YCEN"] = round(center_coord["CRVAL2"], 3)
+                hdul[0].header["ROT"] = round(center_coord["CROTA2"], 3)
+                prstepnum = len([i for i in hdul[0].header.keys() if "PRSTEP" in i]) + 1
+                hdul[0].header[f"PRSTEP{prstepnum}"] = ("SOLAR-ALIGN", "Align coordinates to HMI")
+                for hdu in hdul:
+                    if "CRVAL1" in hdu.header.keys():
+                        hdu.header["CRVAL1"] = round(center_coord["CRVAL1"], 3)
+                        hdu.header["CRVAL2"] = round(center_coord["CRVAL2"], 3)
+                        hdu.header["CROTA2"] = round(center_coord["CROTA2"], 3)
+                hdul.flush()
         return
 
     def firs_configure_run(self) -> None:
@@ -249,8 +422,8 @@ class FirsCal:
         """
         Matches cal files and sets up code expectation
         """
-        solar_flat_start_times = self.obssum_info['STARTTIME'][self.obssum_info['OBSTYPE'] == 'SFLT']
-        science_start_times = self.obssum_info['STARTTIME'][self.obssum_info['OBSTYPE'] == 'SCAN']
+        solar_flat_start_times = self.obssum_info["STARTTIME"][self.obssum_info["OBSTYPE"] == "SFLT"]
+        science_start_times = self.obssum_info["STARTTIME"][self.obssum_info["OBSTYPE"] == "SCAN"]
         nearest_flat_indices = [
             spex.find_nearest(solar_flat_start_times, x) for x in science_start_times
         ]
@@ -286,12 +459,12 @@ class FirsCal:
         """
         Loads or creates fringe template from reduced flat field
         """
-        solar_flat_start_times = self.obssum_info['STARTTIME'][self.obssum_info['OBSTYPE'] == 'SFLT']
+        solar_flat_start_times = self.obssum_info["STARTTIME"][self.obssum_info["OBSTYPE"] == "SFLT"]
         obs_index = np.where(self.science_series_list[index] == self.obssum_info["OBSSERIES"])[0][0]
-        science_start_time = self.obssum_info['STARTTIME'][obs_index]
+        science_start_time = self.obssum_info["STARTTIME"][obs_index]
         nearest_flat_index = spex.find_nearest(solar_flat_start_times, science_start_time)
         sflat_index = np.where(self.obssum_info["STARTTIME"] == solar_flat_start_times[nearest_flat_index])[0][0]
-        sflat_start = self.obssum_info['STARTTIME'][sflat_index]
+        sflat_start = self.obssum_info["STARTTIME"][sflat_index]
         date, time = str(sflat_start).split("T")
         date = date.replace("-", "")
         time = str(round(float(time.replace(":", "")), 0)).split(".")[0]
@@ -302,14 +475,14 @@ class FirsCal:
         if os.path.exists(fringe_template_path):
             with fits.open(fringe_template_path) as hdul:
                 fringe_template = hdul[0].data
-                flat_alignment = hdul[0].header['SPALIGN']
+                flat_alignment = hdul[0].header["SPALIGN"]
         else:
             reduced_flat, flat_alignment = self.reduce_firs_maps(
                 sflat_index, write=False, overview=False, fringe_template=None
             )
             fringe_template = self.construct_fringe_template_from_flat(reduced_flat)
             hdu = fits.PrimaryHDU(fringe_template)
-            hdu.header['SPALIGN'] = flat_alignment
+            hdu.header["SPALIGN"] = flat_alignment
             hdul = fits.HDUList(hdu)
             hdul.writeto(fringe_template_filename, overwrite=True)
         return fringe_template, flat_alignment
@@ -320,18 +493,18 @@ class FirsCal:
         """
         if os.path.exists(self.solar_gain_reduced[index]):
             with fits.open(self.solar_gain_reduced[index]) as hdul:
-                self.solar_flat = hdul['SOLAR-FLAT'].data
-                self.solar_dark = hdul['SOLAR-DARK'].data
+                self.solar_flat = hdul["SOLAR-FLAT"].data
+                self.solar_dark = hdul["SOLAR-DARK"].data
         else:
-            sflt_indices = np.where(["SFLT" in i for i in self.obssum_info['OBSTYPE']])[0]
-            sflt_starts = self.obssum_info['STARTTIME'][sflt_indices]
+            sflt_indices = np.where(["SFLT" in i for i in self.obssum_info["OBSTYPE"]])[0]
+            sflt_starts = self.obssum_info["STARTTIME"][sflt_indices]
             obs_index = np.where(self.obssum_info["OBSSERIES"] == self.science_series_list[index])[0][0]
-            obs_start = self.obssum_info['STARTTIME'][obs_index]
+            obs_start = self.obssum_info["STARTTIME"][obs_index]
             sflat_index = sflt_indices[spex.find_nearest(sflt_starts, obs_start)]
-            self.solar_flat = self.average_image_from_list(self.obssum_info['OBSSERIES'][sflat_index])
-            dark_indices = np.where(['DARK' in i for i in self.obssum_info['OBSTYPE']])[0]
+            self.solar_flat = self.average_image_from_list(self.obssum_info["OBSSERIES"][sflat_index])
+            dark_indices = np.where(["DARK" in i for i in self.obssum_info["OBSTYPE"]])[0]
             dark_index = spex.find_nearest(dark_indices, sflat_index)
-            self.solar_dark = self.average_image_from_list(self.obssum_info['OBSSERIES'][dark_indices[dark_index]])
+            self.solar_dark = self.average_image_from_list(self.obssum_info["OBSSERIES"][dark_indices[dark_index]])
         return
 
     def firs_get_solar_gain(self, index: int) -> None:
@@ -340,17 +513,17 @@ class FirsCal:
         """
         if os.path.exists(self.solar_gain_reduced[index]):
             with fits.open(self.solar_gain_reduced[index]) as hdul:
-                self.combined_coarse_gain_table = hdul['COARSE-GAIN'].data
-                self.combined_gain_table = hdul['GAIN'].data
+                self.combined_coarse_gain_table = hdul["COARSE-GAIN"].data
+                self.combined_gain_table = hdul["GAIN"].data
                 self.beam_edges = hdul["BEAM-EDGES"].data
-                self.hairlines = hdul['HAIRLINES'].data
+                self.hairlines = hdul["HAIRLINES"].data
                 self.slit_edges = hdul["SLIT-EDGES"].data
                 self.beam_rotation = hdul["BEAM-ROTATION"].data
-                self.beam_shifts = hdul['BEAM-SHIFTS'].data
-                self.rotated_beam_sizes = hdul['BEAM-SIZES'].data
-                self.full_hairlines = hdul['FULL-HAIR'].data
-                self.firs_line_cores = [hdul[0].header['LC1'], hdul[0].header['LC2']]
-                self.fts_line_cores = [hdul[0].header['FTSLC1'], hdul[0].header['FTSLC2']]
+                self.beam_shifts = hdul["BEAM-SHIFTS"].data
+                self.rotated_beam_sizes = hdul["BEAM-SIZES"].data
+                self.full_hairlines = hdul["FULL-HAIR"].data
+                self.firs_line_cores = [hdul[0].header["LC1"], hdul[0].header["LC2"]]
+                self.fts_line_cores = [hdul[0].header["FTSLC1"], hdul[0].header["FTSLC2"]]
         else:
             self.firs_create_solar_gain()
             self.firs_save_gaintables(index)
@@ -430,12 +603,12 @@ class FirsCal:
                     xshift = np.correlate(
                         (np.nanmean(master_clipped, axis=0) - np.nanmean(master_clipped)),
                         (np.nanmean(rotate_clipped, axis=0) - np.nanmean(rotate_clipped)),
-                        mode='full'
+                        mode="full"
                     ).argmax() - master_clipped.shape[1]
                     yshift = np.correlate(
                         (np.nanmean(master_clipped, axis=1) - np.nanmean(master_clipped)),
                         (np.nanmean(rotate_clipped, axis=1) - np.nanmean(rotate_clipped)),
-                        mode='full'
+                        mode="full"
                     ).argmax() - master_clipped.shape[0]
                     self.beam_shifts[:, j, i] = (yshift, xshift)
 
@@ -495,34 +668,34 @@ class FirsCal:
                 print("File exists: {0}\nSkipping File Write.".format(self.solar_gain_reduced[index]))
             return
         phdu = fits.PrimaryHDU()
-        phdu.header['DATE'] = np.datetime64('now').astype(str)
-        phdu.header['LC1'] = self.firs_line_cores[0]
-        phdu.header['LC2'] = self.firs_line_cores[1]
-        phdu.header['FTSLC1'] = self.fts_line_cores[0]
-        phdu.header['FTSLC2'] = self.fts_line_cores[1]
+        phdu.header["DATE"] = np.datetime64("now").astype(str)
+        phdu.header["LC1"] = self.firs_line_cores[0]
+        phdu.header["LC2"] = self.firs_line_cores[1]
+        phdu.header["FTSLC1"] = self.fts_line_cores[0]
+        phdu.header["FTSLC2"] = self.fts_line_cores[1]
 
         flat = fits.ImageHDU(self.solar_flat)
-        flat.header['EXTNAME'] = 'SOLAR-FLAT'
+        flat.header["EXTNAME"] = "SOLAR-FLAT"
         dark = fits.ImageHDU(self.solar_dark)
-        dark.header['EXTNAME'] = 'SOLAR-DARK'
+        dark.header["EXTNAME"] = "SOLAR-DARK"
         cgain = fits.ImageHDU(self.combined_coarse_gain_table)
-        cgain.header['EXTNAME'] = 'COARSE-GAIN'
+        cgain.header["EXTNAME"] = "COARSE-GAIN"
         fgain = fits.ImageHDU(self.combined_gain_table)
-        fgain.header['EXTNAME'] = 'GAIN'
+        fgain.header["EXTNAME"] = "GAIN"
         bedge = fits.ImageHDU(self.beam_edges)
-        bedge.header['EXTNAME'] = 'BEAM-EDGES'
+        bedge.header["EXTNAME"] = "BEAM-EDGES"
         hairs = fits.ImageHDU(self.hairlines)
-        hairs.header['EXTNAME'] = 'HAIRLINES'
+        hairs.header["EXTNAME"] = "HAIRLINES"
         slits = fits.ImageHDU(self.slit_edges)
-        slits.header['EXTNAME'] = 'SLIT-EDGES'
+        slits.header["EXTNAME"] = "SLIT-EDGES"
         rotat = fits.ImageHDU(self.beam_rotation)
-        rotat.header['EXTNAME'] = 'BEAM-ROTATION'
+        rotat.header["EXTNAME"] = "BEAM-ROTATION"
         shifts = fits.ImageHDU(self.beam_shifts)
-        shifts.header['EXTNAME'] = 'BEAM-SHIFTS'
+        shifts.header["EXTNAME"] = "BEAM-SHIFTS"
         bsizes = fits.ImageHDU(self.rotated_beam_sizes)
-        bsizes.header['EXTNAME'] = 'BEAM-SIZES'
+        bsizes.header["EXTNAME"] = "BEAM-SIZES"
         fhair = fits.ImageHDU(self.full_hairlines)
-        fhair.header['EXTNAME'] = 'FULL-HAIR'
+        fhair.header["EXTNAME"] = "FULL-HAIR"
 
         hdul = fits.HDUList([phdu, flat, dark, cgain, fgain, bedge, hairs, slits, rotat, shifts, bsizes, fhair])
         hdul.writeto(self.solar_gain_reduced[index], overwrite=True)
@@ -540,43 +713,43 @@ class FirsCal:
         ax_coarse = gain_fig.add_subplot(143)
         ax_fine = gain_fig.add_subplot(144)
         ax_lamp.imshow(
-            self.lamp_gain, origin='lower', cmap='gray', vmin=0.5, vmax=2.5
+            self.lamp_gain, origin="lower", cmap="gray", vmin=0.5, vmax=2.5
         )
         corr_flat = (self.solar_flat - self.solar_dark) / self.lamp_gain
         ax_flat.imshow(
-            corr_flat, origin='lower', cmap='gray',
+            corr_flat, origin="lower", cmap="gray",
             vmin=np.nanmean(corr_flat) - 2*np.nanstd(corr_flat),
             vmax=np.nanmean(corr_flat) + 2*np.nanstd(corr_flat)
         )
         ax_coarse.imshow(
-            self.combined_coarse_gain_table, origin='lower', cmap='gray', vmin=0.5, vmax=2.5
+            self.combined_coarse_gain_table, origin="lower", cmap="gray", vmin=0.5, vmax=2.5
         )
         ax_fine.imshow(
-            self.combined_gain_table, origin='lower', cmap='gray', vmin=0.5, vmax=2.5
+            self.combined_gain_table, origin="lower", cmap="gray", vmin=0.5, vmax=2.5
         )
-        ax_lamp.set_title('LAMP GAIN')
-        ax_flat.set_title('SOLAR FLAT')
-        ax_coarse.set_title('COARSE GAIN')
-        ax_fine.set_title('FINE GAIN')
+        ax_lamp.set_title("LAMP GAIN")
+        ax_flat.set_title("SOLAR FLAT")
+        ax_coarse.set_title("COARSE GAIN")
+        ax_fine.set_title("FINE GAIN")
         for beam in self.beam_edges.flatten():
-            ax_lamp.axhline(beam, c='C1', linewidth=1)
-            ax_flat.axhline(beam, c='C1', linewidth=1)
-            ax_coarse.axhline(beam, c='C1', linewidth=1)
-            ax_fine.axhline(beam, c='C1', linewidth=1)
+            ax_lamp.axhline(beam, c="C1", linewidth=1)
+            ax_flat.axhline(beam, c="C1", linewidth=1)
+            ax_coarse.axhline(beam, c="C1", linewidth=1)
+            ax_fine.axhline(beam, c="C1", linewidth=1)
         for edge in self.slit_edges.flatten():
-            ax_lamp.axvline(edge, c='C1', linewidth=1)
-            ax_flat.axvline(edge, c='C1', linewidth=1)
-            ax_coarse.axvline(edge, c='C1', linewidth=1)
-            ax_fine.axvline(edge, c='C1', linewidth=1)
+            ax_lamp.axvline(edge, c="C1", linewidth=1)
+            ax_flat.axvline(edge, c="C1", linewidth=1)
+            ax_coarse.axvline(edge, c="C1", linewidth=1)
+            ax_fine.axvline(edge, c="C1", linewidth=1)
         for hair in self.hairlines.flatten():
-            ax_lamp.axhline(hair, c='C2', linewidth=1)
-            ax_flat.axhline(hair, c='C2', linewidth=1)
-            ax_coarse.axhline(hair, c='C2', linewidth=1)
-            ax_fine.axhline(hair, c='C2', linewidth=1)
+            ax_lamp.axhline(hair, c="C2", linewidth=1)
+            ax_flat.axhline(hair, c="C2", linewidth=1)
+            ax_coarse.axhline(hair, c="C2", linewidth=1)
+            ax_fine.axhline(hair, c="C2", linewidth=1)
         gain_fig.tight_layout()
         if self.save_figs:
             filename = os.path.join(self.final_dir, "gain_tables_{0}.png".format(index))
-            gain_fig.savefig(filename, bbox_inches='tight')
+            gain_fig.savefig(filename, bbox_inches="tight")
         plt.show(block=False)
         plt.pause(0.1)
 
@@ -595,33 +768,33 @@ class FirsCal:
                 self.lamp_gain = hdul[0].data
         # Create new lamp gain and save to file:
         elif any(["LFLT" in i for i in self.obssum_info["OBSTYPE"]]):
-            if any(["LDRK" in i for i in self.obssum_info['OBSTYPE']]):
-                lamp_dark_index = np.where(self.obssum_info['OBSTYPE'] == 'LDRK')[0][0]
-                lamp_dark = self.average_image_from_list(self.obssum_info['OBSSERIES'][lamp_dark_index])
-                lamp_flat_index = np.where(self.obssum_info['OBSTYPE'] == 'LFLT')[0][0]
-                lamp_flat = self.average_image_from_list(self.obssum_info['OBSSERIES'][lamp_flat_index])
+            if any(["LDRK" in i for i in self.obssum_info["OBSTYPE"]]):
+                lamp_dark_index = np.where(self.obssum_info["OBSTYPE"] == "LDRK")[0][0]
+                lamp_dark = self.average_image_from_list(self.obssum_info["OBSSERIES"][lamp_dark_index])
+                lamp_flat_index = np.where(self.obssum_info["OBSTYPE"] == "LFLT")[0][0]
+                lamp_flat = self.average_image_from_list(self.obssum_info["OBSSERIES"][lamp_flat_index])
             else:
                 # Need to kludge a dark file together from the solar dark.
                 # Grab the last solar dark taken in the day, make an average dark image
-                solar_dark_index = np.where(self.obssum_info['OBSTYPE'] == 'DARK')[0][0]
-                average_dark = self.average_image_from_list(self.obssum_info['OBSSERIES'][solar_dark_index])
-                dark_exptime = (self.obssum_info['EXPTIME'][solar_dark_index] *
-                                self.obssum_info['COADD'][solar_dark_index])
+                solar_dark_index = np.where(self.obssum_info["OBSTYPE"] == "DARK")[0][0]
+                average_dark = self.average_image_from_list(self.obssum_info["OBSSERIES"][solar_dark_index])
+                dark_exptime = (self.obssum_info["EXPTIME"][solar_dark_index] *
+                                self.obssum_info["COADD"][solar_dark_index])
                 # Need to create an average dark rate. Then we can get a sensible estimate of the dark current
                 # at the lamp flat exposure time.
                 dark_rate = average_dark / dark_exptime
-                lamp_flat_index = np.where(self.obssum_info['OBSTYPE'] == 'LFLT')[0][0]
-                lamp_exptime = (self.obssum_info['EXPTIME'][lamp_flat_index] *
-                                self.obssum_info['COADD'][lamp_flat_index])
+                lamp_flat_index = np.where(self.obssum_info["OBSTYPE"] == "LFLT")[0][0]
+                lamp_exptime = (self.obssum_info["EXPTIME"][lamp_flat_index] *
+                                self.obssum_info["COADD"][lamp_flat_index])
                 lamp_dark = dark_rate * lamp_exptime
-                lamp_flat = self.average_image_from_list(self.obssum_info['OBSSERIES'][lamp_flat_index])
+                lamp_flat = self.average_image_from_list(self.obssum_info["OBSSERIES"][lamp_flat_index])
             cleaned_lamp_flat = self.clean_flat(lamp_flat - lamp_dark)
             lamp_gain = cleaned_lamp_flat / np.nanmedian(cleaned_lamp_flat)
             lamp_gain[lamp_gain == 0] = 1
             self.lamp_gain = lamp_gain
             hdu = fits.PrimaryHDU(self.lamp_gain)
-            hdu.header['DATE'] = np.datetime64("now").astype(str)
-            hdu.header['COMMENT'] = "Created from series {0}".format(self.obssum_info['OBSSERIES'][lamp_flat_index])
+            hdu.header["DATE"] = np.datetime64("now").astype(str)
+            hdu.header["COMMENT"] = "Created from series {0}".format(self.obssum_info["OBSSERIES"][lamp_flat_index])
             fits.HDUList([hdu]).writeto(self.lamp_gain_reduced, overwrite=True)
         else:
             self.lamp_gain = np.ones(self.solar_dark.shape)
@@ -634,12 +807,12 @@ class FirsCal:
         """
         if os.path.exists(self.tx_matrix_reduced):
             with fits.open(self.tx_matrix_reduced) as hdul:
-                self.input_stokes = hdul['STOKES-IN'].data
-                self.calcurves = hdul['CALCURVES'].data
-                self.txmat = hdul['TXMAT'].data
-                self.txchi = hdul['TXCHI'].data
-                self.txmat00 = hdul['TX00'].data
-                self.txmatinv = hdul['TXMATINV'].data
+                self.input_stokes = hdul["STOKES-IN"].data
+                self.calcurves = hdul["CALCURVES"].data
+                self.txmat = hdul["TXMAT"].data
+                self.txchi = hdul["TXCHI"].data
+                self.txmat00 = hdul["TX00"].data
+                self.txmatinv = hdul["TXMATINV"].data
         else:
             self.firs_polcal()
             self.save_polcal()
@@ -653,13 +826,12 @@ class FirsCal:
         Performs polarization calibration of FIRS data
         """
         # Unlike IDL pipeline, we'll use both sets of polcals.
-        polcal_indices = np.where(np.char.find(self.obssum_info['OBSTYPE'], 'PCAL') != -1)[0]
+        polcal_indices = np.where(np.char.find(self.obssum_info["OBSTYPE"], "PCAL") != -1)[0]
         polcal_files = []
         for index in polcal_indices:
             polcal_files += sorted(glob.glob(
-                os.path.join(self.indir, self.obssum_info['OBSSERIES'][index]+"*")
+                os.path.join(self.indir, self.obssum_info["OBSSERIES"][index]+"*")
             ))
-        self.polcal_file_list = polcal_files
         polcal_stokes_beams = np.zeros((
             len(polcal_files), # pcal stage
             self.nslits, # slit
@@ -674,15 +846,15 @@ class FirsCal:
         azimuth = np.zeros(len(polcal_files))
         elevation = np.zeros(len(polcal_files))
         table_angle = np.zeros(len(polcal_files))
-        for file, i in zip(polcal_files, tqdm.tqdm(range(len(polcal_files)), desc='Reading Polcal Files...')):
+        for file, i in zip(polcal_files, tqdm.tqdm(range(len(polcal_files)), desc="Reading Polcal Files...")):
             with fits.open(file) as hdul:
                 # Grab the angles we need to form the polcal model
-                polarizer_angle[i] = hdul[0].header['PT4_POL']
-                retarder_angle[i] = hdul[0].header['PT4_RET']
-                llvl[i] = hdul[0].header['DST_LLVL']
-                azimuth[i] = hdul[0].header['DST_AZ']
-                elevation[i] = hdul[0].header['DST_EL']
-                table_angle[i] = hdul[0].header['DST_TBL']
+                polarizer_angle[i] = hdul[0].header["PT4_POL"]
+                retarder_angle[i] = hdul[0].header["PT4_RET"]
+                llvl[i] = hdul[0].header["DST_LLVL"]
+                azimuth[i] = hdul[0].header["DST_AZ"]
+                elevation[i] = hdul[0].header["DST_EL"]
+                table_angle[i] = hdul[0].header["DST_TBL"]
                 # Dark/gain-correct and demodulate data
                 dmod_data = self.demodulate_firs(
                     (hdul[0].data - self.solar_dark) / self.lamp_gain / self.combined_gain_table
@@ -836,7 +1008,7 @@ class FirsCal:
 
                 # Check physicality & Efficiencies:
                 if np.nanmax(efficiencies[1:]) > 0.866:
-                    name = ['Q ', 'U ', 'V ', 'QUV ']
+                    name = ["Q ", "U ", "V ", "QUV "]
                     warnings.warn(
                         str(name[efficiencies[1:].argmax()]) +
                         "is likely too high with a value of " +
@@ -867,7 +1039,7 @@ class FirsCal:
                 print("File exists: {0}\nSkipping file write.".format(self.tx_matrix_reduced))
             return
         phdu = fits.PrimaryHDU()
-        phdu.header['DATE'] = np.datetime64('now').astype(str)
+        phdu.header["DATE"] = np.datetime64("now").astype(str)
 
         in_stoke = fits.ImageHDU(self.input_stokes)
         in_stoke.header["EXTNAME"] = "STOKES-IN"
@@ -900,10 +1072,10 @@ class FirsCal:
         # Column 3: TXMAT @ Input Stokes Vectors IQUV
         gs = polcal_fig.add_gridspec(ncols=3, nrows=4)
         out_stokes = np.array([self.txmat @ self.input_stokes[j, :] for j in range(self.input_stokes.shape[0])])
-        names = ['I', 'Q', 'U', 'V']
+        names = ["I", "Q", "U", "V"]
         # Increment colors for each subslit, increment linestyle for each slit
         # Max quad slit unit
-        linestyles = ['-', ':', '--', '-.']
+        linestyles = ["-", ":", "--", "-."]
         for i in range(4):
             ax_ccurve = polcal_fig.add_subplot(gs[i, 0])
             ax_incurve = polcal_fig.add_subplot(gs[i, 1])
@@ -914,8 +1086,8 @@ class FirsCal:
                 ax_outcurve.set_title("FIT VECTORS")
             for j in range(self.n_subslits):
                 for k in range(self.nslits):
-                    ax_ccurve.plot(self.calcurves[:, k, i, j], c='C{0}'.format(j), linestyle=linestyles[k])
-                    ax_outcurve.plot(out_stokes[:, j, k, i], c='C{0}'.format(j), linestyle=linestyles[k])
+                    ax_ccurve.plot(self.calcurves[:, k, i, j], c="C{0}".format(j), linestyle=linestyles[k])
+                    ax_outcurve.plot(out_stokes[:, j, k, i], c="C{0}".format(j), linestyle=linestyles[k])
             ax_incurve.plot(self.input_stokes[:, i])
             # Clip to x range of [0, end]
             ax_ccurve.set_xlim(0, self.calcurves.shape[0])
@@ -945,7 +1117,7 @@ class FirsCal:
         polcal_fig.tight_layout()
         if self.save_figs:
             filename = os.path.join(self.final_dir, "polcal_curves.png")
-            polcal_fig.savefig(filename, bbox_inches='tight')
+            polcal_fig.savefig(filename, bbox_inches="tight")
         plt.show(block=False)
         plt.pause(0.1)
 
@@ -994,20 +1166,20 @@ class FirsCal:
         """
         # FIRS maps taken with a repeat have the same file stem;
         # firs.2.YYYYMMDD.HHMMSS.XXXX.RRRR, where XXXX is the slit position, and RRRR is the iteration of map.
-        nrepeat = self.obssum_info['NREPEAT'][index]
+        nrepeat = self.obssum_info["NREPEAT"][index]
         reduced_data = []
         for n in range(nrepeat):
             filelist = sorted(glob.glob(os.path.join(
                 self.indir,
-                self.obssum_info['OBSSERIES'][index] + ".*.{0:04d}".format(n) # Really should use regex for this...
+                self.obssum_info["OBSSERIES"][index] + ".*.{0:04d}".format(n) # Really should use regex for this...
             )))
             if self.verbose:
                 print(
                     "Reducing Map {0} of {1} with {2} slit positions:"
-                    "\nSeries: {3}".format(n+1, nrepeat, len(filelist), self.obssum_info['OBSSERIES'][index])
+                    "\nSeries: {3}".format(n+1, nrepeat, len(filelist), self.obssum_info["OBSSERIES"][index])
                 )
             with fits.open(filelist[0]) as hdul:
-                date, time = hdul[0].header['OBS_STAR'].split("T")
+                date, time = hdul[0].header["OBS_STAR"].split("T")
                 date = date.replace("-", "")
                 time = str(round(float(time.replace(":", "")), 0)).split(".")[0]
                 outname = self.reduced_file_pattern.format(
@@ -1019,7 +1191,7 @@ class FirsCal:
                                         "\nExists. (R)emake or (C)ontinue?  ".format(outname))
                     if ("c" in remake_file.lower()) or (remake_file.lower() == ""):
                         plt.pause(2)
-                        plt.close('all')
+                        plt.close("all")
                         reduced_data = self.read_reduced_data(outfile)
                         return reduced_data
                     elif ("r" in remake_file.lower()) and self.verbose:
@@ -1085,7 +1257,7 @@ class FirsCal:
                             )
                             master_hairline_centers = (
                                 hairline_centers[0, 0], # Slit 0, Beam 0 lower hairline
-                                hairline_centers[0, 0] + np.diff(self.full_hairlines[0, 0])[0] # Based on original spacing.
+                                hairline_centers[0, 0] + np.diff(self.full_hairlines[0, 0])[0] # Based on orig. spacing.
                             )
                         else:
                             hairline_skews, hairline_centers = self.subpixel_hairline_align(
@@ -1098,20 +1270,20 @@ class FirsCal:
                                     science_beams[beam, :, slit, :, profile] = scind.shift(
                                         science_beams[beam, :, slit, :, profile],
                                         (0, hairline_skews[beam, slit, profile]),
-                                        mode='nearest', order=1
+                                        mode="nearest", order=1
                                     )
                                 # Perform bulk shift to 0th beam, 0th slit
                                 if not beam == slit == 0:
                                     science_beams[beam, :, slit, :, :] = scind.shift(
                                         science_beams[beam, :, slit, :, :],
                                         (0, -(hairline_centers[beam, slit] - hairline_centers[0, 0]), 0),
-                                        mode='nearest', order=1
+                                        mode="nearest", order=1
                                     )
                                 # Perform bulk shift to 0th beam, 0th slit, 0th step
                                 science_beams[beam, :, slit, :, :] = scind.shift(
                                     science_beams[beam, :, slit, :, :],
                                     (0, -(hairline_centers[beam, slit] - master_hairline_centers[0]), 0),
-                                    mode='nearest', order=1
+                                    mode="nearest", order=1
                                 )
                         # Perform spectral deskew and registration
                         science_beams, spectral_centers = self.subpixel_spectral_align(science_beams, hairline_centers)
@@ -1134,7 +1306,7 @@ class FirsCal:
                             science_beams[0, 1:, :, :, :] - science_beams[1, 1:, :, :, :]
                         ) / 2
                         tmtx = pol.get_dst_matrix(
-                            [hdul[0].header['DST_AZ'], hdul[0].header['DST_EL'], hdul[0].header['DST_TBL']],
+                            [hdul[0].header["DST_AZ"], hdul[0].header["DST_EL"], hdul[0].header["DST_TBL"]],
                             self.central_wavelength,
                             180,
                             self.t_matrix_file
@@ -1149,11 +1321,11 @@ class FirsCal:
                                 )
                         # Parallactic angle for QU rotation correction
                         angular_geometry = pol.spherical_coordinate_transform(
-                            [hdul[0].header['DST_AZ'], hdul[0].header['DST_EL']],
+                            [hdul[0].header["DST_AZ"], hdul[0].header["DST_EL"]],
                             self.site_latitude
                         )
                         # Sub off P0 angle
-                        rotation = np.pi + angular_geometry[2] - hdul[0].header['DST_PEE'] * np.pi / 180
+                        rotation = np.pi + angular_geometry[2] - hdul[0].header["DST_PEE"] * np.pi / 180
                         crot = np.cos(-2 * rotation)
                         srot = np.sin(-2 * rotation)
                         # Make Q/U copies since the correction to each depends on the other
@@ -1163,7 +1335,7 @@ class FirsCal:
                         reduced_data[2, :, :, step_ctr, :] = -srot * qtmp + crot * utmp
                         # Last thing we need the file open for: grab the slit width as a proxy for step size
 
-                        slit_width = hdul[0].header['SLITWDTH'] # mm
+                        slit_width = hdul[0].header["SLITWDTH"] # mm
                         # Exit the FITS context manager and close the file
                     # Here, we have to make a choice. We need to do crosstalks, prefilter corrections, and defringe.
                     # I'm torn on what the best order of this is, but my gut feeling is:
@@ -1320,6 +1492,8 @@ class FirsCal:
                             *plot_params, field_images, reduced_data[:, :, :, step_ctr, :],
                             complete_internal_crosstalks[:, :, :, step_ctr], step_ctr
                         )
+                    else:
+                        field_images = None
                     step_ctr += 1
                     pbar.update(1)
             # Completed series, moving to next repeat, but save first
@@ -1333,7 +1507,7 @@ class FirsCal:
                         self.final_dir,
                         "field_image_{0}_map{1}_repeat{2}.png".format(names[fig], index, n)
                     )
-                    plot_params[0][fig].savefig(filename, bbox_inches='tight')
+                    plot_params[0][fig].savefig(filename, bbox_inches="tight")
             if write:
                 wavelength_grids = np.zeros((self.nslits, reduced_data.shape[-1]))
                 for slit in range(self.nslits):
@@ -1356,18 +1530,45 @@ class FirsCal:
                     flat_waves,
                     reduced_filename
                 )
+                if self.context_movie:
+                    movie_filename = self.firs_context_movies(field_images, reduced_filename)
+                else:
+                    movie_filename = ""
 
                 if self.verbose:
                     print("\n\n=====================")
                     print("Saved Reduced Data at: {0}".format(reduced_filename))
                     print("Saved Parameter Maps at: {0}".format(param_filename))
                     print("Saved Crosstalk Coefficients at: {0}".format(crosstalk_filename))
+                    if self.context_movie:
+                        print(f"Wrote context movie file to: {movie_filename}")
                     print("=====================\n\n")
                 if overview:
                     plt.pause(2)
                     plt.close("all")
         return reduced_data, master_spectral_center
 
+    def firs_context_movies(self, field_images: np.ndarray | None, level1_file: str) -> str:
+        """Wrapper to generate context movie for obs"""
+        with fits.open(level1_file) as hdul:
+            startobs = hdul[0].header["STARTOBS"]
+            date, time = startobs.split("T")
+            date = date.replace("-", "")
+            time = str(round(float(time.replace(":", "")), 0)).split(".")[0]
+        if not os.path.exists(self.context_movie_directory) and self.context_movie_directory != "":
+            os.mkdir(self.context_movie_directory)
+        if field_images is not None and self.analysis_ranges == "default":
+            # Grab the He I field image
+            field_images = field_images[2]
+        elif field_images is not None:
+            field_images = field_images[0]
+        filename = f"FIRS_{self.central_wavelength}_{date}_{time}_context_movie.mp4"
+        movie.spinor_movie_maker(
+            level1_file, field_images,
+            self.context_movie_directory, filename,
+            self.central_wavelength, progress=self.verbose
+        )
+        return os.path.join(self.context_movie_directory, filename)
 
     def detrend_i_crosstalk(
             self, quv_data: np.ndarray, i_data: np.ndarray
@@ -1691,10 +1892,10 @@ class FirsCal:
         )
         # Getting Min/Max Wavelength for FTS comparison; padding by 30 pixels on either side
         # Same selection process as in flat fielding.
-        apx_wavemin = self.central_wavelength - np.nanmean(self.slit_edges) * grating_params['Spectral_Pixel'] / 1000
-        apx_wavemax = self.central_wavelength + np.nanmean(self.slit_edges) * grating_params['Spectral_Pixel'] / 1000
-        apx_wavemin -= 30 * grating_params['Spectral_Pixel'] / 1000
-        apx_wavemax += 30 * grating_params['Spectral_Pixel'] / 1000
+        apx_wavemin = self.central_wavelength - np.nanmean(self.slit_edges) * grating_params["Spectral_Pixel"] / 1000
+        apx_wavemax = self.central_wavelength + np.nanmean(self.slit_edges) * grating_params["Spectral_Pixel"] / 1000
+        apx_wavemin -= 30 * grating_params["Spectral_Pixel"] / 1000
+        apx_wavemax += 30 * grating_params["Spectral_Pixel"] / 1000
         fts_wave, fts_spec = spex.fts_window(apx_wavemin, apx_wavemax)
         fts_core = sorted(np.array(self.fts_line_cores))
 
@@ -1772,7 +1973,7 @@ class FirsCal:
                 for k in range(hairline_skews.shape[2]):
                     deskewed_image[:, k] = scind.shift(
                         alignment_image[i, j, :, k], hairline_skews[i, j, k],
-                        mode='nearest', order=1
+                        mode="nearest", order=1
                     )
                 hairline_centers[i, j] = spex.find_line_core(
                     np.nanmedian(deskewed_image[int(hairline_minimum):int(hairline_maximum), 50:-50], axis=1)
@@ -1825,7 +2026,7 @@ class FirsCal:
                     for profile in range(cutout_beams.shape[3]):
                         cutout_beams[beam, :, slit, profile, :] = scind.shift(
                             cutout_beams[beam, :, slit, profile, :], (0, skews[profile]),
-                            mode='nearest', order=1
+                            mode="nearest", order=1
                         )
                     spectral_centers[beam, slit] = spex.find_line_core(
                         np.nanmedian(
@@ -1854,7 +2055,7 @@ class FirsCal:
             Array of shape (4, nslits, ny, nx, nlambda)
         """
         with fits.open(filename) as hdul:
-            reduced_data = np.zeros((4, *hdul['STOKES-I'].data.shape))
+            reduced_data = np.zeros((4, *hdul["STOKES-I"].data.shape))
             for i in range(1, 5):
                 reduced_data[i-1] = hdul[i].data
         return reduced_data
@@ -1898,7 +2099,7 @@ class FirsCal:
             (x1, y1),
             new_flat.ravel(),
             (xx, yy),
-            method='nearest',
+            method="nearest",
             fill_value=np.nanmedian(flat_image)
         )
         return cleaned_flat_image
@@ -1937,11 +2138,11 @@ class FirsCal:
         self.final_dir = config["FIRS"]["reducedFileDirectory"]
         self.reduced_file_pattern = config["FIRS"]["reducedFilePattern"]
         self.parameter_map_pattern = config["FIRS"]["reducedParameterMapPattern"]
-        self.t_matrix_file = config['FIRS']['tMatrixFile']
+        self.t_matrix_file = config["FIRS"]["tMatrixFile"]
 
         self.nslits = int(config["FIRS"]["nSlits"]) if "nslits" in config["FIRS"].keys() else self.nslits
-        self.slit_width = int(config["FIRS"]['slitWidth']) if "slitwidth" in config["FIRS"].keys() else self.slit_width
-        self.slit_spacing = float(config['FIRS']['slitSpacing']) if 'slitspacing' in config['FIRS'].keys() \
+        self.slit_width = int(config["FIRS"]["slitWidth"]) if "slitwidth" in config["FIRS"].keys() else self.slit_width
+        self.slit_spacing = float(config["FIRS"]["slitSpacing"]) if "slitspacing" in config["FIRS"].keys() \
             else self.slit_spacing
         self.grating_angle = float(config["FIRS"]["gratingAngle"]) if "gratingangle" in config["FIRS"].keys() \
             else self.grating_angle
@@ -1952,26 +2153,26 @@ class FirsCal:
         self.central_wavelength = float(config["FIRS"]["centralWavelength"]) \
             if "centralwavelength" in config["FIRS"].keys() else self.central_wavelength
         self.internal_crosstalk_line = float(config["FIRS"]["crosstalkWavelength"]) \
-            if "crosstalkwavelength" in config['FIRS'].keys() else self.internal_crosstalk_line
+            if "crosstalkwavelength" in config["FIRS"].keys() else self.internal_crosstalk_line
         self.crosstalk_range = float(config["FIRS"]["crosstalkRange"]) \
             if "crosstalkrange" in config["FIRS"].keys() else self.crosstalk_range
         self.spectral_order = int(config["FIRS"]["spectralOrder"]) if "spectralorder" in config["FIRS"].keys() \
             else self.spectral_order
         self.pixel_size = int(config["FIRS"]["pixelSize"]) if "pixelsize" in config["FIRS"].keys() \
             else self.pixel_size
-        self.nhair = int(config['FIRS']['totalHairlines']) if 'totalhairlines' in config['FIRS'].keys() \
+        self.nhair = int(config["FIRS"]["totalHairlines"]) if "totalhairlines" in config["FIRS"].keys() \
             else self.nhair
-        self.beam_threshold = float(config['FIRS']['intensityThreshold']) \
-            if "intensitythreshold" in config['FIRS'].keys() else self.beam_threshold
+        self.beam_threshold = float(config["FIRS"]["intensityThreshold"]) \
+            if "intensitythreshold" in config["FIRS"].keys() else self.beam_threshold
         self.hairline_width = float(config["FIRS"]["hairlineWidth"]) \
             if "hairlinewidth" in config["FIRS"].keys() else self.hairline_width
-        self.n_subslits = int(config["FIRS"]['slitDivisions']) if "slitdivisions" in config["FIRS"].keys() \
+        self.n_subslits = int(config["FIRS"]["slitDivisions"]) if "slitdivisions" in config["FIRS"].keys() \
             else self.n_subslits
-        self.fringe_frequency = config['FIRS']['fringeFrequency'] if 'fringefrequency' in config['FIRS'].keys() \
+        self.fringe_frequency = config["FIRS"]["fringeFrequency"] if "fringefrequency" in config["FIRS"].keys() \
             else self.fringe_frequency
         if type(self.fringe_frequency) is str:
             self.fringe_frequency = [float(i) for i in self.fringe_frequency.split(",")]
-        self.verbose = config["FIRS"]['verbose'] if 'verbose' in config['FIRS'].keys() \
+        self.verbose = config["FIRS"]["verbose"] if "verbose" in config["FIRS"].keys() \
             else self.verbose
         if type(self.verbose) is str:
             self.verbose = True if self.verbose.lower() == "true" else False
@@ -1989,7 +2190,7 @@ class FirsCal:
         self.u2v = False if self.u2v.lower() == "false" else self.u2v
         # New retardance-based internal crosstalk determination.
         self.internal_crosstalk = config["FIRS"]["internalCrosstalk"] \
-            if "internalcrosstalk" in config['FIRS'].keys() else False
+            if "internalcrosstalk" in config["FIRS"].keys() else False
         if self.internal_crosstalk.lower() == "true":
             self.internal_crosstalk = True
             self.v2q = False
@@ -2005,29 +2206,29 @@ class FirsCal:
         else:
             self.internal_crosstalk = False
 
-        self.despike = config['FIRS']['despike'] if "despike" in config['FIRS'].keys() else self.despike
+        self.despike = config["FIRS"]["despike"] if "despike" in config["FIRS"].keys() else self.despike
         if type(self.despike) is str:
             self.despike = True if self.despike.lower() == "true" else False
-        self.plot = config["FIRS"]['plot'] if 'plot' in config['FIRS'].keys() \
+        self.plot = config["FIRS"]["plot"] if "plot" in config["FIRS"].keys() \
             else self.plot
         if type(self.plot) is str:
             self.plot = True if self.plot.lower() == "true" else False
-        self.save_figs = config['FIRS']['saveFigs'] if 'savefigs' in config['FIRS'].keys() else self.save_figs
+        self.save_figs = config["FIRS"]["saveFigs"] if "savefigs" in config["FIRS"].keys() else self.save_figs
         if type(self.save_figs) is str:
             self.save_figs = True if self.save_figs.lower() == "true" else False
-        self.crosstalk_continuum = config['FIRS']['crosstalkContinuum'] \
-            if 'crosstalkcontinuum' in config['FIRS'].keys() else self.crosstalk_continuum
+        self.crosstalk_continuum = config["FIRS"]["crosstalkContinuum"] \
+            if "crosstalkcontinuum" in config["FIRS"].keys() else self.crosstalk_continuum
         if self.crosstalk_continuum is not None:
             self.crosstalk_continuum = [int(i) for i in self.crosstalk_continuum.split(",")]
-        self.analysis_ranges = config['FIRS']['analysisRanges'] if 'analysisranges' in config['FIRS'].keys() \
+        self.analysis_ranges = config["FIRS"]["analysisRanges"] if "analysisranges" in config["FIRS"].keys() \
             else self.analysis_ranges
-        self.defringe = config['FIRS']['defringeMethod'] if 'defringemethod' in config['FIRS'].keys() \
+        self.defringe = config["FIRS"]["defringeMethod"] if "defringemethod" in config["FIRS"].keys() \
             else self.defringe
-        self.spectral_transmission = config['FIRS']['spectralTransmission'] \
-            if 'spectraltransmission' in config['FIRS'].keys() else self.spectral_transmission
+        self.spectral_transmission = config["FIRS"]["spectralTransmission"] \
+            if "spectraltransmission" in config["FIRS"].keys() else self.spectral_transmission
         if type(self.spectral_transmission) is str:
             self.spectral_transmission = True if self.spectral_transmission.lower() == "true" else False
-        self.slit_camera_lens = float(config["FIRS"]["slitCameraLens"]) if "slitcameralens" in config['FIRS'].keys() \
+        self.slit_camera_lens = float(config["FIRS"]["slitCameraLens"]) if "slitcameralens" in config["FIRS"].keys() \
             else self.slit_camera_lens
         self.telescope_plate_scale = float(config["FIRS"]["telescopePlateScale"]) \
             if "telescopeplatescale" in config["FIRS"].keys() else self.telescope_plate_scale
@@ -2035,26 +2236,26 @@ class FirsCal:
             if "dstcollimator" in config["FIRS"].keys() else self.dst_collimator
         self.spectrograph_collimator = float(config["FIRS"]["spectrographCollimator"]) \
             if "spectrographcollimator" in config["FIRS"].keys() else self.spectrograph_collimator
-        self.camera_lens = float(config['FIRS']['cameraLens']) if "cameralens" in config['FIRS'].keys() \
+        self.camera_lens = float(config["FIRS"]["cameraLens"]) if "cameralens" in config["FIRS"].keys() \
             else self.camera_lens
-        self.site_latitude = float(config['FIRS']['siteLatitude']) if "sitelatitude" in config['FIRS'].keys() \
+        self.site_latitude = float(config["FIRS"]["siteLatitude"]) if "sitelatitude" in config["FIRS"].keys() \
             else self.site_latitude
-        self.cal_retardance = float(config['FIRS']['calRetardance']) if "calretardance" in config['FIRS'].keys() \
+        self.cal_retardance = float(config["FIRS"]["calRetardance"]) if "calretardance" in config["FIRS"].keys() \
             else self.cal_retardance
-        self.ilimit = config['FIRS']['polcalClipThreshold'] if 'polcalclipthreshold' in config['FIRS'].keys() \
+        self.ilimit = config["FIRS"]["polcalClipThreshold"] if "polcalclipthreshold" in config["FIRS"].keys() \
             else self.ilimit
         if type(self.ilimit) is str:
             self.ilimit = [float(i) for i in self.ilimit.split(",")]
-        self.polcal_processing = config['FIRS']['polcalProcessing'] if "polcalprocessing" in config['FIRS'].keys() \
+        self.polcal_processing = config["FIRS"]["polcalProcessing"] if "polcalprocessing" in config["FIRS"].keys() \
             else self.polcal_processing
         if type(self.polcal_processing) is str:
             self.polcal_processing = True if self.polcal_processing.lower() == "true" else False
 
         if (
-            ("qmodulationpattern" in config['FIRS'].keys()) and
-            ("umodulationpattern" in config['FIRS'].keys()) and
-            ("vmodulationpattern" in config['FIRS'].keys()) and
-            ("polnorm" in config['FIRS'].keys())
+            ("qmodulationpattern" in config["FIRS"].keys()) and
+            ("umodulationpattern" in config["FIRS"].keys()) and
+            ("vmodulationpattern" in config["FIRS"].keys()) and
+            ("polnorm" in config["FIRS"].keys())
         ):
             qmod = [int(mod) for mod in config["FIRS"]["qModulationPattern"].split(",")]
             umod = [int(mod) for mod in config["FIRS"]["uModulationPattern"].split(",")]
@@ -2065,7 +2266,23 @@ class FirsCal:
                 umod,
                 vmod
             ], dtype=int)
-            self.pol_norm = [float(i) for i in config['FIRS']['polNorm'].split(",")]
+            self.pol_norm = [float(i) for i in config["FIRS"]["polNorm"].split(",")]
+
+        # Context movie creation switches
+        self.context_movie = config["FIRS"]["contextMovie"] if "contextmovie" \
+            in config["FIRS"].keys() else False
+        self.context_movie = True if str(self.context_movie).lower() == "true" else False
+        if self.context_movie:
+            self.context_movie_directory = config["FIRS"]["contextmoviedirectory"] if \
+                "contextmoviedirectory" in config["FIRS"].keys() else self.final_dir
+
+        # Alignment switches
+        self.register_observations = config["FIRS"]["solarAlign"] if "solaralign" in \
+            config["FIRS"].keys() else False
+        self.register_observations = True if str(self.register_observations).lower() == "true" else False
+        self.verify_alignment = config["FIRS"]["verifyPointingUpdate"] if \
+            "verifypointingupdate" in config["FIRS"].keys() else False
+        self.verify_alignment = True if str(self.verify_alignment).lower() == "true" else False
 
         return
 
@@ -2120,18 +2337,18 @@ class FirsCal:
             ))
             nfiles.append(len(series_list))
             with fits.open(series_list[0]) as hdul:
-                starttime.append(np.datetime64(hdul[0].header['OBS_STAR']))
-                exptime.append(hdul[0].header['EXP_TIME'])
-                coadds.append(hdul[0].header['SUMS'])
-                repeats.append(hdul[0].header['NOREPEAT'])
+                starttime.append(np.datetime64(hdul[0].header["OBS_STAR"]))
+                exptime.append(hdul[0].header["EXP_TIME"])
+                coadds.append(hdul[0].header["SUMS"])
+                repeats.append(hdul[0].header["NOREPEAT"])
                 # Obstype is stored by observers in a comment card of the FITS file
-                obstype.append(str(hdul[0].header['COMMENT']))
+                obstype.append(str(hdul[0].header["COMMENT"]))
             with fits.open(series_list[-1]) as hdul:
                 # OBS_END *is* present in the headers, but it's fixed to the same as OBS_STAR
                 # We'll get an approximation by taking the frame starttime and adding the total exposure time.
                 endtime.append(
-                    np.datetime64(hdul[0].header['OBS_STAR']) + np.timedelta64(
-                        hdul[0].header['SUMS'] * hdul[0].header['EXP_TIME'], "ms"
+                    np.datetime64(hdul[0].header["OBS_STAR"]) + np.timedelta64(
+                        hdul[0].header["SUMS"] * hdul[0].header["EXP_TIME"], "ms"
                     )
                 )
         # Oftentimes, the observers forget to change the comment card that is the only way for FIRS
@@ -2160,7 +2377,7 @@ class FirsCal:
                 continue
             # Dark series missing files is caught by first if statement.
             # Check for mislabelled files
-            elif nfiles[i] == 32 and not any([obstype[i].lower() in ot for ot in ['sflt', 'scan', 'pcal', 'lflt']]):
+            elif nfiles[i] == 32 and not any([obstype[i].lower() in ot for ot in ["sflt", "scan", "pcal", "lflt"]]):
                 # If it's got 32 exposures and it isn't a sflt, lflt, scan, or pcal, it's probably a mislabeled sflt
                 final_obsseries.append(obs_series[i])
                 final_starttime.append(starttime[i])
@@ -2222,7 +2439,7 @@ class FirsCal:
             )
             for i in range(self.obssum_info.shape[0]):
                 file.write(
-                    '{0:<22}\t{1:<23}\t{2:<23}\t{3:<7}\t{4:<5}\t{5:<7}\t{6:<6}\t{7:<7}\n'.format(
+                    "{0:<22}\t{1:<23}\t{2:<23}\t{3:<7}\t{4:<5}\t{5:<7}\t{6:<6}\t{7:<7}\n".format(
                         *self.obssum_info[i]
                     )
                 )
@@ -2280,10 +2497,10 @@ class FirsCal:
         """
 
         # Getting Min/Max Wavelength for FTS comparison; padding by 30 pixels on either side
-        apx_wavemin = self.central_wavelength - np.nanmean(self.slit_edges[0]) * grating_params['Spectral_Pixel'] / 1000
-        apx_wavemax = self.central_wavelength + np.nanmean(self.slit_edges[0]) * grating_params['Spectral_Pixel'] / 1000
-        apx_wavemin -= 30 * grating_params['Spectral_Pixel'] / 1000
-        apx_wavemax += 30 * grating_params['Spectral_Pixel'] / 1000
+        apx_wavemin = self.central_wavelength - np.nanmean(self.slit_edges[0]) * grating_params["Spectral_Pixel"] / 1000
+        apx_wavemax = self.central_wavelength + np.nanmean(self.slit_edges[0]) * grating_params["Spectral_Pixel"] / 1000
+        apx_wavemin -= 30 * grating_params["Spectral_Pixel"] / 1000
+        apx_wavemax += 30 * grating_params["Spectral_Pixel"] / 1000
         fts_wave, fts_spec = spex.fts_window(apx_wavemin, apx_wavemax)
 
         print("Top: FIRS Spectrum. Bottom: FTS Reference Spectrum")
@@ -2379,17 +2596,17 @@ class FirsCal:
         slit_fig = plt.figure("Reduced Slit Images", figsize=(5, 5/slit_aspect_ratio))
         slit_gs = slit_fig.add_gridspec(2, 2, hspace=0.1, wspace=0.1)
         slit_ax_i = slit_fig.add_subplot(slit_gs[0, 0])
-        slit_i = slit_ax_i.imshow(flattened_slit_images[0], cmap='gray', origin='lower')
-        slit_ax_i.text(10, 10, "I", color='C1')
+        slit_i = slit_ax_i.imshow(flattened_slit_images[0], cmap="gray", origin="lower")
+        slit_ax_i.text(10, 10, "I", color="C1")
         slit_ax_q = slit_fig.add_subplot(slit_gs[0, 1])
-        slit_q = slit_ax_q.imshow(flattened_slit_images[1], cmap='gray', origin='lower')
-        slit_ax_q.text(10, 10, "Q", color='C1')
+        slit_q = slit_ax_q.imshow(flattened_slit_images[1], cmap="gray", origin="lower")
+        slit_ax_q.text(10, 10, "Q", color="C1")
         slit_ax_u = slit_fig.add_subplot(slit_gs[1, 0])
-        slit_u = slit_ax_u.imshow(flattened_slit_images[2], cmap='gray', origin='lower')
-        slit_ax_u.text(10, 10, "U", color='C1')
+        slit_u = slit_ax_u.imshow(flattened_slit_images[2], cmap="gray", origin="lower")
+        slit_ax_u.text(10, 10, "U", color="C1")
         slit_ax_v = slit_fig.add_subplot(slit_gs[1, 1])
-        slit_v = slit_ax_v.imshow(flattened_slit_images[3], cmap='gray', origin='lower')
-        slit_ax_v.text(10, 10, "V", color='C1')
+        slit_v = slit_ax_v.imshow(flattened_slit_images[3], cmap="gray", origin="lower")
+        slit_ax_v.text(10, 10, "V", color="C1")
 
         # Now the multiple windows for the multiple lines of interest
         field_aspect_ratio = (dx * field_images.shape[3]) / (dy * field_images.shape[2])
@@ -2422,7 +2639,7 @@ class FirsCal:
             )
             field_i.append(
                 field_i_ax[j].imshow(
-                    field_images[j, 0], origin='lower', cmap='gray',
+                    field_images[j, 0], origin="lower", cmap="gray",
                     extent=[0, dx * field_images.shape[3], 0, dy * field_images.shape[2]]
                 )
             )
@@ -2431,7 +2648,7 @@ class FirsCal:
             )
             field_q.append(
                 field_q_ax[j].imshow(
-                    field_images[j, 1], origin='lower', cmap='gray',
+                    field_images[j, 1], origin="lower", cmap="gray",
                     extent=[0, dx * field_images.shape[3], 0, dy * field_images.shape[2]]
                 )
             )
@@ -2440,7 +2657,7 @@ class FirsCal:
             )
             field_u.append(
                 field_u_ax[j].imshow(
-                    field_images[j, 2], origin='lower', cmap='gray',
+                    field_images[j, 2], origin="lower", cmap="gray",
                     extent=[0, dx * field_images.shape[3], 0, dy * field_images.shape[2]]
                 )
             )
@@ -2449,7 +2666,7 @@ class FirsCal:
             )
             field_v.append(
                 field_v_ax[j].imshow(
-                    field_images[j, 2], origin='lower', cmap='gray',
+                    field_images[j, 2], origin="lower", cmap="gray",
                     extent=[0, dx * field_images.shape[3], 0, dy * field_images.shape[2]]
                 )
             )
@@ -2471,7 +2688,7 @@ class FirsCal:
             field_v_ax[j].set_yticklabels([])
             field_v_ax[j].set_xlabel("Extent [arcsec]")
             field_v_ax[j].set_title("Stokes-V Derivative at Line Core")
-            
+
         if not any((self.v2q, self.v2u, self.q2v, self.u2v, self.internal_crosstalk)):
             plt.show(block=False)
             plt.pause(0.05)
@@ -2522,17 +2739,17 @@ class FirsCal:
             for slit in range(self.nslits):
                 v2q.append(v2q_ax.plot(
                     internal_crosstalks[0, slit, :], np.arange(internal_crosstalks.shape[2]),
-                    color='C{0}'.format(slit), label="Crosstalk for slit {0} of {1}".format(slit+1, self.nslits)
+                    color="C{0}".format(slit), label="Crosstalk for slit {0} of {1}".format(slit+1, self.nslits)
                 ))
 
                 v2u.append(v2u_ax.plot(
                     internal_crosstalks[1, slit, :], np.arange(internal_crosstalks.shape[2]),
-                    color='C{0}'.format(slit)
+                    color="C{0}".format(slit)
                 ))
 
                 q2v.append(q2v_ax.plot(
                     internal_crosstalks[2, slit, :], np.arange(internal_crosstalks.shape[2]),
-                    color='C{0}'.format(slit)
+                    color="C{0}".format(slit)
                 ))
 
                 u2v.append(u2v_ax.plot(
@@ -2701,12 +2918,12 @@ class FirsCal:
         """
 
         prsteps = [
-            'DARK-SUBTRACTION',
-            'FLATFIELDING',
-            'WAVELENGTH-CALIBRATION',
-            'TELESCOPE-MULLER',
-            'I->QUV CROSSTALK',
-            'FRINGE-CORRECTION'
+            "DARK-SUBTRACTION",
+            "FLATFIELDING",
+            "WAVELENGTH-CALIBRATION",
+            "TELESCOPE-MULLER",
+            "I->QUV CROSSTALK",
+            "FRINGE-CORRECTION"
         ]
         prstep_comments = [
             "firsCal/SSOSoft",
@@ -2718,28 +2935,28 @@ class FirsCal:
         ]
         if self.v2q:
             prsteps.append(
-                'V->Q CROSSTALK'
+                "V->Q CROSSTALK"
             )
             prstep_comments.append(
                 "firsCal/SSOSoft"
             )
         if self.v2u:
             prsteps.append(
-                'V->U CROSSTALK'
+                "V->U CROSSTALK"
             )
             prstep_comments.append(
                 "firsCal/SSOSoft"
             )
         if self.q2v:
             prsteps.append(
-                'Q->V CROSSTALK'
+                "Q->V CROSSTALK"
             )
             prstep_comments.append(
                 "firsCal/SSOSoft"
             )
         if self.u2v:
             prsteps.append(
-                'U->V CROSSTALK'
+                "U->V CROSSTALK"
             )
             prstep_comments.append(
                 "firsCal/SSOSoft"
@@ -2763,35 +2980,35 @@ class FirsCal:
             with fits.open(file) as hdul:
                 # Values we'll only need once:
                 if file == filelist[0]:
-                    exptime = hdul[0].header['EXP_TIME']
-                    xposure = hdul[0].header['SUMS'] * exptime
-                    nsumexp = hdul[0].header['SUMS']
+                    exptime = hdul[0].header["EXP_TIME"]
+                    xposure = hdul[0].header["SUMS"] * exptime
+                    nsumexp = hdul[0].header["SUMS"]
                     # Step size is set by the slit width in the raw file headers.
                     # Actual slit width is user-set
-                    stepsize = hdul[0].header['SLITWDTH'] * firs_plate_scale
-                    reqmapsize = hdul[0].header['NO. LOOP'] * stepsize * self.nslits
+                    stepsize = hdul[0].header["SLITWDTH"] * firs_plate_scale
+                    reqmapsize = hdul[0].header["NO. LOOP"] * stepsize * self.nslits
                     actmapsize = stepsize * len(filelist) * self.nslits
-                    rsun = hdul[0].header['DST_SDIM'] / 2
-                    camera_name = hdul[0].header['CAMERA']
+                    rsun = hdul[0].header["DST_SDIM"] / 2
+                    camera_name = hdul[0].header["CAMERA"]
                     # Getting the slit position is non-trivial, as the scanning mirror is before the slit camera lens.
                     # The offset of the FSM is not one-to-one with the displacement on the slit, thanks to the influence
                     # of the lens. Rather than try to estimate the displacement on the slit through the lens
                     # (which involves assumptions about the thickness and composition of the lens),
                     # we can instead back this assumption out of the header, assuming the lateral FSM dx has an eventual
                     # displacement equal to what the system thinks the slit width is, i.e., slw/dx ==> arcsec/mm of disp
-                    fsm_dx = hdul[0].header['FSM DX']
+                    fsm_dx = hdul[0].header["FSM DX"]
                     asec_per_mmdisp = stepsize / fsm_dx
-                step_startobs.append(hdul[0].header['OBS_STAR'])
-                rotan.append(hdul[0].header['DST_GDRN'] - 13.3)
-                llvl.append(hdul[0].header['DST_LLVL'])
-                scin.append(hdul[0].header['DST_SEE'])
+                step_startobs.append(hdul[0].header["OBS_STAR"])
+                rotan.append(hdul[0].header["DST_GDRN"] - 13.3)
+                llvl.append(hdul[0].header["DST_LLVL"])
+                scin.append(hdul[0].header["DST_SEE"])
                 center_coord = SkyCoord(
-                    hdul[0].header['DST_SLNG'] * u.deg, hdul[0].header['DST_SLAT'] * u.deg,
-                    obstime=hdul[0].header['OBS_STAR'], observer='earth', frame=frames.HeliographicStonyhurst
+                    hdul[0].header["DST_SLNG"] * u.deg, hdul[0].header["DST_SLAT"] * u.deg,
+                    obstime=hdul[0].header["OBS_STAR"], observer="earth", frame=frames.HeliographicStonyhurst
                 ).transform_to(frames.Helioprojective)
                 solar_x.append(center_coord.Tx.value)
                 solar_y.append(center_coord.Ty.value)
-                slitpos.append(hdul[0].header['FSM CP'] * asec_per_mmdisp)
+                slitpos.append(hdul[0].header["FSM CP"] * asec_per_mmdisp)
         rotan = np.nanmean(rotan)
         date, time = step_startobs[0].split("T")
         date = date.replace("-", "")
@@ -2846,94 +3063,94 @@ class FirsCal:
 
         # Start assembling HDUList
         ext0 = fits.PrimaryHDU()
-        ext0.header['DATE'] = (np.datetime64('now').astype(str), "File Creation Date and Time (UTC)")
-        ext0.header['ORIGIN'] = 'NMSU/SSOC'
-        ext0.header['TELESCOP'] = ('DST', "Dunn Solar Telescope, Sacramento Peak NM")
-        ext0.header['INSTRUME'] = ("FIRS", "Facility InfraRed Spectropolarimeter")
-        ext0.header['AUTHOR'] = "sellers"
-        ext0.header['CAMERA'] = camera_name
-        ext0.header['DATA_LEV'] = 1.5
+        ext0.header["DATE"] = (np.datetime64("now").astype(str), "File Creation Date and Time (UTC)")
+        ext0.header["ORIGIN"] = "NMSU/SSOC"
+        ext0.header["TELESCOP"] = ("DST", "Dunn Solar Telescope, Sacramento Peak NM")
+        ext0.header["INSTRUME"] = ("FIRS", "Facility InfraRed Spectropolarimeter")
+        ext0.header["AUTHOR"] = "sellers"
+        ext0.header["CAMERA"] = camera_name
+        ext0.header["DATA_LEV"] = 1.5
 
         if self.central_wavelength == 10830:
-            ext0.header['WAVEBAND'] = 'Si I 10827, He I 10830'
+            ext0.header["WAVEBAND"] = "Si I 10827, He I 10830"
 
-        ext0.header['STARTOBS'] = step_startobs[0]
-        ext0.header['ENDOBS'] = (np.datetime64(step_startobs[-1]) + np.timedelta64(xposure, 'ms')).astype(str)
-        ext0.header['BTYPE'] = "Intensity"
-        ext0.header['BUNIT'] = 'Corrected DN'
-        ext0.header['EXPTIME'] = (exptime, 'ms for single exposure')
-        ext0.header['XPOSUR'] = (xposure, 'ms for total coadded exposure')
-        ext0.header['NSUMEXP'] = (nsumexp, "Summed images per modulation state")
-        ext0.header['NSLITS'] = (self.nslits, "Number of slits in Field Mask")
-        ext0.header['SLIT_WID'] = (self.slit_width, "[um] FIRS Slit Width")
-        ext0.header['SLIT_ARC'] = (
+        ext0.header["STARTOBS"] = step_startobs[0]
+        ext0.header["ENDOBS"] = (np.datetime64(step_startobs[-1]) + np.timedelta64(xposure, "ms")).astype(str)
+        ext0.header["BTYPE"] = "Intensity"
+        ext0.header["BUNIT"] = "Corrected DN"
+        ext0.header["EXPTIME"] = (exptime, "ms for single exposure")
+        ext0.header["XPOSUR"] = (xposure, "ms for total coadded exposure")
+        ext0.header["NSUMEXP"] = (nsumexp, "Summed images per modulation state")
+        ext0.header["NSLITS"] = (self.nslits, "Number of slits in Field Mask")
+        ext0.header["SLIT_WID"] = (self.slit_width, "[um] FIRS Slit Width")
+        ext0.header["SLIT_ARC"] = (
             round(firs_plate_scale * self.slit_width / 1000, 2),
             "[arcsec, approx] FIRS Slit Width"
         )
-        ext0.header['MAP_EXP'] = (round(reqmapsize, 3), "[arcsec] Requested Map Size")
-        ext0.header['MAP_ACT'] = (round(actmapsize, 3), "[arcsec] Actual Map Size")
+        ext0.header["MAP_EXP"] = (round(reqmapsize, 3), "[arcsec] Requested Map Size")
+        ext0.header["MAP_ACT"] = (round(actmapsize, 3), "[arcsec] Actual Map Size")
 
-        ext0.header['WAVEUNIT'] = (-10, "10^(WAVEUNIT), Angstrom")
-        ext0.header['WAVEREF'] = ("FTS", "Kurucz 1984 Atlas Used in Wavelength Determination")
-        ext0.header['WAVEMIN'] = (round(wavelength_array[0, 0], 3), "[AA] Angstrom")
-        ext0.header['WAVEMAX'] = (round(wavelength_array[0, -1], 3), "[AA], Angstrom")
-        ext0.header['GRPERMM'] = (self.grating_rules, "[mm^-1] Lines per mm of Grating")
-        ext0.header['GRBLAZE'] = (self.blaze_angle, "[degrees] Blaze Angle of Grating")
-        ext0.header['GRANGLE'] = (self.grating_angle, "[degrees] Operating Angle of Grating")
-        ext0.header['SPORDER'] = (self.spectral_order, "Spectral Order")
+        ext0.header["WAVEUNIT"] = (-10, "10^(WAVEUNIT), Angstrom")
+        ext0.header["WAVEREF"] = ("FTS", "Kurucz 1984 Atlas Used in Wavelength Determination")
+        ext0.header["WAVEMIN"] = (round(wavelength_array[0, 0], 3), "[AA] Angstrom")
+        ext0.header["WAVEMAX"] = (round(wavelength_array[0, -1], 3), "[AA], Angstrom")
+        ext0.header["GRPERMM"] = (self.grating_rules, "[mm^-1] Lines per mm of Grating")
+        ext0.header["GRBLAZE"] = (self.blaze_angle, "[degrees] Blaze Angle of Grating")
+        ext0.header["GRANGLE"] = (self.grating_angle, "[degrees] Operating Angle of Grating")
+        ext0.header["SPORDER"] = (self.spectral_order, "Spectral Order")
         grating_params = spex.grating_calculations(
             self.grating_rules, self.blaze_angle, self.grating_angle,
             self.pixel_size, self.central_wavelength, self.spectral_order,
             collimator=self.spectrograph_collimator, camera=self.camera_lens, slit_width=self.slit_width,
         )
-        ext0.header['SPEFF'] = (round(float(grating_params['Total_Efficiency']), 3),
-                                'Approx. Total Efficiency of Grating')
-        ext0.header['LITTROW'] = (round(float(grating_params['Littrow_Angle']), 3), '[degrees] Littrow Angle')
-        ext0.header['RESOLVPW'] = (
-            round(self.central_wavelength / (0.001 * float(grating_params['Spectrograph_Resolution'])), 0),
+        ext0.header["SPEFF"] = (round(float(grating_params["Total_Efficiency"]), 3),
+                                "Approx. Total Efficiency of Grating")
+        ext0.header["LITTROW"] = (round(float(grating_params["Littrow_Angle"]), 3), "[degrees] Littrow Angle")
+        ext0.header["RESOLVPW"] = (
+            round(self.central_wavelength / (0.001 * float(grating_params["Spectrograph_Resolution"])), 0),
             "Maximum Resolving Power of Spectrograph"
         )
 
         for h in range(len(hairline_centers)):
-            ext0.header['HAIRLIN{0}'.format(h)] = (round(float(hairline_centers[h]), 3),
+            ext0.header["HAIRLIN{0}".format(h)] = (round(float(hairline_centers[h]), 3),
                                                    "Center of Registration Hairline")
-        ext0.header['RSUN_ARC'] = rsun
-        ext0.header['XCEN'] = (round(center_x, 2), "[arcsec], Solar-X of Map Center")
-        ext0.header['YCEN'] = (round(center_y, 2), "[arcsec], Solar-Y of Map Center")
-        ext0.header['FOVX'] = (round(actmapsize, 3), "[arcsec], Field-of-view of raster-x")
-        ext0.header['FOVY'] = (
+        ext0.header["RSUN_ARC"] = rsun
+        ext0.header["XCEN"] = (round(center_x, 2), "[arcsec], Solar-X of Map Center")
+        ext0.header["YCEN"] = (round(center_y, 2), "[arcsec], Solar-Y of Map Center")
+        ext0.header["FOVX"] = (round(actmapsize, 3), "[arcsec], Field-of-view of raster-x")
+        ext0.header["FOVY"] = (
             round(datacube.shape[2] * firs_plate_scale * self.pixel_size / 1000 , 3),
             "[arcsec], Field-of-view of raster-y"
         )
-        ext0.header['ROT'] = (round(rotan, 3), "[degrees] Rotation from Solar-North")
+        ext0.header["ROT"] = (round(rotan, 3), "[degrees] Rotation from Solar-North")
 
         for i in range(len(prsteps)):
-            ext0.header['PRSTEP{0}'.format(i+1)] = (prsteps[i], prstep_comments[i])
-        ext0.header['COMMENT'] = "Full WCS Information Contained in Individual Data HDUs"
-        ext0.header['COMMENT'] = "{0} Slits have been flattened".format(self.nslits)
+            ext0.header["PRSTEP{0}".format(i+1)] = (prsteps[i], prstep_comments[i])
+        ext0.header["COMMENT"] = "Full WCS Information Contained in Individual Data HDUs"
+        ext0.header["COMMENT"] = "{0} Slits have been flattened".format(self.nslits)
 
         ext0.header.insert(
             "DATA_LEV",
-            ('', '======== DATA SUMMARY ========'),
+            ("", "======== DATA SUMMARY ========"),
             after=True
         )
         ext0.header.insert(
             "WAVEUNIT",
-            ('', '======== SPECTROGRAPH CONFIGURATION ========')
+            ("", "======== SPECTROGRAPH CONFIGURATION ========")
         )
         ext0.header.insert(
             "RSUN_ARC",
-            ('', '======== POINTING INFORMATION ========')
+            ("", "======== POINTING INFORMATION ========")
         )
         ext0.header.insert(
             "PRSTEP1",
-            ('', '======== CALIBRATION PROCEDURE OUTLINE ========')
+            ("", "======== CALIBRATION PROCEDURE OUTLINE ========")
         )
 
         fits_hdus = [ext0]
 
         # Stokes-IQUV HDU Construction
-        stokes = ['I', 'Q', 'U', 'V']
+        stokes = ["I", "Q", "U", "V"]
         for i in range(4):
             if self.nslits == 1:
                 flattened_datacube =  datacube[i, 0, :, :, :]
@@ -2943,33 +3160,33 @@ class FirsCal:
                     axis=1
                 )
             ext = fits.ImageHDU(flattened_datacube)
-            ext.header['EXTNAME'] = 'STOKES-' + stokes[i]
-            ext.header['RSUN_ARC'] = rsun
-            ext.header['CDELT1'] = (stepsize, "arcsec")
-            ext.header['CDELT2'] = (round(firs_plate_scale * self.pixel_size / 1000 , 3), "arcsec")
-            ext.header['CDELT3'] = (wavelength_array[0, 1] - wavelength_array[0, 0], "Angstrom")
-            ext.header['CTYPE1'] = 'HPLN-TAN'
-            ext.header['CTYPE2'] = 'HPLT-TAN'
-            ext.header['CTYPE3'] = 'WAVE'
-            ext.header['CUNIT1'] = 'arcsec'
-            ext.header['CUNIT2'] = 'arcsec'
-            ext.header['CUNIT3'] = 'Angstrom'
-            ext.header['CRVAL1'] = (center_x, "Solar-X, arcsec")
-            ext.header['CRVAL2'] = (center_y, "Solar-Y, arcsec")
-            ext.header['CRVAL3'] = (wavelength_array[0, 0], "Angstrom")
-            ext.header['CRPIX1'] = np.mean(np.arange(flattened_datacube.shape[1])) + 1
-            ext.header['CRPIX2'] = np.mean(np.arange(flattened_datacube.shape[0])) + 1
-            ext.header['CRPIX3'] = 1
-            ext.header['CROTA2'] = (rotan, "degrees")
+            ext.header["EXTNAME"] = "STOKES-" + stokes[i]
+            ext.header["RSUN_ARC"] = rsun
+            ext.header["CDELT1"] = (stepsize, "arcsec")
+            ext.header["CDELT2"] = (round(firs_plate_scale * self.pixel_size / 1000 , 3), "arcsec")
+            ext.header["CDELT3"] = (wavelength_array[0, 1] - wavelength_array[0, 0], "Angstrom")
+            ext.header["CTYPE1"] = "HPLN-TAN"
+            ext.header["CTYPE2"] = "HPLT-TAN"
+            ext.header["CTYPE3"] = "WAVE"
+            ext.header["CUNIT1"] = "arcsec"
+            ext.header["CUNIT2"] = "arcsec"
+            ext.header["CUNIT3"] = "Angstrom"
+            ext.header["CRVAL1"] = (center_x, "Solar-X, arcsec")
+            ext.header["CRVAL2"] = (center_y, "Solar-Y, arcsec")
+            ext.header["CRVAL3"] = (wavelength_array[0, 0], "Angstrom")
+            ext.header["CRPIX1"] = np.mean(np.arange(flattened_datacube.shape[1])) + 1
+            ext.header["CRPIX2"] = np.mean(np.arange(flattened_datacube.shape[0])) + 1
+            ext.header["CRPIX3"] = 1
+            ext.header["CROTA2"] = (rotan, "degrees")
             for h in range(len(hairline_centers)):
-                ext.header['HAIRLIN{0}'.format(h)] = (round(hairline_centers[h], 3), "Center of registration hairline")
+                ext.header["HAIRLIN{0}".format(h)] = (round(hairline_centers[h], 3), "Center of registration hairline")
             fits_hdus.append(ext)
 
         ext_wvl = fits.ImageHDU(np.mean(wavelength_array, axis=0))
 
-        ext_wvl.header['EXTNAME'] = 'lambda-coordinate'
-        ext_wvl.header['BTYPE'] = 'lambda axis'
-        ext_wvl.header['BUNIT'] = '[AA]'
+        ext_wvl.header["EXTNAME"] = "lambda-coordinate"
+        ext_wvl.header["BTYPE"] = "lambda axis"
+        ext_wvl.header["BUNIT"] = "[AA]"
 
         fits_hdus.append(ext_wvl)
 
@@ -2981,47 +3198,47 @@ class FirsCal:
         timedeltas = timedeltas.astype("timedelta64[ms]").astype(float) / 1000
         columns = [
             fits.Column(
-                name='T_ELAPSED',
-                format='D',
-                unit='SECONDS',
+                name="T_ELAPSED",
+                format="D",
+                unit="SECONDS",
                 array=timedeltas,
-                time_ref_pos=timestamps[0].astype('datetime64[D]').astype(str)
+                time_ref_pos=timestamps[0].astype("datetime64[D]").astype(str)
             ),
             fits.Column(
-                name='SLIT_POS',
-                format='D',
-                unit='ARCSEC',
+                name="SLIT_POS",
+                format="D",
+                unit="ARCSEC",
                 array=res_slit_pos
             ),
             fits.Column(
-                name='TEL_SOLX',
-                format='D',
-                unit='ARCSEC',
+                name="TEL_SOLX",
+                format="D",
+                unit="ARCSEC",
                 array=np.array(solar_x * self.nslits)
             ),
             fits.Column(
-                name='TEL_SOLY',
-                format='D',
-                unit='ARCSEC',
+                name="TEL_SOLY",
+                format="D",
+                unit="ARCSEC",
                 array=np.array(solar_y * self.nslits)
             ),
             fits.Column(
-                name='LIGHTLVL',
-                format='D',
-                unit='UNITLESS',
+                name="LIGHTLVL",
+                format="D",
+                unit="UNITLESS",
                 array=np.array(llvl * self.nslits)
             ),
             fits.Column(
-                name='TELESCIN',
-                format='D',
-                unit='ARCSEC',
+                name="TELESCIN",
+                format="D",
+                unit="ARCSEC",
                 array=np.array(scin * self.nslits)
             )
         ]
         ext_met = fits.BinTableHDU.from_columns(columns)
-        ext_met.header['EXTNAME'] = 'METADATA'
-        ext_met.header['COMMENT'] = 'Columns correspond to x-axis in data extensions'
-        ext_met.header['COMMENT'] = 'Columns are shape (ny, nx, nlambda)'
+        ext_met.header["EXTNAME"] = "METADATA"
+        ext_met.header["COMMENT"] = "Columns correspond to x-axis in data extensions"
+        ext_met.header["COMMENT"] = "Columns are shape (ny, nx, nlambda)"
 
         fits_hdus.append(ext_met)
 
@@ -3158,11 +3375,11 @@ class FirsCal:
             with fits.open(reference_file) as hdul:
                 hdr0 = hdul[0].header.copy()
                 hdr1 = hdul[1].header.copy()
-                del hdr1['CDELT3']
-                del hdr1['CTYPE3']
-                del hdr1['CUNIT3']
-                del hdr1['CRVAL3']
-                del hdr1['CRPIX3']
+                del hdr1["CDELT3"]
+                del hdr1["CTYPE3"]
+                del hdr1["CUNIT3"]
+                del hdr1["CRVAL3"]
+                del hdr1["CRPIX3"]
             ext0 = fits.PrimaryHDU()
             ext0.header = hdr0
             ext0.header["BTYPE"] = "Derived"
@@ -3179,7 +3396,7 @@ class FirsCal:
             )
             if self.analysis_ranges == "default":
                 # If we're using default ranges, we must also be at 10830
-                ext0.header['WAVEBAND'] = self.default_analysis_names[i]
+                ext0.header["WAVEBAND"] = self.default_analysis_names[i]
             ext0.header["WAVEMIN"] = (round(wavelength_array[int(indices[0, 0, i])], 3), "Lower Bound for Analysis")
             ext0.header["WAVEMAX"] = (round(wavelength_array[int(indices[1, 0, i])], 3), "Upper Bound for Analysis")
             ext0.header["COMMENT"] = "File contains derived parameters from moment analysis and polarization analysis"
@@ -3187,30 +3404,30 @@ class FirsCal:
             for j in range(analysis_maps.shape[1]):
                 ext = fits.ImageHDU(analysis_maps[i, j, :, :])
                 ext.header = hdr1.copy()
-                ext.header['DATE-OBS'] = ext0.header['STARTOBS']
-                ext.header['DATE-END'] = ext0.header['ENDOBS']
-                dt = (np.datetime64(ext0.header['ENDOBS']) - np.datetime64(ext0.header['STARTOBS'])) / 2
-                date_avg = (np.datetime64(ext0.header['STARTOBS']) + dt).astype(str)
-                ext.header['DATE-AVG'] = (date_avg, "UTC, time at map midpoint")
-                ext.header['EXTNAME'] = extnames[j]
+                ext.header["DATE-OBS"] = ext0.header["STARTOBS"]
+                ext.header["DATE-END"] = ext0.header["ENDOBS"]
+                dt = (np.datetime64(ext0.header["ENDOBS"]) - np.datetime64(ext0.header["STARTOBS"])) / 2
+                date_avg = (np.datetime64(ext0.header["STARTOBS"]) + dt).astype(str)
+                ext.header["DATE-AVG"] = (date_avg, "UTC, time at map midpoint")
+                ext.header["EXTNAME"] = extnames[j]
                 ext.header["METHOD"] = (methods[j], method_comments[j])
                 fits_hdus.append(ext)
 
             ext_wvl = fits.ImageHDU(wavelength_array)
-            ext_wvl.header['EXTNAME'] = 'lambda-coordinate'
-            ext_wvl.header['BTYPE'] = 'lambda axis'
-            ext_wvl.header['BUNIT'] = '[AA]'
-            ext_wvl.header['COMMENT'] = "Reference Wavelength Array. For use with reference profile and WAVEMIN/MAX."
+            ext_wvl.header["EXTNAME"] = "lambda-coordinate"
+            ext_wvl.header["BTYPE"] = "lambda axis"
+            ext_wvl.header["BUNIT"] = "[AA]"
+            ext_wvl.header["COMMENT"] = "Reference Wavelength Array. For use with reference profile and WAVEMIN/MAX."
             fits_hdus.append(ext_wvl)
 
             ext_ref = fits.ImageHDU(mean_profile)
-            ext_ref.header['EXTNAME'] = 'reference-profile'
-            ext_ref.header['BTYPE'] = 'Intensity'
-            ext_ref.header['BUNIT'] = 'Corrected DN'
-            ext_ref.header['COMMENT'] = "Mean spectral profile. For use with WAVEMIN/MAX."
+            ext_ref.header["EXTNAME"] = "reference-profile"
+            ext_ref.header["BTYPE"] = "Intensity"
+            ext_ref.header["BUNIT"] = "Corrected DN"
+            ext_ref.header["COMMENT"] = "Mean spectral profile. For use with WAVEMIN/MAX."
             fits_hdus.append(ext_ref)
 
-            date, time = ext0.header['STARTOBS'].split("T")
+            date, time = ext0.header["STARTOBS"].split("T")
             date = date.replace("-", "")
             time = str(round(float(time.replace(":", "")), 0)).split(".")[0]
             if self.analysis_ranges == "default":
@@ -3221,8 +3438,8 @@ class FirsCal:
                 date,
                 time,
                 linename,
-                round(ext0.header['WAVEMIN'], 2),
-                round(ext0.header['WAVEMAX'], 2)
+                round(ext0.header["WAVEMIN"], 2),
+                round(ext0.header["WAVEMAX"], 2)
             )
             outfile = os.path.join(self.final_dir, outname)
             fits_hdu_list = fits.HDUList(fits_hdus)
@@ -3256,56 +3473,56 @@ class FirsCal:
 
         """
         ext0 = fits.PrimaryHDU()
-        ext0.header['DATE'] = (np.datetime64('now').astype(str), "File Creation Date and Time")
-        ext0.header['ORIGIN'] = "NMSU/SSOC"
+        ext0.header["DATE"] = (np.datetime64("now").astype(str), "File Creation Date and Time")
+        ext0.header["ORIGIN"] = "NMSU/SSOC"
         if self.crosstalk_continuum is not None:
-            ext0.header['I2QUV'] = ("CONST", "0-D I2QUV Crosstalk")
+            ext0.header["I2QUV"] = ("CONST", "0-D I2QUV Crosstalk")
         else:
-            ext0.header['I2QUV'] = ("1DFIT", "1-D I2QUV Crosstalk")
+            ext0.header["I2QUV"] = ("1DFIT", "1-D I2QUV Crosstalk")
         if not self.internal_crosstalk:
-            ext0.header['V2Q'] = (self.v2q, "True=by slit, Full=by slit and row")
-            ext0.header['V2U'] = (self.v2u, "True=by slit, Full=by slit and row")
-            ext0.header['Q2V'] = (self.q2v, "True=by slit, Full=by slit and row")
-            ext0.header['U2V'] = (self.u2v, "True=by slit, Full=by slit and row")
-            ext0.header['COMMENT'] = "Crosstalks applied in order:"
-            ext0.header['COMMENT'] = "I->QUV"
-            ext0.header['COMMENT'] = "V->Q"
-            ext0.header['COMMENT'] = "V->U"
-            ext0.header['COMMENT'] = "Q->V"
-            ext0.header['COMMENT'] = "U->V"
+            ext0.header["V2Q"] = (self.v2q, "True=by slit, Full=by slit and row")
+            ext0.header["V2U"] = (self.v2u, "True=by slit, Full=by slit and row")
+            ext0.header["Q2V"] = (self.q2v, "True=by slit, Full=by slit and row")
+            ext0.header["U2V"] = (self.u2v, "True=by slit, Full=by slit and row")
+            ext0.header["COMMENT"] = "Crosstalks applied in order:"
+            ext0.header["COMMENT"] = "I->QUV"
+            ext0.header["COMMENT"] = "V->Q"
+            ext0.header["COMMENT"] = "V->U"
+            ext0.header["COMMENT"] = "Q->V"
+            ext0.header["COMMENT"] = "U->V"
         else:
-            ext0.header['INTERNAL'] = (self.internal_crosstalk, "True=by slit, Full=by slit and row")
-            ext0.header['COMMENT'] = "Internal crosstalks corrected by fitting linear retardance"
-            ext0.header['COMMENT'] = "Saved values indicate the corrected retardance and angle"
-            ext0.header['COMMENT'] = "Note that negative values are possible via fitting, but"
-            ext0.header['COMMENT'] = "should properly be considered on [0, 2pi] interval."
+            ext0.header["INTERNAL"] = (self.internal_crosstalk, "True=by slit, Full=by slit and row")
+            ext0.header["COMMENT"] = "Internal crosstalks corrected by fitting linear retardance"
+            ext0.header["COMMENT"] = "Saved values indicate the corrected retardance and angle"
+            ext0.header["COMMENT"] = "Note that negative values are possible via fitting, but"
+            ext0.header["COMMENT"] = "should properly be considered on [0, 2pi] interval."
 
         i2quv_ext = fits.ImageHDU(i2quv_crosstalks)
-        i2quv_ext.header['EXTNAME'] = "I2QUV"
+        i2quv_ext.header["EXTNAME"] = "I2QUV"
         i2quv_ext.header[""] = "<QUV> = <QUV> - (coef[0]*[0, 1, ... nlambda] + coef[1]) * I"
 
         if not self.internal_crosstalk:
             v2q_ext = fits.ImageHDU(internal_crosstalks[0])
-            v2q_ext.header['EXTNAME'] = "V2Q"
+            v2q_ext.header["EXTNAME"] = "V2Q"
             v2q_ext.header[""] = "Q = Q - coef*V"
 
             v2u_ext = fits.ImageHDU(internal_crosstalks[1])
-            v2u_ext.header['EXTNAME'] = "V2U"
+            v2u_ext.header["EXTNAME"] = "V2U"
             v2u_ext.header[""] = "U = U - coef*V"
 
             q2v_ext = fits.ImageHDU(internal_crosstalks[2])
-            q2v_ext.header['EXTNAME'] = "Q2V"
+            q2v_ext.header["EXTNAME"] = "Q2V"
             q2v_ext.header[""] = "V = V - coef*Q"
 
             u2v_ext = fits.ImageHDU(internal_crosstalks[3])
-            u2v_ext.header['EXTNAME'] = "U2V"
+            u2v_ext.header["EXTNAME"] = "U2V"
             u2v_ext.header[""] = "V = V - coef*U"
 
             hdul = fits.HDUList([ext0, i2quv_ext, v2q_ext, v2u_ext, q2v_ext, u2v_ext])
         else:
             ret_ext = fits.ImageHDU(internal_crosstalks[:2])
-            ret_ext.header['EXTNAME'] = "RETARDANCE"
-            ret_ext.header[''] = "IQUV(orig) = LINRET(delta, theta) # IQUV(corr)"
+            ret_ext.header["EXTNAME"] = "RETARDANCE"
+            ret_ext.header[""] = "IQUV(orig) = LINRET(delta, theta) # IQUV(corr)"
             hdul = fits.HDUList([ext0, i2quv_ext, ret_ext])
         filename = "FIRS_MAP_{0}_REPEAT_{1}_CROSSTALKS.fits".format(index, repeat)
         crosstalk_file = os.path.join(self.final_dir, filename)
