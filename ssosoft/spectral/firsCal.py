@@ -266,7 +266,7 @@ class FirsCal:
                 beam = np.sum(hdul[0].data, axis=0)
                 beam0 = beam[self.beam_edges[0, 0]: self.beam_edges[0, 1], self.slit_edges[0, 0]:self.slit_edges[0, 1]]
                 lgrd[:, i] = np.mean(beam0, axis=1)[50: -50]
-                initial_xspacing = hdul[0].header["SLITWIDTH"] * firs_plate_scale
+                initial_xspacing = hdul[0].header["SLITWDTH"] * firs_plate_scale
         initial_yspacing = firs_plate_scale * self.pixel_size / 1000
         xmedian_spacing = []
         for i in range(lgrd.shape[0]):
