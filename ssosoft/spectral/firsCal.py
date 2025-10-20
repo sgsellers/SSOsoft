@@ -256,7 +256,7 @@ class FirsCal:
             return
         else:
             idx_comp = lgrd_indices[self.obssum_info["NFILES"][lgrd_indices].argmax()]
-        filelist = sorted(glob.glob(os.path.join(self.indur, self.obssum_info["OBSSERIES"][idx_comp] + "*")))
+        filelist = sorted(glob.glob(os.path.join(self.indir, self.obssum_info["OBSSERIES"][idx_comp] + "*")))
         lgrd = np.zeros((
             self.beam_edges[0, 1] - self.beam_edges[0, 0] - 100,
             len(filelist)
@@ -1126,8 +1126,8 @@ class FirsCal:
     def reduce_firs_maps(
             self,
             index: int, overview: bool=False, write: bool=True,
-            fringe_template: None or np.ndarray=None, fringe_alignment: None or float=None,
-            v2q: bool or str=False, v2u: bool or str=False, q2v: bool or str=False, u2v: bool or str=False
+            fringe_template: None | np.ndarray=None, fringe_alignment: None | float=None,
+            v2q: bool | str=False, v2u: bool | str=False, q2v: bool | str=False, u2v: bool | str=False
     ) -> np.ndarray:
         """
         Main reduction loop. Performs the following corrections:
