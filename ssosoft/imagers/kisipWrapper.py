@@ -222,7 +222,7 @@ class kisipWrapper:
                         self.obsTime,
                         self.kisipPreSpeckleBatch,
                         0
-                    )[:-3] + ".final" ## Remove last '000' add *.final
+                    )[:-3] + "*.final" ## Remove last '000' add *.final
                 )
             )
         )
@@ -245,19 +245,19 @@ class kisipWrapper:
                     self.obsTime,
                     self.kisipPreSpeckleBatch,
                     0
-                )[:-3] + ".final" ## Remove last '000' add *.final
+                )[:-3] + "*.final" ## Remove last '000' add *.final
             )
         ))
 
         if len(input_flist) == len(output_flist):
             ## Run exited just fine, moving on
-            self.logger.info(f"KISIP batch {self.burstNumber} exited with no errors. Proceeding.")
+            self.logger.info(f"KISIP batch {self.kisipPreSpeckleBatch} exited with no errors. Proceeding.")
             return
         elif len(output_flist) == 0 and len(input_flist) != 0:
             ## KISIP didn't run at all.
-            self.logger.critical(f"KISIP does not appear to have run on burst {self.burstNumber}."
+            self.logger.critical(f"KISIP does not appear to have run on burst {self.kisipPreSpeckleBatch}."
                                  "Check your environment and subfield size")
-            raise FileNotFoundError(f"KISIP did not run burst {self.burstNumber} in {self.speckleBase}!")
+            raise FileNotFoundError(f"KISIP did not run burst {self.kisipPreSpeckleBatch} in {self.kisipPreSpeckleBatch}!")
         # Error case: Input and output filelists are different lengths.
         # Means we need to re-run kisip after setting the bursts
         nattempts = 0 # Probably good not to let this go forever...
