@@ -2135,8 +2135,6 @@ class FirsCal:
             if "hairlinewidth" in config["FIRS"].keys() else self.hairline_width
         self.n_subslits = int(config["FIRS"]["slitDivisions"]) if "slitdivisions" in config["FIRS"].keys() \
             else self.n_subslits
-        if type(self.fringe_frequency) is str:
-            self.fringe_frequency = [float(i) for i in self.fringe_frequency.split(",")]
         self.verbose = config["FIRS"]["verbose"] if "verbose" in config["FIRS"].keys() \
             else self.verbose
         if type(self.verbose) is str:
