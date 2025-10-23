@@ -228,14 +228,13 @@ class FirsCal:
                 plt.pause(2)
                 plt.close("all")
             fringe_template = None
-            fringe_alignment = None
             if self.defringe == "flat":
-                fringe_template, fringe_alignment = self.firs_get_fringe_template(index)
+                fringe_template = self.firs_get_fringe_template(index)
 
             obs_index = np.where(self.obssum_info["OBSSERIES"] == self.science_series_list[index])[0][0]
             _ = self.reduce_firs_maps(
                 obs_index, overview=self.plot, write=True, fringe_template=fringe_template,
-                fringe_alignment=fringe_alignment,
+                internal_crosstalk=self.internal_crosstalk,
                 v2q=self.v2q, v2u=self.v2u, q2v=self.q2v, u2v=self.u2v
             )
         if self.register_observations:
@@ -454,7 +453,7 @@ class FirsCal:
 
         return
 
-    def firs_get_fringe_template(self, index: int) -> tuple[np.ndarray, float]:
+    def firs_get_fringe_template(self, index: int) -> np.ndarray:
         """
         Loads or creates fringe template from reduced flat field
         """
@@ -474,17 +473,15 @@ class FirsCal:
         if os.path.exists(fringe_template_path):
             with fits.open(fringe_template_path) as hdul:
                 fringe_template = hdul[0].data
-                flat_alignment = hdul[0].header["SPALIGN"]
         else:
             reduced_flat, flat_alignment = self.reduce_firs_maps(
                 sflat_index, write=False, overview=False, fringe_template=None
             )
             fringe_template = self.construct_fringe_template_from_flat(reduced_flat)
             hdu = fits.PrimaryHDU(fringe_template)
-            hdu.header["SPALIGN"] = flat_alignment
             hdul = fits.HDUList(hdu)
             hdul.writeto(fringe_template_filename, overwrite=True)
-        return fringe_template, flat_alignment
+        return fringe_template
 
     def firs_get_solar_flat(self, index: int) -> None:
         """
@@ -1125,7 +1122,7 @@ class FirsCal:
     def reduce_firs_maps(
             self,
             index: int, overview: bool=False, write: bool=True,
-            fringe_template: None | np.ndarray=None, fringe_alignment: None | float=None,
+            fringe_template: None | np.ndarray=None, internal_crosstalk: bool | str=False,
             v2q: bool | str=False, v2u: bool | str=False, q2v: bool | str=False, u2v: bool | str=False
     ) -> np.ndarray:
         """
@@ -1147,8 +1144,8 @@ class FirsCal:
             Whether to write files to disk
         fringe_template : None or numpy.ndarray, optional
             If provided, uses an array of shape (4, nslits, ny, nx, nlambda) to subtract off polarimetric fringes
-        fringe_alignment : None or float, optional
-            If provided, aligns the fringe template in wavelength space
+        intenal_crosstalk : bool or str, optional
+            If true, determines singe retarder crosstalk value. If full, determines profile-by-profile retardance
         v2q : bool or str, optional
             If true, determines single crosstalk value V->Q. If "full", determines profile-by-profile crosstalk
         v2u : bool or str, optional
@@ -1368,7 +1365,7 @@ class FirsCal:
                         reduced_data[1:, :, :, step_ctr, :] = self.defringe_from_template(
                             reduced_data[1:, :, :, step_ctr, :], fringe_template
                         )
-                    if any((v2q, v2u, q2v, u2v, self.internal_crosstalk)):
+                    if any((v2q, v2u, q2v, u2v, internal_crosstalk)):
                         # Internal Crosstalk
                         crosstalk_results = self.detrend_internal_crosstalk(
                             reduced_data[:, :, :, step_ctr, :], wavegrid
