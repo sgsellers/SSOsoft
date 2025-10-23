@@ -199,7 +199,7 @@ class FirsCal:
         self.plate_scale = []
         self.plate_scale_correction_factors = []
 
-        warnings.simplefilter("ignore") # Turning off warnings which interfere with pbars.
+        warnings.filterwarnings("ignore", category=RuntimeWarning) # divide by zero errors...
 
         return
 
