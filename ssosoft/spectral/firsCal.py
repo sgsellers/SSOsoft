@@ -136,7 +136,6 @@ class FirsCal:
         self.pixel_size = 20 # um -- for the Virgo 1k, probably.
         self.slit_width = 40  # um -- needs to be changed if slit unit is swapped out.
         self.n_subslits = 10
-        self.fringe_frequency = [-0.4, 0.4] # In angstrom, the assumed threshold for high-frequency noise to filter out
         self.verbose = False
         self.spectral_transmission = False
         self.v2q = False
@@ -1751,7 +1750,7 @@ class FirsCal:
 
     def construct_fringe_template_from_flat(self, reduced_flat: np.ndarray) -> np.ndarray:
         """
-        Performs median and Fourier filtering to construct a fringe template from a solar flat
+        Performs median filtering to construct a fringe template from a solar flat
 
         Parameters
         ----------
@@ -1769,26 +1768,9 @@ class FirsCal:
             3, self.nslits, reduced_flat.shape[2], reduced_flat.shape[-1]
         ))
         mean_flat = np.mean(reduced_flat, axis=3)
-        with tqdm.tqdm(total=3 * self.nslits * reduced_flat.shape[2], desc="Constructing Fringe Template") as pbar:
-            # Fringe template likely varies for each slit
-            for slit in range(self.nslits):
-                wavelength_array = self.tweak_wavelength_calibration(
-                    np.mean(mean_flat[0, slit, 50:-50, :], axis=0)
-                )
-                fft_frequencies = np.fft.fftfreq(
-                    len(wavelength_array),
-                    np.mean(wavelength_array[1:] - wavelength_array[:-1])
-                )
-                ft_cut1 = fft_frequencies >= max(self.fringe_frequency)
-                ft_cut2 = fft_frequencies <= min(self.fringe_frequency)
-                medfilt_flat = scind.median_filter(mean_flat[:, slit, :, :], size=(1, 32, 16))
-                for y in range(medfilt_flat.shape[1]):
-                    for stoke in range(1, 4):
-                        quv_ft = np.fft.fft(medfilt_flat[stoke, y, :])
-                        quv_ft[ft_cut1] = 0
-                        quv_ft[ft_cut2] = 0
-                        fringe_template[stoke-1, slit, y, :] = np.real(np.fft.ifft(quv_ft))
-                        pbar.update(1)
+        for slit in range(self.nslits):
+            medfilt_flat = scind.median_filter(mean_flat[:, slit, :, :], size=(1, 5, 5))
+            fringe_template[:, slit, :, :] = medfilt_flat[1:]
         return fringe_template
 
     def defringe_from_template(self, data_slice: np.ndarray, template: np.ndarray) -> np.ndarray:
@@ -1805,26 +1787,11 @@ class FirsCal:
         -------
         defringed_data_slice : numpy.ndarray
         """
+        # Guess what. It works better if you just... sub it off.
         defringed_data_slice = np.zeros(data_slice.shape)
         for stoke in range(data_slice.shape[0]):
             for slit in range(data_slice.shape[1]):
-                aligned_fringes, fringe_shifts = spex.image_align(
-                    template[stoke, slit, :, :],
-                    data_slice[stoke, slit, :, :]
-                )
-                lambda_offset = fringe_shifts[1]
-                if lambda_offset < 0:
-                    idx_lo = 0
-                    idx_hi = 50
-                else:
-                    idx_lo = int(lambda_offset + 1)
-                    idx_hi = int(lambda_offset + 51)
-                for y in range(data_slice.shape[2]):
-                    fringe_med = np.nanmedian(aligned_fringes[y, idx_lo:idx_hi])
-                    map_med = np.nanmedian(data_slice[stoke, slit, y, idx_lo:idx_hi])
-                    corr_factor = fringe_med - map_med
-                    fringe_corr = aligned_fringes[y, :] - corr_factor
-                    defringed_data_slice[stoke, slit, y, :] = data_slice[stoke, slit, y, :] - fringe_corr
+                defringed_data_slice[stoke, slit, :, :] = data_slice[stoke, slit, :, :] - template[stoke, slit, :, :]
         return defringed_data_slice
 
     def prefilter_correction(
@@ -2168,8 +2135,6 @@ class FirsCal:
             if "hairlinewidth" in config["FIRS"].keys() else self.hairline_width
         self.n_subslits = int(config["FIRS"]["slitDivisions"]) if "slitdivisions" in config["FIRS"].keys() \
             else self.n_subslits
-        self.fringe_frequency = config["FIRS"]["fringeFrequency"] if "fringefrequency" in config["FIRS"].keys() \
-            else self.fringe_frequency
         if type(self.fringe_frequency) is str:
             self.fringe_frequency = [float(i) for i in self.fringe_frequency.split(",")]
         self.verbose = config["FIRS"]["verbose"] if "verbose" in config["FIRS"].keys() \
