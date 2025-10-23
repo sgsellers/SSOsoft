@@ -476,7 +476,7 @@ class FirsCal:
             with fits.open(fringe_template_path) as hdul:
                 fringe_template = hdul[0].data
         else:
-            reduced_flat, flat_alignment = self.reduce_firs_maps(
+            reduced_flat, _ = self.reduce_firs_maps(
                 sflat_index, write=False, overview=False, fringe_template=None
             )
             fringe_template = self.construct_fringe_template_from_flat(reduced_flat)
@@ -1790,7 +1790,13 @@ class FirsCal:
         defringed_data_slice = np.zeros(data_slice.shape)
         for stoke in range(data_slice.shape[0]):
             for slit in range(data_slice.shape[1]):
-                defringed_data_slice[stoke, slit, :, :] = data_slice[stoke, slit, :, :] - template[stoke, slit, :, :]
+                for y in range(data_slice.shape[2]):
+                    fringe_med = np.nanmedian(template[stoke, slit, y, 5:55])
+                    map_med = np.nanmedian(data_slice[stoke, slit, y, 5:55])
+                    corr_factor = fringe_med - map_med
+                    fringe_corr = template[stoke, slit, y, :] - corr_factor
+                    defringed_data_slice[stoke, slit, y, :] = data_slice[stoke, slit, y, :] - fringe_corr
+
         return defringed_data_slice
 
     def prefilter_correction(
