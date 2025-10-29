@@ -1921,7 +1921,7 @@ class FirsCal:
                 for j in range(alignment_image.shape[1]):
                     _, _, tmp_hairlines = spex.detect_beams_hairlines(
                         alignment_image[i, j, :, :], threshold=self.beam_threshold, hairline_width=self.hairline_width,
-                        expected_hairlines=2, expected_slits=1, expected_beams=1, fallback=False # Too many popups.
+                        expected_hairlines=2, expected_slits=1, expected_beams=1, fallback=True # Too many popups.
                     )
                     hair_centers[i, j] = tmp_hairlines.min()
         hairline_skews = np.zeros((alignment_image.shape[0], alignment_image.shape[1], alignment_image.shape[3]))
