@@ -416,7 +416,7 @@ def align_images(
         with frames.Helioprojective.assume_spherical_screen(dummy_map.observer_coordinate):
             reference_submap = reference_smap.reproject_to(dummy_map.wcs)
         # On successive iterations, we're probably close enough to use the central default subtile:
-        if i == 0:
+        if i < 2:
             tol = tolerance
             st = subtile
         else:
