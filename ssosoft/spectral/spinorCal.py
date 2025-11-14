@@ -1146,6 +1146,14 @@ class SpinorCal:
             beam0meanprof, beam1meanprof, mode="full"
         ).argmax() - beam0meanprof.shape[0]
 
+        # In cases where the lamp gain is particularly poorly-illuminated,
+        # the shifts can be spuriously large. Reset to 0 and rely on later
+        # calibrations
+        if np.abs(yshift) > 10:
+            yshift = 0
+        if np.abs(self.beam1_xshift) > 10:
+            self.beam1_xshift = 0
+
         # Rather than doing a scipy.ndimage.shift, the better way to do it would
         # be to shift the self.beamEdges for beam 1.
         # Need to be mindful of shifts that would move beamEdges out of frame.
@@ -1159,14 +1167,6 @@ class SpinorCal:
             # Y-shift does not take beam out of bound. Update beamEdges, and move on.
             self.beam1_yshift = 0
             self.beam_edges[1] += -yshift
-
-        # In cases where the lamp gain is particularly poorly-illuminated,
-        # the shifts can be spuriously large. Reset to 0 and rely on later
-        # calibrations
-        if np.abs(self.beam1_yshift) > 10:
-            self.beam1_yshift = 0
-        if np.abs(self.beam1_xshift) > 10:
-            self.beam1_xshift = 0
 
         # Clean the hairlines out of the solar flat:
         cleaned_solar_flat = self.clean_lamp_flat(self.solar_flat.copy())  # We'll use this going forward
