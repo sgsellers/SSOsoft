@@ -5,7 +5,7 @@ SSOsoft is a set of tools for reducing data from the Sunspot Solar Observatory's
 This release should be considered the canonical version of the DST reduction pipelines, 
 and should be used in all applications, rather than the original branch.
 
-**Please report any bugs to sellers@nmsu.edu**
+**Please report any bugs to sean.g.sellers@gmail.com**
 
 ## Features
 
@@ -132,7 +132,7 @@ optional.
 Performing calibrations is done by setting up a configuration file, then in python:
 ```python
 import ssosoft.spectral.spinorCal as spin
-s = spin.hsgCal("CAMERA_NAME", "configfile.ini")
+s = spin.spinorCal("CAMERA_NAME", "configfile.ini")
 s.spinor_run_calibration()
 ```
 The calibration pipeline currently performs the following corrections:
@@ -178,6 +178,26 @@ The structure of each file is (indexing from 0):
 
 Each extension has dimensions (ny, nx), as the wavelength axis is flattened.
 Each extension contains full WCS coordinates and can be read into Sunpy natively.
+
+## SSOSoft for FIRS
+
+Reductions for the FIRS instrument are included via a modification to the SpinorCal pipeline. In addition to the different modulation scheme employed, the FIRS pipeline additionally attempts a template defringe, and will (in theory) handle data taken with the FIRS multi-slit units, though this functionality has not been tested (as I had no multi-slit data to test with).
+
+Performing calibrations is done by setting up a configuration file, then in python:
+```python
+import ssosoft.spectral.firsCal as firs
+f = firs.firsCal("configfile.ini")
+f.firs_run_calibration()
+```
+
+## SSOSoft for FRANCIS
+
+As of June 2025, the FRANCIS IFU is in operation at the DST. For details of the instrument, see D. Jess et al., 2022. Currently, the FRANCIS pipeline is intended to be run only after a complete run of the ROSA/HARDcam data pipeline. The FRANCIS Level-1.5 data product the reduced fiber spectra, the context back-reflection fiber map, and the cotemporal ROSA/HARDcam channel image (as chosen by the user). The pipeline is in three parts;
+- ssosoft.ifu.francisCal.FrancisCal: Handles the fiber reductions and writes reduced fiber-only files. These can be produced without ROSA/HARDcam data.
+- ssosoft.ifu.ferruleCal.FerruleCal: Handles the reductions of the ferrule back-reflection camera (DOUGCam), usually taken with ROSA's das4 machine. These can be produced without ROSA/HARDCam data.
+- ssosoft.ifu.comboCal.CombineCalibration: Must be run after a successful ROSA/HARDCam reduction. This combines and alignes the fiber map, ferrule map, and a user-chosen ROSA or HARDcam map into one handy file per exposure.
+
+A manual for this pipeline does not currently exist. Please contact me for further information.
 
 ## HSG
 HSG is handled by the 
