@@ -22,7 +22,7 @@ from sunpy.coordinates import frames
 from ..tools import alignment_tools as align
 from ..tools import movie_makers as movie
 from . import spectraTools as spex
-from .polarimetryTools import v2qu_crosstalk, v2qu_retardance_corr, v2qu_retardance_corr_2d
+from .polarimetryTools import get_dst_matrix, v2qu_crosstalk, v2qu_retardance_corr, v2qu_retardance_corr_2d
 
 
 class SpinorCal:
@@ -651,7 +651,8 @@ class SpinorCal:
                 self.manual_alignment_selection = True
 
         # Required global values
-        self.t_matrix_file = config["SHARED"]["tMatrixFile"]
+        self.t_matrix_file = config["SHARED"]["tMatrixFile"] if \
+            "tmatrixfile" in config["SHARED"].keys() else self.t_matrix_file
 
         # Overrides for Global defaults
         self.grating_rules = float(config["SHARED"]["gratingRules"]) if (
@@ -1659,7 +1660,12 @@ class SpinorCal:
         input_stokes = np.zeros((self.calcurves.shape[0], 4))
         for i in range(self.calcurves.shape[0]):
             init_stokes = np.array([1, 0, 0, 0])
-            tmtx = self.get_telescope_matrix([az_pol[i], el_pol[i], ta_pol[i]], 90)
+            tmtx = get_dst_matrix(
+                [az_pol[i], el_pol[i], ta_pol[i]],
+                self.central_wavelength,
+                90,
+                self.t_matrix_file
+            )
             init_stokes = tmtx @ init_stokes
             if bool(polarizer_staged[i]):
                 # Mult by 2 since we normalized our intensities earlier...
@@ -2030,11 +2036,13 @@ class SpinorCal:
                     combined_beams[1:] = (
                                                  science_beams[0, 1:, :, :] - science_beams[1, 1:, :, :]
                                          ) / 2
-                    tmtx = self.get_telescope_matrix(
+                    tmtx = get_dst_matrix(
                         [science_hdu[i].header["DST_AZ"],
                          science_hdu[i].header["DST_EL"],
                          science_hdu[i].header["DST_TBL"]],
-                        180
+                        self.central_wavelength,
+                        180,
+                        self.t_matrix_file
                     )
                     inv_tmtx = np.linalg.inv(tmtx)
                     for j in range(combined_beams.shape[1]):

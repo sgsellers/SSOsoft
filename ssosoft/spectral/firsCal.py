@@ -2110,7 +2110,8 @@ class FirsCal:
         self.final_dir = config["FIRS"]["reducedFileDirectory"]
         self.reduced_file_pattern = config["FIRS"]["reducedFilePattern"]
         self.parameter_map_pattern = config["FIRS"]["reducedParameterMapPattern"]
-        self.t_matrix_file = config["FIRS"]["tMatrixFile"]
+        self.t_matrix_file = config["FIRS"]["tMatrixFile"] if \
+            "tmatrixfile" in config["FIRS"].keys() else self.t_matrix_file
 
         self.nslits = int(config["FIRS"]["nSlits"]) if "nslits" in config["FIRS"].keys() else self.nslits
         self.slit_width = int(config["FIRS"]["slitWidth"]) if "slitwidth" in config["FIRS"].keys() else self.slit_width

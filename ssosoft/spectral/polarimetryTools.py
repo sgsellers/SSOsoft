@@ -1,15 +1,16 @@
 import importlib
+import os
+import sys
+from importlib import resources
+
 import matplotlib.pyplot as plt
 import numpy as np
-import os
 import scipy.integrate as scint
 import scipy.interpolate as scinterp
 import scipy.io as scio
 import scipy.ndimage as scind
 import scipy.optimize as scopt
-import sys
 from matplotlib.widgets import Slider
-
 from numba import jit
 
 if importlib.util.find_spec("dask") is not None:
@@ -313,7 +314,7 @@ def muller_efficiencies(matrix: np.ndarray):
 
 def get_dst_matrix(
         telescope_geometry: list, central_wavelength: float,
-        reference_frame: float, matrix_file: str
+        reference_frame: float, matrix_file: str | None
 ) -> np.ndarray:
     """
     Gets DST telescope matrix from IDL save (2010 matrix) or numpy save (TBD, hopefully we measure it in the future)
@@ -327,8 +328,8 @@ def get_dst_matrix(
         In angstrom, wavelength to interpolate measured values to
     reference_frame : float
         Reference angle of the spectroplarimeter relative to TMatrix file
-    matrix_file : str
-        Path to telescope matrix file
+    matrix_file : str or None
+        Path to telescope matrix file. If none is given, uses the default included in SSOsoft.
 
 
     Returns
@@ -336,12 +337,18 @@ def get_dst_matrix(
     tmatrix : numpy.ndarray
         4x4 Mueller matrix of telescope parameters
     """
+    def read_data(path, fname) -> np.array:
+        with resources.path(path, fname) as df:
+            return scio.readsav(df)
 
-    filename, filetype = os.path.splitext(matrix_file)
-    if "idl" in filetype:
-        txparams = scio.readsav(matrix_file)
+    if matrix_file == "" or matrix_file is None:
+            txparams = read_data("ssosoft.spectral.inversions", "Tmatrix_May2010_4708-14125.idl")
     else:
-        txparams = scio.readsav(matrix_file)
+        filename, filetype = os.path.splitext(matrix_file)
+        if "idl" in filetype:
+            txparams = scio.readsav(matrix_file)
+        else:
+            txparams = scio.readsav(matrix_file)
 
     # In these files, the telescope parameters are 'tt'. The structure of tt is a bit odd:
     # tt[0]: Number of wavelength windows
@@ -359,28 +366,28 @@ def get_dst_matrix(
     # tt[10+i*7]: Primary Mirror Reflectance
     # tt[11+i*7]: Primary Mirror Retardance
 
-    entrance_window_orientation = txparams['tt'][1] * np.pi / 180
-    exit_window_orientation = txparams['tt'][2] * np.pi / 180
+    entrance_window_orientation = txparams["tt"][1] * np.pi / 180
+    exit_window_orientation = txparams["tt"][2] * np.pi / 180
     ref_frame_orientation = reference_frame * np.pi / 180
 
-    wvls = txparams['tt'][5::7]
+    wvls = txparams["tt"][5::7]
     entrance_window_retardance = scinterp.interp1d(
-        wvls, txparams['tt'][6::7], kind='linear', fill_value='extrapolate'
+        wvls, txparams["tt"][6::7], kind="linear", fill_value="extrapolate"
     )(central_wavelength) * np.pi / 180
     exit_window_retardance = scinterp.interp1d(
-        wvls, txparams['tt'][7::7], kind='linear', fill_value='extrapolate'
+        wvls, txparams["tt"][7::7], kind="linear", fill_value="extrapolate"
     )(central_wavelength) * np.pi / 180
     coelostat_reflectance = scinterp.interp1d(
-        wvls, txparams['tt'][8::7], kind='linear', fill_value='extrapolate'
+        wvls, txparams["tt"][8::7], kind="linear", fill_value="extrapolate"
     )(central_wavelength)
     coelostat_retardance = scinterp.interp1d(
-        wvls, txparams['tt'][9::7], kind='linear', fill_value='extrapolate'
+        wvls, txparams["tt"][9::7], kind="linear", fill_value="extrapolate"
     )(central_wavelength) * np.pi / 180
     primary_reflectance = scinterp.interp1d(
-        wvls, txparams['tt'][10::7], kind='linear', fill_value='extrapolate'
+        wvls, txparams["tt"][10::7], kind="linear", fill_value="extrapolate"
     )(central_wavelength)
     primary_retardance = scinterp.interp1d(
-        wvls, txparams['tt'][11::7], kind='linear', fill_value='extrapolate'
+        wvls, txparams["tt"][11::7], kind="linear", fill_value="extrapolate"
     )(central_wavelength) * np.pi / 180
 
     phi_elevation = (telescope_geometry[1] + 90) * np.pi / 180
@@ -505,11 +512,11 @@ def internal_crosstalk_2d(
     crosstalk_value : float
         Value that, when baseImage - crosstalk_value*contaminationImage is considered, minimizes correlation
     """
-    
+
     def model_function(param, contam, img):
         """Fit model"""
         return img - param * contam
-    
+
     def error_function(param, contam, img):
         """Error function
         We'll use cosine similarity for this, as a cosine similarity of 0
@@ -558,7 +565,7 @@ def internal_crosstalk_2d_ordered(
         Array of length order+1 containing the coefficients of the polynomial fit
 
     """
-    
+
     def model_function(coeffs, contam, img):
         """Fit model"""
         yrange = np.arange(contam.shape[0])
@@ -567,7 +574,7 @@ def internal_crosstalk_2d_ordered(
             yprofile += coeffs[i] * yrange ** i
         yprofile = np.repeat(yprofile[:, np.newaxis], contam.shape[1], axis=1)
         return img - yprofile * contam
-    
+
     def error_function(param, contam, img):
         """Error function
         """
@@ -632,13 +639,13 @@ def i2quv_crosstalk(stokes_i: np.ndarray, stokes_quv: np.ndarray) -> np.ndarray:
         1D array containing the Stokes-I crosstalk-corrected Q, U or V profile.
 
     """
-    
+
     def model_function(list_of_params, i, quv):
         """Fit model"""
         xrange = np.arange(len(i))
         ilinear = list_of_params[0] * xrange + list_of_params[1]
         return quv - ilinear * i
-    
+
     def error_function(list_of_params, i, quv):
         """Error function"""
         quv_corr = model_function(list_of_params, i, quv)
@@ -650,7 +657,7 @@ def i2quv_crosstalk(stokes_i: np.ndarray, stokes_quv: np.ndarray) -> np.ndarray:
         error_function,
         x0=np.array([0, 0]),
         args=[stokes_i[50:-50], stokes_quv[50:-50]],
-        jac='3-point', tr_solver='lsmr'
+        jac="3-point", tr_solver="lsmr"
     )
 
     ilinear_params = fit_result.x
@@ -678,11 +685,11 @@ def v2qu_crosstalk(stokes_v: np.ndarray, stokes_qu: np.ndarray) -> np.ndarray:
     corrected_qu : numpy.ndarray
         Crosstalk-corrected Q or U profile
     """
-    
+
     def model_function(param, v, qu):
         """Fit model"""
         return qu - param * v
-    
+
     def error_function(param, v, qu):
         """Error function
         We'll use cosine similarity for this, as a cosine similarity of 0
@@ -730,7 +737,7 @@ def v2qu_retardance_corr(stokes_vector: np.ndarray, xrange: None | tuple[int, in
         """Fit model"""
         lin_ret = np.linalg.inv(jit_linear_retarder(ret_params[0], ret_params[1]))
         return lin_ret @ stokes
-    
+
     @jit(nopython=True)
     def error_function(ret_params: list, stokes: np.ndarray):
         """Error function"""
@@ -806,7 +813,7 @@ def v2qu_retardance_corr_2d(stokes_vector: np.ndarray, xrange: None | tuple[int,
         for i in range(stokes.shape[1]):
             stokes_out[:, i, :] = lin_ret @ stokes[:, i, :]
         return stokes_out
-    
+
     @jit(nopython=True)
     def error_function(ret_params, stokes):
         """
@@ -831,7 +838,7 @@ def v2qu_retardance_corr_2d(stokes_vector: np.ndarray, xrange: None | tuple[int,
         ) / (np.linalg.norm(stokes[3].flatten()) * np.linalg.norm(stokes_out[2].flatten()))
 
         return np.sqrt(v2q_cossim ** 2 + v2u_cossim ** 2)
-    
+
     corr_stokes = np.zeros(stokes_vector.shape)
     if xrange is None:
         fit_result = scopt.least_squares(
@@ -916,20 +923,20 @@ def select_fringe_freq(wvl: np.ndarray, profile: np.ndarray, init_period: float)
         return np.real(np.fft.ifft(ft))
 
     fig, ax = plt.subplots()
-    static, = ax.plot(wvl, profile, lw=2, label='Original')
-    fourier, = ax.plot(wvl, fourier_cutter(wvl, profile, init_period), lw=2, label='Fringe Template')
+    static, = ax.plot(wvl, profile, lw=2, label="Original")
+    fourier, = ax.plot(wvl, fourier_cutter(wvl, profile, init_period), lw=2, label="Fringe Template")
     corr, = ax.plot(
         wvl,
         profile / (fourier_cutter(
             wvl, profile, init_period
         ) / np.nanmedian(fourier_cutter(wvl, profile, init_period))) + np.nanmedian(profile) / 4,
-        lw=2, label='Corrected')
+        lw=2, label="Corrected")
     fig.subplots_adjust(bottom=0.25)
     ax.set_xlabel("Wavelength")
     ax.set_title("Set desired period, then close window")
-    ax.legend(loc='lower right')
+    ax.legend(loc="lower right")
     axpd = fig.add_axes([0.25, 0.1, 0.65, 0.03])
-    period_slider = Slider(ax=axpd, label='Period', valmin=1e-5, valmax=6, valinit=init_period)
+    period_slider = Slider(ax=axpd, label="Period", valmin=1e-5, valmax=6, valinit=init_period)
 
     def update(val):
         fourier.set_ydata(fourier_cutter(wvl, profile, period_slider.val))
