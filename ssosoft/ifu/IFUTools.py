@@ -246,17 +246,17 @@ def spectral_gain(
             fit_range = smoothed_profile[edge_padding:-edge_padding]
             prev_iter_resid = 0
             polyfit = np.ones(wavelength_grid.shape[0])
-            for order in range(2, 4):
+            for order in range(2, 6):
                 pfit, diags = npoly.Polynomial.fit(
                     wavelength_grid[edge_padding:-edge_padding],
                     fit_range,
                     order,
                     full=True
                 )
-                if order != 2 and diags[0] > prev_iter_resid:
+                if order != 2 and diags[0][-] > prev_iter_resid:
                     # Worse fit, break
                     break
-                prev_iter_resid = diags[0]
+                prev_iter_resid = diags[0][0]
             spectral_gain[j] = pfit(wavelength_grid)
             residuals[j] = prev_iter_resid
             pfit_orders[j] = order
