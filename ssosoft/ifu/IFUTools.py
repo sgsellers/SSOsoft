@@ -213,7 +213,7 @@ def spectral_gain(
     fts_wavelengths : np.ndarray
         Non-degraded wavelengths of the corresponding FTS window
     fts_spectrum : np.ndarray
-        Non-degraded spectral values of the corresponding FTS window
+        Degraded to FRANCIS spectral resolution, spectral values of the corresponding FTS window
     edge_padding : int, optional
         Number of points to clip from the edges of the spectrum for continuum finding.
         By default 100
@@ -231,10 +231,7 @@ def spectral_gain(
     pfit_orders : np.ndarray, optional
         If full=True, returns an array with polynomial order used in fitting
     """
-    fts_spectrum_interpolated = scind.gaussian_filter(
-        np.interp(wavelength_grid, fts_wavelengths, fts_spectrum),
-        2
-    )
+    fts_spectrum_interpolated = np.interp(wavelength_grid, fts_wavelengths, fts_spectrum)
     spectral_gain = np.zeros(flat.shape)
     residuals = np.zeros(flat.shape[0])
     pfit_orders = np.zeros(flat.shape[0])
@@ -269,66 +266,3 @@ def spectral_gain(
     if full:
         return spectral_gain, residuals, pfit_orders
     return spectral_gain
-
-
-# fts_splits = np.array_split(fts_spectrum_interpolated, image_sectors) # List of arrays
-#     quadrant_masks = []
-#     for sector in fts_splits:
-#         mask = sector >= 0.85 # avoid line cores
-#         # Less than 10% continuum:
-#         if len(sector[mask]) < 0.1 * sector.shape[0]:
-#             threshold_value = np.percentile(sector, 85)
-#             mask = sector >= threshold_value
-#         quadrant_masks.append(mask)
-
-#     master_mask = np.concatenate(quadrant_masks)
-#     masked_wavelengths = wavelength_grid[edge_padding:-edge_padding][master_mask]
-
-#     masked_fts = fts_spectrum_interpolated[master_mask]
-
-    # prev_iter_resid = 0
-    # for order in range(1, 6):
-    #     pfit, diags = npoly.Polynomial.fit(masked_wavelengths, masked_fts, order, full=True)
-    #     if order != 1 and diags[0] > prev_iter_resid:
-    #         # Worse fit, break immediately
-    #         break
-    #     prev_iter_resid = diags[0]
-    #     fts_fit = np.zeros(wavelength_grid.shape[0])
-    #     for k, exp in enumerate(pfit):
-    #         fts_fit += exp * wavelength_grid ** k
-
-    ### This is incorrect and performs worse than the regular gain.
-    ### What we should do is divide the profile by the interpolated FTS
-    ### profile, and fit THAT with an ND polynomial after smoothing. THAT's the gain
-
-    # spectral_gain = np.ones(flat.shape)
-    # max_order = []
-    # coeffs = []
-    # for i in range(fiber_map.shape[1]):
-    #     if all(fiber_map[:, i] == 0):
-    #         continue
-    #     fiber_xrange = fiber_map[:, i].round().astype(int)
-    #     for j in fiber_xrange:
-    #         ref_profile = (flat[j, :] / np.nanmedian(flat[j, :]))[edge_padding:-edge_padding]
-    #         masked_profile = ref_profile[master_mask]
-    #         prev_iter_resid = 0
-    #         polyfit = np.ones(wavelength_grid.shape[0])
-    #         ord = 0
-    #         # Polynomial orders
-    #         for order in range(2, 5):
-    #             pfit, diags = npoly.Polynomial.fit(masked_wavelengths, masked_profile, order, full=True)
-    #             if order != 2 and diags[0] > prev_iter_resid:
-    #                 # Worse fit, break immediately
-    #                 break
-    #             prev_iter_resid = diags[0]
-    #             polyfit = np.zeros(wavelength_grid.shape[0])
-    #             coeffs.append(pfit)
-    #             for k, exp in enumerate(pfit):
-    #                 polyfit += exp * wavelength_grid ** k
-    #             ord = order
-    #         spectral_gain[j] = polyfit / fts_fit
-    #         max_order.append(ord)
-    # spectral_gain /= np.nanmedian(spectral_gain[spectral_gain != spectral_gain[0, 0]])
-    # spectral_gain[spectral_gain == spectral_gain[0, 0]] = 1
-
-    return spectral_gain, max_order, coeffs, master_mask

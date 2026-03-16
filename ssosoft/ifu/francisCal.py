@@ -36,10 +36,15 @@ class FrancisCal:
     IMAGESHAPE = (2048, 2048)
     PIXEL_SIZE = 11 #um
     APPROX_SPECTRAL_PIXEL = {
-            2400 : 0.0072 * PIXEL_SIZE, # Angstrom/pixel
-            3600 : 0.0045 * PIXEL_SIZE,
-            4320 : 0.0032 * PIXEL_SIZE
-        }
+        2400 : 0.0072 * PIXEL_SIZE, # Angstrom/pixel
+        3600 : 0.0045 * PIXEL_SIZE,
+        4320 : 0.0032 * PIXEL_SIZE
+    }
+    APPROX_SPECTRAL_RESOLUTION = {
+        2400 : 15817,
+        3600 : 16860,
+        4320 : 20278
+    }
     FIBER_APERTURE = 40 # um
     FIBER_WIDTH = 55 # um, with cladding
     PLATE_SCALE = 22.5789 # arcsec/mm
@@ -130,6 +135,7 @@ class FrancisCal:
 
         self.fts_wavelengths = np.empty(0)
         self.fts_spectrum = np.empty(0)
+        self.fts_spectrum_degraded = np.empty(0)
 
         self.dcss_params = {}
         self.dcss_log = ""
@@ -203,7 +209,7 @@ class FrancisCal:
         self.lamp_flat_file_pattern = config[self.wavelength]["lampflatFilePattern"] if \
             "lampflatfilepattern" in config[self.wavelength].keys() else self.data_file_pattern
         self.lamp_dark_file_pattern = config[self.wavelength]["lampdarkFilePattern"] if \
-            "lampdakrfilepattern" in config[self.wavelength].keys() else self.data_file_pattern
+            "lampdarkfilepattern" in config[self.wavelength].keys() else self.data_file_pattern
 
         self.work_base = config[self.wavelength]["workBase"]
 
@@ -486,23 +492,7 @@ class FrancisCal:
             row_counter += 1
         skew_value /= 5
         center_mean_profile /= np.median(center_mean_profile)
-        approx_spectral_pixel = self.APPROX_SPECTRAL_PIXEL[int(self.grating_lpmm)]
-        approx_wavegrid = np.arange(
-            -init_deskew_flat.shape[1]//2 * approx_spectral_pixel,
-            init_deskew_flat.shape[1]//2 * approx_spectral_pixel,
-            approx_spectral_pixel
-        ) + self.grating_central_wavelength
-        self.francis_line_cores, self.fts_line_cores, \
-            self.fts_wavelengths, self.fts_spectrum = self.francis_fts_line_select(
-            approx_wavegrid, center_mean_profile
-        )
-        fts_line_core_wavelengths = np.array(
-            [np.interp(i, np.arange(self.fts_wavelengths.shape[0]), self.fts_wavelengths) for i in self.fts_line_cores]
-        )
-        self.spectral_pixel = np.abs(np.diff(fts_line_core_wavelengths)) / np.abs(np.diff(self.francis_line_cores))
-        zerowvl = fts_line_core_wavelengths[0] - (self.spectral_pixel * self.francis_line_cores[0])
-        self.wavelength_array = (np.arange(0, init_deskew_flat.shape[1]) * self.spectral_pixel) + zerowvl
-        self.fts_wavelengths, self.fts_spectrum = spex.fts_window(self.wavelength_array[0], self.wavelength_array[-1])
+        self.francis_wavelength_calibration(center_mean_profile)
         self.logger.info("Performing fine deskew on average flat, updating fiber map")
         self.deskew_flat(init_deskew_flat, self.francis_line_cores)
         self.logger.info("Creating initial (spectral profile shift-and-divide) gain tables")
@@ -514,8 +504,50 @@ class FrancisCal:
         self.spectral_gain = ifu.spectral_gain(
             self.deskewed_flat / self.gain_table,
             self.wavelength_array, self.fiber_map_1d_tweaked,
-            self.fts_wavelengths, self.fts_spectrum
+            self.fts_wavelengths, self.fts_spectrum_degraded
         )
+
+        return
+
+    def francis_wavelength_calibration(
+            self,
+            mean_profile: np.ndarray
+        ) -> np.ndarray:
+        """Current method of two-point linear fit is inadequate for FRANCIS spectral range.
+        Moving to 2nd order polynomial fit. Also introducing degraded FTS profile to FRANCIS
+        spectral resolution.
+
+        Parameters
+        ----------
+        mean_profile : np.ndarray
+            Average profile from gain table creation
+
+        Returns
+        -------
+        wavelength_array: np.ndarray
+            Calibrated wavelength array
+        """
+        approx_spectral_pixel = self.APPROX_SPECTRAL_PIXEL[int(self.grating_lpmm)]
+        approx_wavegrid = np.arange(
+            -mean_profile.shape[0]//2 * approx_spectral_pixel,
+            mean_profile.shape[0]//2 * approx_spectral_pixel,
+            approx_spectral_pixel
+        ) + self.grating_central_wavelength
+        self.francis_line_cores, self.fts_line_cores, \
+            self.fts_wavelengths, self.fts_spectrum, self.fts_spectrum_degraded = self.francis_fts_line_select(
+            approx_wavegrid, mean_profile, self.APPROX_SPECTRAL_RESOLUTION[int(self.grating_lpmm)]
+        )
+        fts_line_core_wavelengths = np.array(
+            [np.interp(i, np.arange(self.fts_wavelengths.shape[0]), self.fts_wavelengths) for i in self.fts_line_cores]
+        )
+        polyfit = np.polynomial.polynomial.Polynomial.fit(self.francis_line_cores, fts_line_core_wavelengths, 2)
+        self.wavelength_array = polyfit(np.arange(len(mean_profile)))
+        self.fts_wavelengths, self.fts_spectrum = spex.fts_window(self.wavelength_array[0], self.wavelength_array[-1])
+        dlambda = 2 * (self.fts_wavelengths[1] - self.fts_wavelengths[0])
+        degradation_factor = (
+            self.fts_wavelengths.mean() / dlambda
+        ) / self.APPROX_SPECTRAL_RESOLUTION[int(self.grating_lpmm)]
+        self.fts_spectrum_degraded = scind.gaussian_filter(self.fts_spectrum, degradation_factor)
 
         return
 
@@ -737,7 +769,7 @@ class FrancisCal:
 
     @staticmethod
     def francis_fts_line_select(
-        wavelength_grid: np.ndarray, average_spectrum: np.ndarray
+        wavelength_grid: np.ndarray, average_spectrum: np.ndarray, francis_resolution: float
     ) -> tuple[list, list, np.ndarray, np.ndarray]:
         """User selects corresponding spectral features in FRANCIS and FTS atlas
 
@@ -747,6 +779,8 @@ class FrancisCal:
             FRANCIS wavelength grid
         average_spectrum : np.ndarray
             FRANCIS average spectrum
+        francis_resolution : float
+            Approximate spectrograph resolution for FTS profile degradation
 
         Returns
         -------
@@ -758,22 +792,28 @@ class FrancisCal:
             Wavelength grid for FTS atlas window
         fts_spec : np.ndarray
             Spectral information for FTS atlas window
+        fts_spec_degraded : np.ndarray
+            Spectral information for FTS atlas window, gaussian blurred to FRANCIS resolution
         """
         fts_wave, fts_spec = spex.fts_window(wavelength_grid[0], wavelength_grid[-1])
+        dlambda = 2 * (fts_wave[1] - fts_wave[0])
+        degradation_factor = (fts_wave.mean() / dlambda) / francis_resolution
+        fts_spec_degraded = scind.gaussian_filter(fts_spec, degradation_factor)
+
         print("TOP: FRANCIS Spectrum (uncorrected), BOTTOM: FTS Reference Spectrum")
         print("Click to select the same two spectral lines in each plot")
         francis_lines, fts_lines = spex.select_lines_doublepanel(
             average_spectrum,
-            fts_spec,
-            4
+            fts_spec_degraded,
+            8
         )
         francis_line_cores = [
             spex.find_line_core(average_spectrum[x - 5:x + 5]) + x - 5 for x in francis_lines
         ]
         fts_line_cores = [
-            spex.find_line_core(fts_spec[x - 10:x + 10]) + x - 10 for x in fts_lines
+            spex.find_line_core(fts_spec_degraded[x - 10:x + 10]) + x - 10 for x in fts_lines
         ]
-        return francis_line_cores, fts_line_cores, fts_wave, fts_spec
+        return francis_line_cores, fts_line_cores, fts_wave, fts_spec, fts_spec_degraded
 
     def reduce_francis_spectral_maps(self) -> None:
         """
