@@ -253,7 +253,7 @@ def spectral_gain(
                     order,
                     full=True
                 )
-                if order != 2 and diags[0][-] > prev_iter_resid:
+                if order != 2 and diags[0][0] > prev_iter_resid:
                     # Worse fit, break
                     break
                 prev_iter_resid = diags[0][0]
