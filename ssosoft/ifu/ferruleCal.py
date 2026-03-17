@@ -944,12 +944,12 @@ class FerruleCal():
                         rotation_angle = align.determine_relative_rotation(
                             shifted_gain, data
                         )
-                        rotated_gain = scind.rotate(shifted_gain, rotation_angle)
+                        rotated_gain = scind.rotate(shifted_gain, rotation_angle, mode="constant", cval=1)
                     data /= rotated_gain
                     mfgs = _mfgs(data)
                     if np.nan_to_num(mfgs) == 0:
                         # Edge case, failed mfgs
-                        mfgs = _mfgs[:data.shape[0] // 3, :data.shape[1] // 3]
+                        mfgs = _mfgs(data[:data.shape[0] // 3, :data.shape[1] // 3])
                     startobs = np.datetime64(hdu.header["DATE"])
                     if self.correct_time:
                         startobs = startobs - np.timedelta64(1, "h")
