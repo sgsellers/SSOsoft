@@ -42,15 +42,15 @@ def _image_align_half_norm(
     tolerance: float | None=None, subtile: list | None=None
 ) -> tuple[np.ndarray, list]:
     """Alternate image alignment routine that performs only a partial normalization on
-    the image. This is to deal with aligning the reference ferrule image, since that 
+    the image. This is to deal with aligning the ferrule image, since that 
     was previously median-normalized.
 
     Parameters
     ----------
     image : np.ndarray
-        Image to align
+        Image to align, only gets half-normalized
     reference : np.ndarray
-        Reference image, only gets half-normalized
+        Reference image
     tolerance : float | None, optional
         In pixels, tolerance, by default None
     subtile : list | None, optional
@@ -77,10 +77,10 @@ def _image_align_half_norm(
     img = image[subtile[0]:subtile[0] + subtile[2], subtile[1]:subtile[1] + subtile[2]]
 
     # Normalization statistics
-    mean_ref = 1
-    std_ref = 1
-    mean_img = np.mean(img)
-    std_img = np.std(img)
+    mean_ref = np.mean(ref)
+    std_ref = np.std(img)
+    mean_img = 1
+    std_img = 1
 
      # Correlation
     ref_ft = np.fft.rfft2((ref-mean_ref)/std_ref * window)
@@ -709,16 +709,16 @@ class FerruleCal():
         # Divide out the fiber head image and set the gain table.
         # Save the fiber bundle position for later.
         master_shifts = np.zeros(2)
-        sh_im = dsub.copy()
+        sh_im = refim.copy()
         for i in range(3):
             sh_im, shifts = _image_align_half_norm(
-                sh_im, refim
+                refim, sh_im
             )
             master_shifts += shifts
-        shifted_ferrule = scind.shift(refim, -master_shifts, mode="nearest")
+        shifted_ferrule = scind.shift(refim, master_shifts, mode="nearest")
         dummy = np.ones(dsub.shape)
         dummy[:shifted_ferrule.shape[0], :shifted_ferrule.shape[1]] = shifted_ferrule
-        self.ferrule_position = [dummy.shape[1] // 2 - master_shifts[0], dummy.shape[0]//2 - master_shifts[1]]
+        self.ferrule_position = [dummy.shape[1] // 2 + master_shifts[0], dummy.shape[0]//2 + master_shifts[1]]
         self.gain = (dsub / dummy) / np.median(dsub / dummy)
         return
 
@@ -924,7 +924,7 @@ class FerruleCal():
         ))
         file_counter = 0
         shifted_gain = self.gain.copy()
-        rotation_angle = 0
+        rotation_angle = 0.
         rotated_gain = shifted_gain.copy()
         gain_align_done = False
         for nfile, file in enumerate(
@@ -940,8 +940,7 @@ class FerruleCal():
                     data = self.translate_image(hdu.data - self.avg_dark)
                     if not gain_align_done:
                         # Shift and rotate gain
-                        shifted_image, shifts = _image_align_half_norm(data, self.gain)
-                        shifted_gain = scind.shift(self.gain.copy(), -shifts, mode="nearest")
+                        shifted_gain, shifts = _image_align_half_norm(self.gain.copy(), data)
                         rotation_angle = align.determine_relative_rotation(
                             shifted_gain, data
                         )
