@@ -27,7 +27,7 @@ adjusted to correspond to IFU processing.
 
 def create_gaintables(
         flat: np.ndarray, gain_line: float, fiber_map: np.ndarray,
-        neighborhood: int=5, edge_padding: int=100
+        neighborhood: int=10, edge_padding: int=100
     ) -> tuple[np.ndarray, np.ndarray]:
     """Generates a set of gain tables given a starting set of initial parameters.
     Attempts two sequential refinements of gain, which will be applied to the flat
@@ -69,16 +69,16 @@ def create_gaintables(
         row_counter += 1
     center_mean_profile /= np.median(center_mean_profile)
     profile_linecore = spex.find_line_core(
-        center_mean_profile[int(gain_line) - 9:int(gain_line) + 11]
-    ) + int(gain_line) - 9
+        center_mean_profile[int(gain_line) - 15:int(gain_line) + 16]
+    ) + int(gain_line) - 15
     shifted_lines = np.ones(flat.shape)
     for i in range(flat.shape[0]):
         if i == 0 or i not in fiber_map.round().astype(int):
             # Do not attempt to shift to fibers outside bundle
             continue
         line_position = spex.find_line_core(
-            flat[i, int(gain_line - 9):int(gain_line + 11)]
-        ) + int(gain_line - 9)
+            flat[i, int(gain_line - 15):int(gain_line + 16)]
+        ) + int(gain_line - 15)
         shift = line_position - profile_linecore
         shifted_lines[i, :] = scind.shift(center_mean_profile, shift, mode="nearest")
     coarse_gaintable = flat / shifted_lines
