@@ -27,7 +27,7 @@ adjusted to correspond to IFU processing.
 
 def create_gaintables(
         flat: np.ndarray, gain_line: float, fiber_map: np.ndarray,
-        neighborhood: int=10, edge_padding: int=100
+        neighborhood: int=3, edge_padding: int=100
     ) -> tuple[np.ndarray, np.ndarray]:
     """Generates a set of gain tables given a starting set of initial parameters.
     Attempts two sequential refinements of gain, which will be applied to the flat
