@@ -648,7 +648,7 @@ class FerruleCal():
         for i in range(3):
             sh_im, shifts = align._image_align(
                 sh_im, refim,
-                subtile=[refim.shape[0]//2 - 256, refim.shape[1]//2 + 256, 512],
+                subtile=[refim.shape[0]//2 - 256, refim.shape[1]//2 - 256, 512],
                 tolerance=384
             )
             master_shifts += shifts
