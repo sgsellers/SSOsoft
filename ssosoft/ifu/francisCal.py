@@ -632,7 +632,7 @@ class FrancisCal:
         wva = fits.ImageHDU(self.wavelength_array)
         wva.header["EXTNAME"] = "WAVE-ARRAY"
 
-        hdul = fits.HDUList([phdu, flat, dark, cgain, fgain, sgain, xskew, yskew, fm1, fm2, dsk, wva])
+        hdul = fits.HDUList([phdu, flat, dark, fgain, sgain, xskew, yskew, fm1, fm2, dsk, wva])
         hdul.writeto(self.solar_gain_reduced, overwrite=True)
 
         return
