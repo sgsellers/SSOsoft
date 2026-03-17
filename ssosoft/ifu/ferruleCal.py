@@ -483,7 +483,14 @@ class FerruleCal():
                 self.logger.info("Plate scale cannot be updated")
             else:
                 self.avg_lgrd = self.rosa_average_image_from_list(lgrdlist)
-                self.avg_lgrd = self.translate_image(self.avg_lgrd - self.avg_dark) / self.gain
+                self.avg_lgrd = self.translate_image(self.avg_lgrd - self.avg_dark)
+                # Shift and rotate gain
+                shifted_gain, shifts = _image_align_half_norm(self.gain.copy(), self.avg_lgrd.copy())
+                rotation_angle = align.determine_relative_rotation(
+                    shifted_gain, self.avg_lgrd.copy()
+                )
+                rotated_gain = scind.rotate(shifted_gain, rotation_angle, mode="constant", cval=1)
+                self.avg_lgrd = self.avg_lgrd / rotated_gain
                 if self.correct_plate_scale:
                     self.determine_grid_spacing()
         else:
@@ -509,7 +516,14 @@ class FerruleCal():
                 )
             else:
                 self.avg_targ = self.rosa_average_image_from_list(targlist)
-                self.avg_targ = self.translate_image(self.avg_targ - self.avg_dark) / self.gain
+                self.avg_targ = self.translate_image(self.avg_targ - self.avg_dark)
+                # Shift and rotate gain
+                shifted_gain, shifts = _image_align_half_norm(self.gain.copy(), self.avg_targ.copy())
+                rotation_angle = align.determine_relative_rotation(
+                    shifted_gain, self.avg_targ.copy()
+                )
+                rotated_gain = scind.rotate(shifted_gain, rotation_angle, mode="constant", cval=1)
+                self.avg_targ = self.avg_targ / rotated_gain
         else:
             self.logger.info(
                 "Skipping target creation. Rigid alignment to reference will not be done."
@@ -945,6 +959,7 @@ class FerruleCal():
                             shifted_gain, data
                         )
                         rotated_gain = scind.rotate(shifted_gain, rotation_angle, mode="constant", cval=1)
+                        gain_align_done = True
                     data /= rotated_gain
                     mfgs = _mfgs(data)
                     if np.nan_to_num(mfgs) == 0:
