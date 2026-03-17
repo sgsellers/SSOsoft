@@ -37,6 +37,71 @@ def _mfgs(image: np.ndarray, kernel_size:int=3) -> float:
 
     return mfgs_metric
 
+def _image_align_half_norm(
+    image: np.ndarray, reference: np.ndarray,
+    tolerance: float | None=None, subtile: list | None=None
+) -> tuple[np.ndarray, list]:
+    """Alternate image alignment routine that performs only a partial normalization on
+    the image. This is to deal with aligning the reference ferrule image, since that 
+    was previously median-normalized.
+
+    Parameters
+    ----------
+    image : np.ndarray
+        Image to align
+    reference : np.ndarray
+        Reference image, only gets half-normalized
+    tolerance : float | None, optional
+        In pixels, tolerance, by default None
+    subtile : list | None, optional
+        Subfield edges for alignment, by default None
+
+    Returns
+    -------
+    tuple[np.ndarray, list]
+        Shifted array and shifts
+    """
+    if subtile is None and tolerance is None:
+        tolerance = 256
+        subtile = [image.shape[0]//2-256, image.shape[1]//2-256, 512]
+    elif subtile is not None and tolerance is None:
+        tolerance = subtile[2]
+    elif tolerance is not None and subtile is None:
+        subtile = [image.shape[0]//2-256, image.shape[1]//2-256, 512]
+        tolerance = subtile[2]//2 if tolerance > subtile[2] - 1 else tolerance
+    window = align._window_apod(subtile[2], 0.4375)
+    window /= np.mean(window)
+
+    # Clip to the subtile to be used for alignment
+    ref = reference[subtile[0]:subtile[0]+subtile[2], subtile[1]:subtile[1]+subtile[2]]
+    img = image[subtile[0]:subtile[0] + subtile[2], subtile[1]:subtile[1] + subtile[2]]
+
+    # Normalization statistics
+    mean_ref = 1
+    std_ref = 1
+    mean_img = np.mean(img)
+    std_img = np.std(img)
+
+     # Correlation
+    ref_ft = np.fft.rfft2((ref-mean_ref)/std_ref * window)
+    img_ft = np.fft.rfft2((img - mean_img)/std_img * window)
+    # Shift zero-frequencies to center of spectrum
+    xcorr = np.fft.fftshift(
+        np.fft.irfft2(
+            np.conj(img_ft) * ref_ft
+        )
+    ) / (ref.shape[0] * ref.shape[1])
+    # Integer shift
+    max_idx = np.argmax(xcorr)
+    yshift = max_idx // xcorr.shape[0] - xcorr.shape[0]//2
+    xshift = max_idx % xcorr.shape[0] - xcorr.shape[1]//2
+
+    if (np.abs(yshift) > tolerance) or (np.abs(xshift) > tolerance):
+        raise align.ToleranceError(tolerance)
+    aligned = scind.shift(image, (yshift, xshift), mode="grid-wrap")
+    shifts = [yshift, xshift]
+    return aligned, shifts
+
 
 class FerruleCal():
     """
@@ -646,10 +711,8 @@ class FerruleCal():
         master_shifts = np.zeros(2)
         sh_im = dsub.copy()
         for i in range(3):
-            sh_im, shifts = align._image_align(
-                sh_im, refim,
-                subtile=[refim.shape[0]//2 - 256, refim.shape[1]//2 - 256, 512],
-                tolerance=384
+            sh_im, shifts = _image_align_half_norm(
+                sh_im, refim
             )
             master_shifts += shifts
         shifted_ferrule = scind.shift(refim, -master_shifts, mode="nearest")
@@ -860,6 +923,10 @@ class FerruleCal():
             os.path.join(self.ferrule_data_base, self.ferrule_data_file_pattern)
         ))
         file_counter = 0
+        shifted_gain = self.gain.copy()
+        rotation_angle = 0
+        rotated_gain = shifted_gain.copy()
+        gain_align_done = False
         for nfile, file in enumerate(
             tqdm.tqdm(
                 ferrule_data_list, desc="Running Ferrule Calibration Loop",
@@ -870,7 +937,16 @@ class FerruleCal():
                 exptime = 1000 * float(hdul[0].header["EXPOSURE"].split(" ")[0])
                 exptime_td = np.timedelta64(int(exptime), "ms")
                 for hdu in hdul[1:]:
-                    data = self.translate_image(hdu.data - self.avg_dark) / self.gain
+                    data = self.translate_image(hdu.data - self.avg_dark)
+                    if not gain_align_done:
+                        # Shift and rotate gain
+                        shifted_image, shifts = _image_align_half_norm(data, self.gain)
+                        shifted_gain = scind.shift(self.gain.copy(), -shifts, mode="nearest")
+                        rotation_angle = align.determine_relative_rotation(
+                            shifted_gain, data
+                        )
+                        rotated_gain = scind.rotate(shifted_gain, rotation_angle)
+                    data /= rotated_gain
                     mfgs = _mfgs(data)
                     startobs = np.datetime64(hdu.header["DATE"])
                     if self.correct_time:
