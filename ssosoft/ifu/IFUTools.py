@@ -27,7 +27,7 @@ adjusted to correspond to IFU processing.
 
 def create_gaintables(
         flat: np.ndarray, gain_line: float, fiber_map: np.ndarray,
-        neighborhood: int=3, edge_padding: int=100
+        neighborhood: int=15, edge_padding: int=200
     ) -> tuple[np.ndarray, np.ndarray]:
     """Generates a set of gain tables given a starting set of initial parameters.
     Attempts two sequential refinements of gain, which will be applied to the flat
@@ -37,6 +37,13 @@ def create_gaintables(
     2.) Fine gain using surrounding fiber-average profile
         Standard shift-and-divide method using initial skews to get close.
         This step also fine-tunes to skew along the slit.
+
+    ---- 2026-03-17 ----
+    Due to the significant skews and brightness variation across the field, the coarse
+    gaintable correction actually makes the fine gain table worse. Strong residuals are
+    visible in all gains constructed with this method. From testing, it's better to just
+    jump straight to the fine gain table with a slightly higher neighborhood, and take
+    care of the additional spectral shape with the spectral atlas gain.
 
     Parameters
     ----------
@@ -53,52 +60,10 @@ def create_gaintables(
 
     Returns
     -------
-    coarse_gain : np.ndarray
-        Coarse gain table using single reference profile shift-and-divide
-    fine_gain : np.ndarray
+    gaintable : np.ndarray
         Fine gain table using nearest neighbor profiles shift-and-divide
     """
-    center_mean_profile = np.zeros(flat.shape[1])
-    good_fiber_counter = 0
-    row_counter = 0
-    while good_fiber_counter < neighborhood:
-        fiber_xrange = fiber_map[:, fiber_map.shape[1] // 2 - 3 + row_counter].round().astype(int)
-        if not all(fiber_xrange == 0): # Dead fiber
-            center_mean_profile += np.sum(flat[fiber_xrange], axis=0)
-            good_fiber_counter += 1
-        row_counter += 1
-    center_mean_profile /= np.median(center_mean_profile)
-    profile_linecore = spex.find_line_core(
-        center_mean_profile[int(gain_line) - 15:int(gain_line) + 16]
-    ) + int(gain_line) - 15
     shifted_lines = np.ones(flat.shape)
-    for i in range(flat.shape[0]):
-        if i == 0 or i not in fiber_map.round().astype(int):
-            # Do not attempt to shift to fibers outside bundle
-            continue
-        line_position = spex.find_line_core(
-            flat[i, int(gain_line - 15):int(gain_line + 16)]
-        ) + int(gain_line - 15)
-        shift = line_position - profile_linecore
-        shifted_lines[i, :] = scind.shift(center_mean_profile, shift, mode="nearest")
-    coarse_gaintable = flat / shifted_lines
-
-    # Smooth rough gaintable in the chosen line
-    if gain_line < 20:
-        lowidx = 0
-    else:
-        lowidx = int(gain_line - 20)
-    if gain_line > flat.shape[0] - 20:
-        highidx = int(flat.shape[0] - 1)
-    else:
-        highidx = int(gain_line + 20)
-    for i in range(coarse_gaintable.shape[1]):
-        coarse_gaintable[int(gain_line - 7):int(gain_line + 7), i] = np.nanmean(coarse_gaintable[lowidx:highidx, i])
-    coarse_gaintable /= np.nanmedian(coarse_gaintable)
-
-    corrected_flat = flat / coarse_gaintable
-
-    shifted_lines = np.ones(corrected_flat.shape)
     mean_profiles = np.zeros((flat.shape[1], fiber_map.shape[1]))
     for i in range(fiber_map.shape[1]):
         mean_profile = np.zeros(flat.shape[1])
@@ -111,7 +76,7 @@ def create_gaintables(
                 break
             fiber_xrange = fiber_map[:, row_counter].round().astype(int)
             if not all(fiber_xrange == 0): # Dead fiber
-                mean_profile += np.sum(corrected_flat[fiber_xrange], axis=0)
+                mean_profile += np.sum(flat[fiber_xrange], axis=0)
                 good_fiber_counter += 1
             row_counter += 1
         mean_profiles[:, i] = mean_profile / np.median(mean_profile)
@@ -121,7 +86,7 @@ def create_gaintables(
             continue
         fiber_xrange = fiber_map[:, i].round().astype(int)
         for j in fiber_xrange:
-            ref_profile = corrected_flat[j, :] / np.nanmedian(corrected_flat[j, :])
+            ref_profile = flat[j, :] / np.nanmedian(flat[j, :])
             line_shift = iterate_shifts(
                 ref_profile[edge_padding:-edge_padding],
                 mean_profiles[edge_padding:-edge_padding, i]
@@ -129,7 +94,7 @@ def create_gaintables(
             shifted_lines[j] = scind.shift(mean_profiles[:, i], line_shift, mode="nearest")
     gaintable = flat / shifted_lines
     gaintable /= np.nanmedian(gaintable)
-    return gaintable, coarse_gaintable
+    return gaintable
 
 def iterate_shifts(reference_profile: np.ndarray, mean_profile: np.ndarray, nzones: int=5) -> float:
     """
@@ -246,7 +211,7 @@ def spectral_gain(
             fit_range = smoothed_profile[edge_padding:-edge_padding]
             prev_iter_resid = 0
             polyfit = np.ones(wavelength_grid.shape[0])
-            for order in range(2, 6):
+            for order in range(2, 4):
                 pfit, diags = npoly.Polynomial.fit(
                     wavelength_grid[edge_padding:-edge_padding],
                     fit_range,

@@ -125,7 +125,6 @@ class FrancisCal:
         self.deskewed_flat = np.empty(0)
 
         self.lamp_gain = np.empty(0)
-        self.coarse_gain_table = np.empty(0)
         self.gain_table = np.empty(0)
         self.flat_deskew = np.empty(0)
         self.francis_line_cores = []
@@ -431,7 +430,6 @@ class FrancisCal:
             with fits.open(self.solar_gain_reduced) as hdul:
                 self.deskewed_flat = hdul["DESKEW-FLAT"].data
                 self.wavelength_array = hdul["WAVE-ARRAY"].data
-                self.coarse_gain_table = hdul["COARSE-GAIN"].data
                 self.gain_table = hdul["GAIN"].data
                 self.spectral_gain = hdul["SPEC-GAIN"].data
                 self.rigid_xskews = hdul["XSKEWS"].data
@@ -495,18 +493,14 @@ class FrancisCal:
         self.francis_wavelength_calibration(center_mean_profile)
         self.logger.info("Performing fine deskew on average flat, updating fiber map")
         self.deskew_flat(init_deskew_flat, self.francis_line_cores)
-        self.logger.info("Creating initial (spectral profile shift-and-divide) gain tables")
-        self.gain_table, self.coarse_gain_table = ifu.create_gaintables(
+        self.gain_table = ifu.create_gaintables(
             self.deskewed_flat, self.francis_line_cores[0],
             self.fiber_map_1d_tweaked
         )
-        self.logger.info("Creating secondary (FTS atlas residual fitting) gain table")
         self.spectral_gain = ifu.spectral_gain(
-            self.deskewed_flat / self.gain_table,
-            self.wavelength_array, self.fiber_map_1d_tweaked,
+            self.deskewed_flat / self.gain_table, self.wavelength_array, self.fiber_map_1d_tweaked,
             self.fts_wavelengths, self.fts_spectrum_degraded
         )
-
         return
 
     def francis_wavelength_calibration(
@@ -621,8 +615,6 @@ class FrancisCal:
         flat.header["EXTNAME"] = "SOLAR-FLAT"
         dark = fits.ImageHDU(self.dark)
         dark.header["EXTNAME"] = "SOLAR-DARK"
-        cgain = fits.ImageHDU(self.coarse_gain_table)
-        cgain.header["EXTNAME"] = "COARSE-GAIN"
         fgain = fits.ImageHDU(self.gain_table)
         fgain.header["EXTNAME"] = "GAIN"
         sgain = fits.ImageHDU(self.spectral_gain)
