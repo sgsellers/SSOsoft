@@ -647,7 +647,9 @@ class FerruleCal():
         sh_im = dsub.copy()
         for i in range(3):
             sh_im, shifts = align._image_align(
-                sh_im, refim
+                sh_im, refim,
+                subtile=[refim.shape[0]//2 - 256, refim.shape[1]//2 + 256, 512],
+                tolerance=384
             )
             master_shifts += shifts
         shifted_ferrule = scind.shift(refim, -master_shifts, mode="nearest")
